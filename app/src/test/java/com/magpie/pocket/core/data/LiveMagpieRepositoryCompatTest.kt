@@ -70,8 +70,26 @@ class LiveMagpieRepositoryCompatTest {
         assertEquals(listOf("vendor"), groups.single().providerIds)
         assertEquals(1, groups.single().enabledMemberCount)
 
-        // A string member is a model id, never an account id.
-        assertTrue(repo.accounts().isEmpty())
+        // A string member is a model id, never an account id, and the deployed memberInfo
+        // carries no account either; the group answer alone yields no account rows.
+        val groupAccounts = repo.accounts()
+        assertTrue(groupAccounts.isEmpty())
+
+        // The ViewModel merges the panels of the same refresh: usage names accounts with
+        // traffic, quotas names accounts the server can price, and groups wins any id it names.
+        val merged = mergeAccountSources(
+            groups = groupAccounts,
+            usage = repo.usage(Period.TODAY).accounts,
+            quotas = repo.quotas()
+        )
+        val traffic = merged.first { it.id == "account-a" }
+        assertEquals("vendor", traffic.providerId)
+        assertEquals("Account A", traffic.alias)
+        assertEquals("UNKNOWN", traffic.availability)
+        assertTrue(traffic.fromUsage)
+        val quotaOnly = merged.first { it.id == "unlimited-account" }
+        assertEquals("vendor", quotaOnly.providerId)
+        assertFalse(quotaOnly.fromUsage)
     }
 
     @Test
@@ -282,6 +300,8 @@ class LiveMagpieRepositoryCompatTest {
             val groups = async { repo.groups() }
             val accounts = async { repo.accounts() }
             assertEquals("coding", groups.await().single().id)
+            // Only the group source is asked here; usage and quotas are 404 in this
+            // dispatcher, and the ViewModel's merge is covered separately.
             assertTrue(accounts.await().isEmpty())
         }
         assertEquals(1, groupsReads.get())

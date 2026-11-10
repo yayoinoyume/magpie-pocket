@@ -470,6 +470,7 @@ class LiveMagpieRepository(
 
             AccountQuota(
                 accountId = q.user ?: q.account ?: q.name ?: "unknown",
+                providerId = q.provider,
                 known = q.known && windows.any { it.known },
                 observedAt = q.readAt ?: q.observed ?: RequestTimestamps.nowUtcIso(),
                 windows = windows

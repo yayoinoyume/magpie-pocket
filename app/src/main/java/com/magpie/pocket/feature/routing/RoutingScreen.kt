@@ -904,7 +904,7 @@ private fun ProviderCard(
                     isActive && phase == RoutePhase.PINNED -> "历史"
                     accountLabel != null -> accountLabel
                     accounts.isNotEmpty() -> "${accounts.size} 个账号"
-                    else -> "账号明细不可用"
+                    else -> "网关未提供账号明细"
                 },
                 fontSize = MagpieTypography.CaptionStyle.fontSize,
                 color = if (isActive) colors.textPrimary else colors.textSecondary,
@@ -1373,7 +1373,7 @@ private fun AllProvidersSheetContent(
                         color = colors.textPrimary
                     )
                     Text(
-                        if (providerAccounts.isEmpty()) "账号明细不可用" else "${providerAccounts.size} 个账号",
+                        if (providerAccounts.isEmpty()) "网关未提供账号明细" else "${providerAccounts.size} 个账号",
                         fontSize = MagpieTypography.LabelStyle.fontSize,
                         color = colors.textSecondary
                     )
@@ -1410,7 +1410,7 @@ private fun ProviderAccountsSheetContent(
         SheetHeading(title = providerId.displayProvider(), onBack = onBack, onDismiss = onDismiss)
         if (accounts.isEmpty()) {
             Text(
-                "该供应商未返回账号明细",
+                "网关未提供账号级明细",
                 fontSize = MagpieTypography.BodyStyle.fontSize,
                 color = colors.textSecondary,
                 modifier = Modifier.padding(vertical = 16.dp)
@@ -1461,6 +1461,14 @@ private fun ProviderAccountsSheetContent(
                 )
             }
             HorizontalDivider(color = colors.divider)
+        }
+        if (accounts.any { it.fromUsage }) {
+            Text(
+                text = "仅显示近期有流量的账号",
+                fontSize = MagpieTypography.CaptionStyle.fontSize,
+                color = colors.textTertiary,
+                modifier = Modifier.padding(top = 12.dp)
+            )
         }
     }
 }

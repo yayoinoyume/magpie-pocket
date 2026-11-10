@@ -7,6 +7,7 @@ import com.magpie.pocket.core.data.LiveMagpieRepository
 import com.magpie.pocket.core.data.MagpieRepository
 import com.magpie.pocket.core.data.MaskingQuery
 import com.magpie.pocket.core.data.RequestQuery
+import com.magpie.pocket.core.data.mergeAccountSources
 import com.magpie.pocket.core.design.AppTab
 import com.magpie.pocket.core.model.Account
 import com.magpie.pocket.core.model.AccountQuotaView
@@ -572,6 +573,17 @@ class AppViewModel(
             )
         }
         if (generation != repoGeneration) return
+
+        // The deployed /api/groups names no account. The usage and quota panels read in this
+        // same refresh already hold the rows the group answer omits, so merging them here adds
+        // no request; the group rows stay first and win every id they name.
+        if (cap.groups && steps.accounts == RefreshStep.Loaded) {
+            _accounts.value = mergeAccountSources(
+                groups = _accounts.value,
+                usage = _usage.value?.accounts.orEmpty(),
+                quotas = _quotas.value
+            )
+        }
 
         // A 200 proves a panel capability and a 404 denies it; any other failure leaves
         // the previous answer alone, so an unknown panel is never claimed just because

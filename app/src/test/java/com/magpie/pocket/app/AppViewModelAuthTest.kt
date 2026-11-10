@@ -516,6 +516,40 @@ class AppViewModelAuthTest {
         assertEquals(1, reads.filterKeys { it.startsWith("/api/usage/requests") }.values.sumOf { it.get() })
     }
 
+    @Test
+    fun routingAccountsMergeUsageAndQuotaRowsWhenGroupsNameNone() = runBlocking {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when {
+                request.path == "/_magpie/sign-in" -> signIn()
+                request.path == "/api/state" ->
+                    json("""{"version":"Magpie current","timezone":"Asia/Shanghai"}""")
+                request.path == "/api/groups" -> fixture("groups-current.json")
+                request.path?.startsWith("/api/gateway/trace") == true -> fixture("trace-current.json")
+                request.path == "/api/usage/quotas" -> fixture("quotas-current.json")
+                request.path?.startsWith("/api/usage/requests") == true -> fixture("ledger-current.json")
+                request.path?.startsWith("/api/usage") == true -> fixture("usage-current.json")
+                request.path?.startsWith("/api/gateway/history") == true -> json("""{"days":[]}""")
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        val viewModel = newViewModel(AuthFakeCredentialStore(liveConfig("accounts-merge")))
+
+        val accounts = kotlinx.coroutines.withTimeout(5000) {
+            viewModel.accounts.first { it.isNotEmpty() }
+        }
+        // The group answer names no account; the usage breakdown names the one with traffic.
+        val traffic = accounts.first { it.id == "account-a" }
+        assertEquals("vendor", traffic.providerId)
+        assertEquals("Account A", traffic.alias)
+        assertEquals("UNKNOWN", traffic.availability)
+        assertTrue(traffic.fromUsage)
+        // A quota answer still names an account that carried no traffic.
+        val quotaOnly = accounts.first { it.id == "unlimited-account" }
+        assertEquals("vendor", quotaOnly.providerId)
+        assertEquals("UNKNOWN", quotaOnly.availability)
+        assertFalse(quotaOnly.fromUsage)
+    }
+
     private fun currentDispatcher() = object : Dispatcher() {
         override fun dispatch(request: RecordedRequest): MockResponse = when {
             request.path == "/_magpie/sign-in" -> signIn()
