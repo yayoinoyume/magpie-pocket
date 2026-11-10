@@ -235,10 +235,13 @@ class AppViewModel(
      * ratios, day labels or token totals themselves, so one number has one definition.
      */
 
-    /** Daily request counts plus the spend the upstream reported for the same day. */
-    val dailyTrends: StateFlow<List<DailyTrendPoint>> = _overview
-        .map { it?.dailyTrends.orEmpty() }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    /**
+     * Daily request counts plus the spend the upstream reported for the same day.
+     * The gateway history wins; a server without it falls back to the usage series.
+     */
+    val dailyTrends: StateFlow<List<DailyTrendPoint>> = combine(_overview, _usage) { overview, usage ->
+        overview?.dailyTrends.orEmpty().ifEmpty { usage?.dailyTrends.orEmpty() }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /** Decode throughput for the selected usage period; same formula as the overview. */
     val usageDecodeSpeed: StateFlow<Double?> = _usage
@@ -1105,6 +1108,19 @@ class AppViewModel(
         _selectedRequestDetail.value = _trace.value?.detailFor(request)
         loadRequestDetail(request, selectionGeneration)
         _routingDetail.value = _trace.value?.detailFor(request)
+    }
+
+    /**
+     * Focuses one route by id while staying in live following, so a link that carries a
+     * route id is not replaced by "latest" and auto-follow keeps advancing afterwards.
+     */
+    fun focusRoute(routeId: String) {
+        val route = _trace.value?.recentRoutes?.firstOrNull { it.key.routeId == routeId }
+            ?: _requestsPage.value?.items?.firstOrNull { it.key.routeId == routeId }
+            ?: return
+        _isFollowingLive.value = true
+        focusLiveRoute(route)
+        loadRoutingDetailIfMissing(route)
     }
 
     /** Selects the routing focus without opening the request-detail modal. */

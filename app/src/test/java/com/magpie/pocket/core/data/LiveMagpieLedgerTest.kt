@@ -139,6 +139,18 @@ class LiveMagpieLedgerTest {
     }
 
     @Test
+    fun usageKeepsTheSeriesForEveryPeriod() = runBlocking {
+        for (period in Period.values()) {
+            val usage = repo.usage(period)
+
+            val point = usage.dailyTrends.single()
+            assertEquals("2026-10-20", point.dayLabel)
+            assertEquals(2L, point.completedRequests)
+            assertEquals(0.5, point.cost ?: 0.0, 0.0001)
+        }
+    }
+
+    @Test
     fun dailyTrendsMergeSpendFromTheUsageSeries() = runBlocking {
         val overview = repo.overview(Period.TODAY)
 

@@ -291,8 +291,8 @@ fun MainAppRoot(viewModel: AppViewModel) {
                     isOnline = isOnline,
                     connectionStatus = connectionStatus,
                     isDemo = connectionConfig.mode == DataMode.DEMO,
-                    onNavigateToRouting = { _ ->
-                        viewModel.resetToLatest()
+                    onNavigateToRouting = { routeId ->
+                        if (routeId != null) viewModel.focusRoute(routeId) else viewModel.resetToLatest()
                         viewModel.selectTab(AppTab.ROUTING)
                     },
                     onNavigateToErrors = {

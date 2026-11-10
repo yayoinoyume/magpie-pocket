@@ -241,6 +241,8 @@ data class UsageSnapshot(
     /** Upstream decode timing for the period; both stay null when it did not measure them. */
     val decodeMs: Long? = null,
     val decodeOut: Long? = null,
+    /** Upstream series for the period: requests and priced spend per bucket. */
+    val dailyTrends: List<DailyTrendPoint> = emptyList(),
     val agents: List<UsageBreakdownItem> = emptyList(),
     val sessions: List<UsageBreakdownItem> = emptyList(),
     val accounts: List<UsageBreakdownItem> = emptyList(),

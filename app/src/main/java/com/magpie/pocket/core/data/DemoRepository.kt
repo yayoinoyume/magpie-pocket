@@ -247,6 +247,7 @@ class DemoRepository(private val context: Context? = null, initialJsonString: St
             credits = us.optNullableDouble("credits"),
             decodeMs = us.optNullableLong("decodeMs"),
             decodeOut = us.optNullableLong("decodeOut"),
+            dailyTrends = us.optJSONArray("series").toSeriesTrends(),
             agents = us.optJSONArray("agents").toBreakdownItems(),
             sessions = us.optJSONArray("sessions").toBreakdownItems(),
             accounts = us.optJSONArray("accounts").toBreakdownItems(),
@@ -434,6 +435,25 @@ class DemoRepository(private val context: Context? = null, initialJsonString: St
         for (i in 0 until length()) {
             val name = optJSONObject(i)?.optString("name", null) ?: continue
             list.add(name)
+        }
+        return list
+    }
+
+    /** Upstream usage series shape: label (or day), calls and an optional priced amount. */
+    private fun JSONArray?.toSeriesTrends(): List<DailyTrendPoint> {
+        if (this == null) return emptyList()
+        val list = mutableListOf<DailyTrendPoint>()
+        for (i in 0 until length()) {
+            val item = optJSONObject(i) ?: continue
+            val label = item.optString("label", item.optString("day", ""))
+            if (label.isBlank()) continue
+            list.add(
+                DailyTrendPoint(
+                    dayLabel = label,
+                    completedRequests = item.optLong("calls"),
+                    cost = item.optNullableDouble("cost")
+                )
+            )
         }
         return list
     }

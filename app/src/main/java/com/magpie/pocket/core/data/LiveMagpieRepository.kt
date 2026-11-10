@@ -292,6 +292,17 @@ class LiveMagpieRepository(
             )
         } ?: emptyList()
 
+        val dailyTrends = resp.series.orEmpty().mapNotNull { point ->
+            // A bucket without a label cannot be placed on the day axis.
+            val label = (point.label ?: point.time)?.takeIf { it.isNotBlank() }
+                ?: return@mapNotNull null
+            DailyTrendPoint(
+                dayLabel = label,
+                completedRequests = point.calls,
+                cost = point.cost
+            )
+        }
+
         return UsageSnapshot(
             period = period,
             coverage = Coverage.COMPLETE,
@@ -307,6 +318,7 @@ class LiveMagpieRepository(
             credits = resp.credits,
             decodeMs = resp.decodeMs,
             decodeOut = resp.decodeOut,
+            dailyTrends = dailyTrends,
             agents = resp.agents?.map { it.toBreakdownItem() } ?: emptyList(),
             sessions = resp.sessions?.map { it.toBreakdownItem() } ?: emptyList(),
             accounts = resp.accounts?.map { it.toBreakdownItem() } ?: emptyList(),

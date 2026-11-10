@@ -183,6 +183,25 @@ class RequestSelectionStateTest {
     }
 
     @Test
+    fun focusRouteKeepsLiveFollowing() = runBlocking {
+        val viewModel = newViewModel()
+        val page = viewModel.requestsPage.first { it != null }!!
+        val historical = page.items.first { it.key.routeId == "102" }
+        viewModel.selectRoutingRequest(historical)
+        assertFalse(viewModel.isFollowingLive.first())
+
+        viewModel.focusRoute("103")
+
+        assertTrue(viewModel.isFollowingLive.first())
+        assertEquals("103", viewModel.routingRequest.first()?.key?.routeId)
+
+        // Auto-follow still advances to a newer running request.
+        val running = request("901", "free-deepseek4.1", FinalState.IN_PROGRESS, "2026-10-22T12:00:09Z")
+        viewModel.applyTraceSnapshot(trace(listOf("901"), listOf(running)))
+        assertEquals("901", viewModel.routingRequest.first()?.key?.routeId)
+    }
+
+    @Test
     fun runningRequestIsGlobalWhileRoutingFocusStaysInSelectedGroup() = runBlocking {
         val viewModel = newViewModel()
         val other = request("905", "daily-coding", FinalState.IN_PROGRESS, "2026-10-22T12:00:09Z")

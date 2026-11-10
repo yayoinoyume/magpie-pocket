@@ -124,6 +124,21 @@ class DashboardDerivedStateTest {
         assertEquals(3L, day.completedRequests)
         assertEquals(0.0, day.cost ?: -1.0, 0.0)
         assertEquals(200.0, viewModel.usageDecodeSpeed.first() ?: 0.0, 0.0001)
+        // The usage snapshot keeps its own series for the usage tab's dual-line trend.
+        val usage = viewModel.usage.first()!!
+        assertEquals("2026-11-09", usage.dailyTrends.single().dayLabel)
+        assertEquals(1.5, usage.dailyTrends.single().cost ?: -1.0, 0.0001)
+    }
+
+    @Test
+    fun dailyTrendsFallBackToTheUsageSeries() = runBlocking {
+        val viewModel = newViewModel(overviewHasTrends = false)
+
+        val day = viewModel.dailyTrends.first().single()
+
+        assertEquals("2026-11-09", day.dayLabel)
+        assertEquals(2L, day.completedRequests)
+        assertEquals(1.5, day.cost ?: -1.0, 0.0001)
     }
 
     @Test
@@ -163,8 +178,11 @@ class DashboardDerivedStateTest {
         meta = SourceMeta("demo-main", DataMode.DEMO, startedAt, startedAt, coverage = Coverage.RECENT_ONLY)
     )
 
-    private fun newViewModel(statisticsTimeZone: String = "Asia/Shanghai"): AppViewModel {
-        val repo = DemoRepository(initialJsonString = demoJson(statisticsTimeZone))
+    private fun newViewModel(
+        statisticsTimeZone: String = "Asia/Shanghai",
+        overviewHasTrends: Boolean = true
+    ): AppViewModel {
+        val repo = DemoRepository(initialJsonString = demoJson(statisticsTimeZone, overviewHasTrends))
         repo.setScenario("offlineWithCache")
         return AppViewModel(
             credentialStore = DashboardFakeCredentialStore(),
@@ -178,7 +196,13 @@ class DashboardDerivedStateTest {
      * One fixture with a priced zero plus unpriced calls, two quota windows that disagree,
      * a stale request row and a decode window the usage snapshot can be measured from.
      */
-    private fun demoJson(statisticsTimeZone: String) = """
+    private fun demoJson(statisticsTimeZone: String, overviewHasTrends: Boolean): String {
+        val overviewTrends = if (overviewHasTrends) {
+            """[{ "day": "2026-11-10", "requests": 3, "cost": 0.0 }]"""
+        } else {
+            "[]"
+        }
+        return """
         {
           "capabilities": { "statisticsTimeZone": "${statisticsTimeZone}" },
           "trace": { "epoch": "demo", "seq": 1, "totals": { "completedRequests": 3, "rerouteHandoffs": 0, "finalErrors": 0 } },
@@ -190,14 +214,15 @@ class DashboardDerivedStateTest {
             "unpriced": 3,
             "decodeMs": 2000,
             "decodeOut": 1000,
-            "dailyTrends": [{ "day": "2026-11-10", "requests": 3, "cost": 0.0 }]
+            "dailyTrends": $overviewTrends
           },
           "usage": {
             "cost": 0.0,
             "unpriced": 2,
             "decodeMs": 4000,
             "decodeOut": 800,
-            "tokens": { "output": 10 }
+            "tokens": { "output": 10 },
+            "series": [{ "label": "2026-11-09", "calls": 2, "cost": 1.5 }]
           },
           "groups": [],
           "accounts": [
@@ -225,6 +250,7 @@ class DashboardDerivedStateTest {
           ]
         }
     """.trimIndent()
+    }
 }
 
 private class DashboardFakeCredentialStore : ConnectionStateSource {
