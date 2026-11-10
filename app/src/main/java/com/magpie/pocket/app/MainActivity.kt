@@ -67,6 +67,7 @@ import com.magpie.pocket.core.model.ThemeMode
 import com.magpie.pocket.feature.connect.ConnectBottomSheet
 import com.magpie.pocket.feature.connect.DisplayPreferencesSheet
 import com.magpie.pocket.feature.connect.GatewayDetailSheet
+import com.magpie.pocket.feature.more.MoreScreen
 import com.magpie.pocket.feature.overview.OverviewScreen
 import com.magpie.pocket.feature.privacy.PrivacySheet
 import com.magpie.pocket.feature.providers.ProviderCatalogSheet
@@ -328,9 +329,7 @@ fun MainAppRoot(viewModel: AppViewModel) {
                     onPeriodChange = { viewModel.setPeriod(it) },
                     isLoading = isLoading,
                     contentPadding = screenPaddingValues,
-                    isDemo = connectionConfig.mode == DataMode.DEMO,
-                    onOpenProviders = { showProviderSheet = true },
-                    onOpenPrivacy = { showPrivacySheet = true }
+                    isDemo = connectionConfig.mode == DataMode.DEMO
                 )
             }
             AppTab.REQUESTS -> {
@@ -348,6 +347,19 @@ fun MainAppRoot(viewModel: AppViewModel) {
                     onRequestClick = { viewModel.selectRequest(it) },
                     accounts = accounts,
                     contentPadding = screenPaddingValues
+                )
+            }
+            AppTab.MORE -> {
+                MoreScreen(
+                    providerCatalog = providerCatalogState,
+                    privacy = privacyState,
+                    contentPadding = screenPaddingValues,
+                    onOpenProviders = { showProviderSheet = true },
+                    onOpenPrivacy = { showPrivacySheet = true },
+                    onOpenDisplayPreferences = { showPreferencesSheet = true },
+                    onKeepLiveConnectionChange = {
+                        viewModel.updateKeepLiveConnectionInBackground(it)
+                    }
                 )
             }
         }

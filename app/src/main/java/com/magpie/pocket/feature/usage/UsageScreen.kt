@@ -22,11 +22,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Key
-import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -48,7 +46,6 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -69,8 +66,9 @@ import com.magpie.pocket.core.util.MetricCalculators
 import kotlin.math.roundToInt
 
 /**
- * Usage page: period -> cost/token -> six-dimension breakdown -> quota health -> more entries.
- * The period only drives usage data; quotas, provider catalog and masking are snapshots of now.
+ * Usage page: period -> cost/token -> six-dimension breakdown -> quota health.
+ * Catalog, privacy and display entries live on the More tab, so this page stays statistical.
+ * The period only drives usage data; quotas are a snapshot of now.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -82,9 +80,7 @@ fun UsageScreen(
     isLoading: Boolean,
     contentPadding: PaddingValues,
     modifier: Modifier = Modifier,
-    isDemo: Boolean = false,
-    onOpenProviders: () -> Unit = {},
-    onOpenPrivacy: () -> Unit = {}
+    isDemo: Boolean = false
 ) {
     val colors = MagpieTheme.colors
     val preferences = MagpieTheme.preferences
@@ -471,26 +467,6 @@ fun UsageScreen(
                         }
                     }
                 }
-            }
-        }
-
-        item { SectionLabel("更多", "") }
-
-        item {
-            Column {
-                MoreEntry(
-                    icon = Icons.Filled.Key,
-                    title = "供应商目录",
-                    subtitle = "模型、价格、并发与密钥",
-                    onClick = onOpenProviders
-                )
-                HorizontalDivider(color = colors.divider)
-                MoreEntry(
-                    icon = Icons.Filled.Security,
-                    title = "隐私掩码",
-                    subtitle = "查看已屏蔽的敏感内容",
-                    onClick = onOpenPrivacy
-                )
             }
         }
 
@@ -905,60 +881,6 @@ private fun QuotaHealthRing(ratio: Double, color: Color) {
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold,
             color = colors.textPrimary
-        )
-    }
-}
-
-@Composable
-private fun MoreEntry(
-    icon: ImageVector,
-    title: String,
-    subtitle: String,
-    onClick: () -> Unit
-) {
-    val colors = MagpieTheme.colors
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 62.dp)
-            .springPress(scaleDown = 0.98f) { onClick() },
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(30.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(colors.accentSurface),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = colors.accent,
-                modifier = Modifier.size(16.dp)
-            )
-        }
-        Spacer(modifier = Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
-                color = colors.textPrimary,
-                lineHeight = 16.sp
-            )
-            Text(
-                text = subtitle,
-                fontSize = 11.sp,
-                color = colors.textSecondary,
-                lineHeight = 16.sp
-            )
-        }
-        Icon(
-            imageVector = Icons.Filled.ChevronRight,
-            contentDescription = "打开" + title,
-            tint = colors.textTertiary,
-            modifier = Modifier.size(20.dp)
         )
     }
 }
