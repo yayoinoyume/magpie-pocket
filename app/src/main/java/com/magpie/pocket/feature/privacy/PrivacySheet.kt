@@ -378,6 +378,7 @@ private fun UnsupportedContent(pagePadding: Dp, modifier: Modifier) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ReadyContent(
     state: PrivacyState.Ready,
@@ -530,6 +531,7 @@ private fun ReadyContent(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun SummaryHero(summary: MaskingSummary, largeFont: Boolean) {
     val colors = MagpieTheme.colors
@@ -763,6 +765,7 @@ private fun KindRanking(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun DiscoveryPanel(entries: List<Pair<String, Int>>) {
     val colors = MagpieTheme.colors
@@ -1020,6 +1023,7 @@ private fun MaskValueChip(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun RecordRow(
     record: MaskingRecord,
