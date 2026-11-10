@@ -325,9 +325,16 @@ fun MainAppRoot(viewModel: AppViewModel) {
                 )
             }
             AppTab.USAGE -> {
+                // Page-ready derivations: one definition per number across the app.
+                val usageCost by viewModel.usageCost.collectAsState()
+                val accountQuotas by viewModel.accountQuotas.collectAsState()
+                val usageDecodeSpeed by viewModel.usageDecodeSpeed.collectAsState()
                 UsageScreen(
                     usage = usage,
                     quotas = quotas,
+                    accountQuotas = accountQuotas,
+                    usageCost = usageCost,
+                    usageDecodeSpeed = usageDecodeSpeed,
                     selectedPeriod = selectedPeriod,
                     onPeriodChange = { viewModel.setPeriod(it) },
                     isLoading = isLoading,

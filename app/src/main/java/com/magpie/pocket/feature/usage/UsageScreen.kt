@@ -2,13 +2,10 @@ package com.magpie.pocket.feature.usage
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -32,6 +30,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,804 +49,864 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.magpie.pocket.core.design.ChipGrid
 import com.magpie.pocket.core.design.DataPanel
-import com.magpie.pocket.core.design.GlassSurface
+import com.magpie.pocket.core.design.DualLineChart
 import com.magpie.pocket.core.design.MagpieDimensions
+import com.magpie.pocket.core.design.MagpiePageHeader
 import com.magpie.pocket.core.design.MagpieTheme
 import com.magpie.pocket.core.design.MagpieTypography
+import com.magpie.pocket.core.design.SectionHeader
+import com.magpie.pocket.core.design.SegmentedControl
 import com.magpie.pocket.core.design.springPress
 import com.magpie.pocket.core.model.AccountQuota
+import com.magpie.pocket.core.model.AccountQuotaView
+import com.magpie.pocket.core.model.CostDisplay
 import com.magpie.pocket.core.model.Period
 import com.magpie.pocket.core.model.QuotaWindow
+import com.magpie.pocket.core.model.TokenUsage
 import com.magpie.pocket.core.model.UsageBreakdownItem
 import com.magpie.pocket.core.model.UsageSnapshot
 import com.magpie.pocket.core.util.MetricCalculators
-import kotlin.math.roundToInt
+import java.util.Locale
+
+/** Fixed LazyColumn row of the "额度健康" header; the "quota" anchor scrolls to it. */
+private const val QuotaSectionItemIndex = 11
+
+private val periodOptions = listOf(
+    Period.TODAY to "今日",
+    Period.SEVEN_DAYS to "近 7 天",
+    Period.THIRTY_DAYS to "近 30 天",
+    Period.ALL to "全部"
+)
 
 /**
- * Usage page: period -> cost/token -> six-dimension breakdown -> quota health.
- * Catalog, privacy and display entries live on the More tab, so this page stays statistical.
- * The period only drives usage data; quotas are a snapshot of now.
+ * Usage page: one period at a time -> spend and tokens -> daily trend -> ranked detail ->
+ * quota health. Quotas are a snapshot of now and never follow the selected period.
+ *
+ * The LazyColumn item order is fixed so [initialSection] == "quota" can scroll to
+ * [QuotaSectionItemIndex]; keep both in sync when adding a section.
  */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UsageScreen(
     usage: UsageSnapshot?,
     quotas: List<AccountQuota>,
+    accountQuotas: List<AccountQuotaView>,
+    usageCost: CostDisplay,
+    usageDecodeSpeed: Double?,
     selectedPeriod: Period,
     onPeriodChange: (Period) -> Unit,
     isLoading: Boolean,
     contentPadding: PaddingValues,
+    initialSection: String? = null,
     modifier: Modifier = Modifier,
     isDemo: Boolean = false
 ) {
     val colors = MagpieTheme.colors
-    val preferences = MagpieTheme.preferences
-    var selectedQuotaDetail by remember { mutableStateOf<AccountQuota?>(null) }
+    val maskAccountNames = MagpieTheme.preferences.maskAccountNames
+    val listState = rememberLazyListState()
+
+    var selectedQuotaDetail by remember { mutableStateOf<QuotaRow?>(null) }
     var dimensionKey by rememberSaveable { mutableStateOf(UsageDimension.MODELS.name) }
+    var sortKey by rememberSaveable { mutableStateOf("") }
     var breakdownExpanded by rememberSaveable { mutableStateOf(false) }
 
-    val dimension = UsageDimension.values().firstOrNull { it.name == dimensionKey } ?: UsageDimension.MODELS
-    val totalTokens = MetricCalculators.calculateTotalTokens(usage?.tokens)
-    val cacheHitRate = MetricCalculators.calculateCacheHitRate(usage?.tokens)
-    val credits = usage?.credits
-    val dimensionData = breakdownFor(usage, dimension, preferences.maskAccountNames)
+    val dimension = UsageDimension.values().firstOrNull { it.name == dimensionKey }
+        ?: UsageDimension.MODELS
+    val rows = usageRows(usage, dimension, maskAccountNames)
+    val activeSort = UsageSort.values().firstOrNull { it.name == sortKey }
+        ?: defaultSort(dimension, rows)
+    val sortedRows = sortRows(rows, activeSort)
 
+    val quotaRows = buildQuotaRows(accountQuotas, quotas)
     val allWindows = quotas.flatMap { it.windows }
-    val tightest = quotas.mapNotNull { quota ->
-        quota.windows.mapNotNull { window ->
-            val ratio = MetricCalculators.calculateQuotaUsedRatio(window) ?: return@mapNotNull null
-            TightestQuota(ratio = ratio, windowId = window.id, accountId = quota.accountId)
-        }.maxByOrNull { it.ratio }
-    }.maxByOrNull { it.ratio }
     val allUnlimited = allWindows.isNotEmpty() && allWindows.all { it.unlimited }
-    // Fold the account list only when there is something to fold: one account or a window
-    // already in the warning zone has to be visible without a tap.
     val accountsExpandedByDefault =
         quotas.size == 1 || allWindows.any { MetricCalculators.isQuotaWarning(it) }
     var accountsExpanded by rememberSaveable(accountsExpandedByDefault) {
         mutableStateOf(accountsExpandedByDefault)
     }
 
+    val cacheHitRate = MetricCalculators.formatPercent(
+        MetricCalculators.calculateCacheHitRate(usage?.tokens)
+    )
+
+    LaunchedEffect(initialSection) {
+        if (initialSection == "quota") {
+            listState.animateScrollToItem(QuotaSectionItemIndex)
+        }
+    }
+
     LazyColumn(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = MagpieDimensions.PagePadding),
+        modifier = modifier.fillMaxSize(),
+        state = listState,
         contentPadding = contentPadding,
         verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
         item {
-            Column(modifier = Modifier.padding(top = 8.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "用量",
-                        fontSize = MagpieTypography.PageTitle,
-                        fontWeight = FontWeight.Bold,
-                        color = colors.textPrimary
-                    )
-                    if (isDemo) {
-                        Spacer(modifier = Modifier.width(8.dp))
-                        DemoBadge()
-                    }
-                }
-                Spacer(modifier = Modifier.height(3.dp))
-                Text(
-                    "费用、Token 与额度",
-                    fontSize = 13.sp,
-                    color = colors.textSecondary,
-                    lineHeight = 18.sp
-                )
-            }
-        }
-
-        item { Spacer(modifier = Modifier.height(16.dp)) }
-
-        item {
-            GlassSurface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp),
-                shape = RoundedCornerShape(MagpieDimensions.RadiusSelector)
-            ) {
-                Row(modifier = Modifier.fillMaxSize()) {
-                    listOf(
-                        Period.TODAY to "今日",
-                        Period.SEVEN_DAYS to "7 天",
-                        Period.THIRTY_DAYS to "30 天",
-                        Period.ALL to "全部"
-                    ).forEach { (period, label) ->
-                        val selected = period == selectedPeriod
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxSize()
-                                .selectable(
-                                    selected = selected,
-                                    role = Role.Tab,
-                                    onClick = { onPeriodChange(period) }
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(42.dp)
-                                    .clip(RoundedCornerShape(MagpieDimensions.RadiusItem))
-                                    .background(if (selected) colors.surface else Color.Transparent),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = label,
-                                    fontSize = 12.sp,
-                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                                    color = if (selected) colors.textPrimary else colors.textSecondary
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        item { Spacer(modifier = Modifier.height(12.dp)) }
-
-        item {
-            DataPanel(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(MagpieDimensions.RadiusDataPanel),
-                contentPadding = PaddingValues(18.dp)
-            ) {
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("本期费用", fontSize = 12.sp, color = colors.textSecondary)
-                        Text("币种未标注", fontSize = 11.sp, color = colors.textSecondary)
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(verticalAlignment = Alignment.Bottom) {
-                        Text(
-                            text = if (usage == null) "—" else MetricCalculators.formatCost(usage.cost),
-                            fontSize = MagpieTypography.HeroMetric,
-                            lineHeight = 40.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = colors.textPrimary
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        if (isDemo) DemoBadge()
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = costHint(usage, isLoading),
-                        fontSize = 11.sp,
-                        color = colors.textSecondary,
-                        lineHeight = 16.sp
-                    )
-                    if (credits != null) {
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "信用余额 " + MetricCalculators.formatCredits(credits),
-                            fontSize = 11.sp,
-                            color = colors.textSecondary,
-                            lineHeight = 16.sp
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-                    HorizontalDivider(color = colors.divider)
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("Token", fontSize = 12.sp, color = colors.textSecondary)
-                        Text("含缓存读取", fontSize = 11.sp, color = colors.textSecondary)
-                    }
-                    Spacer(modifier = Modifier.height(5.dp))
-                    Row(verticalAlignment = Alignment.Bottom) {
-                        Text(
-                            text = if (usage == null) "—" else MetricCalculators.formatCompactNumber(totalTokens),
-                            fontSize = MagpieTypography.InlineMetric,
-                            lineHeight = 28.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = colors.textPrimary
-                        )
-                        Spacer(modifier = Modifier.width(5.dp))
-                        Text(
-                            "token",
-                            fontSize = 13.sp,
-                            color = colors.textSecondary,
-                            modifier = Modifier.padding(bottom = 4.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(14.dp))
-                    TokenCompositionBar(usage)
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "缓存命中率 " + MetricCalculators.formatPercent(cacheHitRate),
-                            fontSize = 11.sp,
-                            color = colors.textSecondary
-                        )
-                        Text("按 Token 加权", fontSize = 11.sp, color = colors.textSecondary)
-                    }
-                }
-            }
-        }
-
-        item { SectionLabel("明细", dimensionData.sortLabel) }
-
-        item {
-            DimensionChips(
-                selected = dimension,
-                onSelect = { next ->
-                    if (next != dimension) {
-                        dimensionKey = next.name
-                        breakdownExpanded = false
-                    }
+            MagpiePageHeader(
+                title = "用量",
+                subtitle = "一段时间",
+                actions = {
+                    if (isDemo) DemoBadge()
                 }
             )
         }
 
-        item { Spacer(modifier = Modifier.height(12.dp)) }
-
         item {
-            if (dimensionData.rows.isEmpty()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = if (usage == null) "正在同步用量数据" else "此维度暂无数据",
-                        fontSize = 13.sp,
-                        color = colors.textSecondary
-                    )
-                    if (usage != null) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "本期没有可归因调用；此连接可能不返回该字段",
-                            fontSize = 11.sp,
-                            color = colors.textTertiary,
-                            textAlign = TextAlign.Center,
-                            lineHeight = 16.sp
-                        )
-                    }
-                }
-            } else {
-                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                    val visible = if (breakdownExpanded) dimensionData.rows else dimensionData.rows.take(8)
-                    visible.forEach { row -> RankRowView(row) }
-                }
-            }
+            SegmentedControl(
+                options = periodOptions.map { it.second },
+                selectedIndex = periodOptions.indexOfFirst { it.first == selectedPeriod },
+                onSelect = { index ->
+                    periodOptions.getOrNull(index)?.first?.let(onPeriodChange)
+                },
+                modifier = Modifier
+                    .padding(horizontal = MagpieDimensions.PagePadding)
+                    .padding(top = 16.dp)
+            )
         }
 
-        if (dimensionData.rows.size > 8) {
-            item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(MagpieDimensions.TouchTargetMinimum)
-                        .springPress(scaleDown = 0.98f) { breakdownExpanded = !breakdownExpanded },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = if (breakdownExpanded) "收起" else "查看全部 " + dimensionData.rows.size + " 项",
-                        fontSize = 12.sp,
-                        color = colors.accent
-                    )
-                }
-            }
+        item {
+            CostCard(
+                usage = usage,
+                usageCost = usageCost,
+                period = selectedPeriod,
+                modifier = Modifier
+                    .padding(horizontal = MagpieDimensions.PagePadding)
+                    .padding(top = 16.dp)
+            )
         }
 
-        item { SectionLabel("额度健康", "当前快照") }
+        item {
+            TokenCard(
+                usage = usage,
+                cacheHitRate = cacheHitRate,
+                usageDecodeSpeed = usageDecodeSpeed,
+                modifier = Modifier
+                    .padding(horizontal = MagpieDimensions.PagePadding)
+                    .padding(top = 12.dp)
+            )
+        }
 
         item {
-            DataPanel(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(MagpieDimensions.RadiusDataPanel),
-                contentPadding = PaddingValues(18.dp)
-            ) {
-                Column {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = MagpieDimensions.TouchTargetMinimum),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (tightest != null) {
-                            QuotaHealthRing(ratio = tightest.ratio, color = quotaRatioColor(tightest.ratio))
-                        } else {
-                            Box(
-                                modifier = Modifier
-                                    .size(30.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(colors.accentSurface),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    Icons.Filled.Key,
-                                    contentDescription = null,
-                                    tint = colors.accent,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = when {
-                                    tightest != null -> "额度健康"
-                                    quotas.isEmpty() -> "暂无额度数据"
-                                    allUnlimited -> "全部账号无限额"
-                                    else -> "额度不可用"
-                                },
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = colors.textPrimary,
-                                lineHeight = 20.sp
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = when {
-                                    tightest != null -> "最紧：" + tightest.windowId
-                                    quotas.isEmpty() -> "未配置或暂无可查询的额度窗口"
-                                    allUnlimited -> "供应商未返回额度窗口"
-                                    else -> "供应商未提供额度"
-                                },
-                                fontSize = 11.sp,
-                                color = colors.textSecondary,
-                                lineHeight = 16.sp
-                            )
-                            if (tightest != null) {
-                                Text(
-                                    text = MetricCalculators.maskAccountName(
-                                        tightest.accountId,
-                                        preferences.maskAccountNames
-                                    ),
-                                    fontSize = 11.sp,
-                                    color = colors.textSecondary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    lineHeight = 16.sp
-                                )
-                            }
-                        }
+            SectionHeader(
+                title = "趋势",
+                note = "按日",
+                modifier = Modifier
+                    .padding(horizontal = MagpieDimensions.PagePadding)
+                    .padding(top = 20.dp)
+            )
+        }
+
+        item {
+            TrendBlock(
+                usage = usage,
+                modifier = Modifier.padding(horizontal = MagpieDimensions.PagePadding)
+            )
+        }
+
+        item {
+            SectionHeader(
+                title = "明细",
+                modifier = Modifier
+                    .padding(horizontal = MagpieDimensions.PagePadding)
+                    .padding(top = 20.dp)
+            )
+        }
+
+        item {
+            ChipGrid(
+                options = UsageDimension.values().map { it.label },
+                selectedIndex = dimension.ordinal,
+                onSelect = { index ->
+                    val next = UsageDimension.values().getOrNull(index)
+                    if (next != null && next != dimension) {
+                        dimensionKey = next.name
+                        sortKey = defaultSort(
+                            next,
+                            usageRows(usage, next, maskAccountNames)
+                        ).name
+                        breakdownExpanded = false
                     }
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text(
-                        text = "额度为当前快照，不随周期变化；85% 起提示，100% 为超限。",
-                        fontSize = 11.sp,
-                        color = colors.textTertiary,
-                        lineHeight = 16.sp
-                    )
-                    if (quotas.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        HorizontalDivider(color = colors.divider)
-                        val shown = if (accountsExpanded) quotas else quotas.take(4)
-                        shown.forEach { quota ->
-                            QuotaRow(
-                                quota = quota,
-                                maskedAccount = MetricCalculators.maskAccountName(
-                                    quota.accountId,
-                                    preferences.maskAccountNames
-                                ),
-                                onClick = { selectedQuotaDetail = quota }
-                            )
-                        }
-                        if (quotas.size > 4) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(MagpieDimensions.TouchTargetMinimum)
-                                    .springPress(scaleDown = 0.98f) {
-                                        accountsExpanded = !accountsExpanded
-                                    },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = if (accountsExpanded) "收起" else "展开全部 " + quotas.size + " 个账号",
-                                    fontSize = 12.sp,
-                                    color = colors.accent
-                                )
-                            }
-                        }
+                },
+                modifier = Modifier.padding(horizontal = MagpieDimensions.PagePadding)
+            )
+        }
+
+        item {
+            SortSelector(
+                selected = activeSort,
+                onSelect = { next ->
+                    if (next != activeSort) {
+                        sortKey = next.name
+                        breakdownExpanded = false
                     }
-                }
-            }
+                },
+                modifier = Modifier
+                    .padding(horizontal = MagpieDimensions.PagePadding)
+                    .padding(top = 10.dp)
+            )
+        }
+
+        item {
+            DetailSection(
+                usage = usage,
+                sort = activeSort,
+                rows = sortedRows,
+                expanded = breakdownExpanded,
+                isLoading = isLoading,
+                onToggleExpanded = { breakdownExpanded = !breakdownExpanded },
+                modifier = Modifier
+                    .padding(horizontal = MagpieDimensions.PagePadding)
+                    .padding(top = 10.dp)
+            )
+        }
+
+        item { Spacer(modifier = Modifier.height(8.dp)) }
+
+        item {
+            SectionHeader(
+                title = "额度健康",
+                note = "实时快照",
+                modifier = Modifier
+                    .padding(horizontal = MagpieDimensions.PagePadding)
+                    .padding(top = 12.dp)
+            )
+        }
+
+        item {
+            QuotaPanel(
+                rows = quotaRows,
+                allUnlimited = allUnlimited,
+                expanded = accountsExpanded,
+                onToggleExpanded = { accountsExpanded = !accountsExpanded },
+                onOpenDetail = { selectedQuotaDetail = it },
+                modifier = Modifier.padding(horizontal = MagpieDimensions.PagePadding)
+            )
         }
 
         item { Spacer(modifier = Modifier.height(8.dp)) }
     }
 
-    if (selectedQuotaDetail != null) {
-        val quota = selectedQuotaDetail!!
-        ModalBottomSheet(
-            onDismissRequest = { selectedQuotaDetail = null },
-            containerColor = colors.surface,
-            shape = RoundedCornerShape(
-                topStart = MagpieDimensions.RadiusSheetTop,
-                topEnd = MagpieDimensions.RadiusSheetTop
-            )
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = MagpieDimensions.PagePadding)
-                    .padding(bottom = 32.dp)
+    val detailRow = selectedQuotaDetail
+    val detailQuota = detailRow?.quota
+    if (detailRow != null && detailQuota != null) {
+        QuotaDetailSheet(
+            quota = detailQuota,
+            accountLabel = detailRow.view.label,
+            onDismiss = { selectedQuotaDetail = null }
+        )
+    }
+}
+
+@Composable
+private fun CostCard(
+    usage: UsageSnapshot?,
+    usageCost: CostDisplay,
+    period: Period,
+    modifier: Modifier = Modifier
+) {
+    val colors = MagpieTheme.colors
+    DataPanel(modifier = modifier.fillMaxWidth(), contentPadding = PaddingValues(18.dp)) {
+        Column {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                Text(
+                    text = periodCostLabel(period),
+                    style = MagpieTypography.LabelStyle,
+                    color = colors.textSecondary
+                )
+                Text(
+                    text = "未计价 " +
+                        (if (usage?.unpriced == null) "—" else usageCost.unpriced.toString()) + " 次",
+                    style = MagpieTypography.LabelStyle,
+                    color = colors.textSecondary
+                )
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = MetricCalculators.formatCost(usageCost.value),
+                style = MagpieTypography.HeroMetricStyle,
+                color = colors.textPrimary
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "信用余额 " + creditText(usage?.credits),
+                    style = MagpieTypography.LabelStyle,
+                    color = colors.textSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "不随周期变化",
+                    style = MagpieTypography.LabelStyle,
+                    color = colors.textTertiary,
+                    maxLines = 1
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            HorizontalDivider(color = colors.divider)
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = "仅统计已计价调用",
+                style = MagpieTypography.LabelStyle,
+                color = colors.textTertiary
+            )
+        }
+    }
+}
+
+@Composable
+private fun TokenCard(
+    usage: UsageSnapshot?,
+    cacheHitRate: String,
+    usageDecodeSpeed: Double?,
+    modifier: Modifier = Modifier
+) {
+    val colors = MagpieTheme.colors
+    DataPanel(modifier = modifier.fillMaxWidth(), contentPadding = PaddingValues(18.dp)) {
+        Column {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Token",
+                    style = MagpieTypography.LabelStyle,
+                    color = colors.textSecondary
+                )
+                Text(
+                    text = "含缓存读取",
+                    style = MagpieTypography.LabelStyle,
+                    color = colors.textSecondary
+                )
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(
+                    text = MetricCalculators.formatTotalTokens(usage?.tokens),
+                    style = MagpieTypography.InlineMetricStyle,
+                    color = colors.textPrimary
+                )
+                Spacer(modifier = Modifier.width(5.dp))
+                Text(
+                    text = "token",
+                    style = MagpieTypography.BodyStyle,
+                    color = colors.textSecondary,
+                    modifier = Modifier.padding(bottom = 3.dp)
+                )
+            }
+            Spacer(modifier = Modifier.height(14.dp))
+            TokenCompositionBar(tokens = usage?.tokens)
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                text = "缓存命中率 " + cacheHitRate + " · 解码速度 " +
+                    formatDecodeSpeed(usageDecodeSpeed),
+                style = MagpieTypography.LabelStyle,
+                color = colors.textSecondary
+            )
+        }
+    }
+}
+
+@Composable
+private fun TokenCompositionBar(tokens: TokenUsage?) {
+    val colors = MagpieTheme.colors
+    val values = listOf(
+        tokens?.cacheRead,
+        tokens?.inputUncached,
+        tokens?.output,
+        tokens?.cacheWrite
+    )
+    val total = values.sumOf { it ?: 0L }
+    val palette = listOf(
+        colors.accent,
+        colors.accent.copy(alpha = 0.62f),
+        colors.accent.copy(alpha = 0.34f),
+        colors.textTertiary.copy(alpha = 0.45f)
+    )
+    val legend = listOf(
+        "缓存" to values[0],
+        "未缓存" to values[1],
+        "输出" to values[2],
+        "写入" to values[3]
+    )
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(8.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(colors.divider),
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            if (total > 0L) {
+                values.forEachIndexed { index, value ->
+                    val part = value ?: 0L
+                    if (part > 0L) {
+                        Box(
+                            modifier = Modifier
+                                .weight(part.toFloat() / total.toFloat())
+                                .fillMaxSize()
+                                .background(palette[index])
+                        )
+                    }
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        legend.chunked(2).forEachIndexed { rowIndex, rowItems ->
+            Row(modifier = Modifier.fillMaxWidth()) {
+                rowItems.forEachIndexed { columnIndex, (label, value) ->
+                    val index = rowIndex * 2 + columnIndex
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(palette[index])
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = label,
+                            style = MagpieTypography.LabelStyle,
+                            color = colors.textSecondary
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = value?.let { MetricCalculators.formatCompactNumber(it) } ?: "—",
+                            style = MagpieTypography.LabelStyle,
+                            color = colors.textPrimary
+                        )
+                    }
+                }
+            }
+            if (rowIndex == 0) {
+                Spacer(modifier = Modifier.height(6.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun TrendBlock(
+    usage: UsageSnapshot?,
+    modifier: Modifier = Modifier
+) {
+    val colors = MagpieTheme.colors
+    val days = usage?.dailyTrends.orEmpty()
+    val hasData = days.any { it.completedRequests > 0L || it.cost != null }
+    if (!hasData) {
+        Box(
+            modifier = modifier
+                .fillMaxWidth()
+                .height(101.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = "暂无趋势数据",
+                style = MagpieTypography.BodyStyle,
+                color = colors.textTertiary
+            )
+        }
+        return
+    }
+    DualLineChart(
+        pointsA = days.map { it.completedRequests.toFloat() },
+        pointsB = days.map { it.cost?.toFloat() },
+        labels = trendLabels(days.map { it.dayLabel }),
+        legendA = "日请求",
+        legendB = "日费用",
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun SortSelector(
+    selected: UsageSort,
+    onSelect: (UsageSort) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = MagpieTheme.colors
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "排序",
+            style = MagpieTypography.LabelStyle,
+            color = colors.textTertiary
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        UsageSort.values().forEach { sort ->
+            val isSelected = sort == selected
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = MagpieDimensions.TouchTargetMinimum)
+                    .selectable(
+                        selected = isSelected,
+                        role = Role.RadioButton,
+                        onClick = { onSelect(sort) }
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = sort.label,
+                    style = MagpieTypography.SubheadStyle,
+                    color = if (isSelected) colors.accent else colors.textSecondary,
+                    fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
+                    maxLines = 1
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DetailSection(
+    usage: UsageSnapshot?,
+    sort: UsageSort,
+    rows: List<UsageRow>,
+    expanded: Boolean,
+    isLoading: Boolean,
+    onToggleExpanded: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = MagpieTheme.colors
+    if (rows.isEmpty()) {
+        Column(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(vertical = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = when {
+                    isLoading && usage == null -> "正在同步用量数据"
+                    usage == null -> "暂无用量数据"
+                    else -> "该维度暂无数据"
+                },
+                style = MagpieTypography.BodyStyle,
+                color = colors.textSecondary
+            )
+            if (usage != null) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "该周期没有可归因调用；此连接可能不返回该字段",
+                    style = MagpieTypography.LabelStyle,
+                    color = colors.textTertiary,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+        return
+    }
+    val visibleRows = if (expanded) rows else rows.take(5)
+    Column(modifier = modifier.fillMaxWidth()) {
+        DataPanel(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(18.dp)
+        ) {
+            Column {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
-                        Text(
-                            "额度窗口详情",
-                            fontSize = 21.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = colors.textPrimary,
-                            lineHeight = 26.sp
-                        )
-                        Text(
-                            MetricCalculators.maskAccountName(
-                                quota.accountId,
-                                preferences.maskAccountNames
-                            ),
-                            fontSize = 12.sp,
-                            color = colors.textSecondary
-                        )
-                    }
-                    IconButton(
-                        onClick = { selectedQuotaDetail = null },
-                        modifier = Modifier.size(MagpieDimensions.TouchTargetMinimum)
-                    ) {
-                        Icon(Icons.Filled.Close, contentDescription = "关闭", tint = colors.textSecondary)
-                    }
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-                if (quota.windows.isEmpty()) {
                     Text(
-                        "供应商未返回窗口明细",
-                        fontSize = 12.sp,
-                        color = colors.textSecondary,
-                        lineHeight = 16.sp
+                        text = "名称",
+                        style = MagpieTypography.LabelStyle.copy(fontWeight = FontWeight.Medium),
+                        color = colors.textTertiary
+                    )
+                    Text(
+                        text = sort.label,
+                        style = MagpieTypography.LabelStyle.copy(fontWeight = FontWeight.Medium),
+                        color = colors.textTertiary
                     )
                 }
-                quota.windows.forEach { window ->
-                    val ratio = MetricCalculators.calculateQuotaUsedRatio(window)
-                    Column(modifier = Modifier.padding(vertical = 9.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(
-                                window.id,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = colors.textPrimary,
-                                lineHeight = 16.sp
-                            )
-                            Text(
-                                quotaWindowText(window, ratio),
-                                fontSize = 12.sp,
-                                color = colors.textSecondary
-                            )
-                        }
-                        if (window.resetsAt != null) {
-                            Spacer(modifier = Modifier.height(3.dp))
-                            Text(
-                                "重置 " + window.resetsAt,
-                                fontSize = 11.sp,
-                                color = colors.textSecondary,
-                                lineHeight = 16.sp
-                            )
-                        }
+                Spacer(modifier = Modifier.height(6.dp))
+                HorizontalDivider(color = colors.divider)
+                visibleRows.forEachIndexed { index, row ->
+                    DetailRow(row = row, sort = sort)
+                    if (index != visibleRows.lastIndex) {
+                        HorizontalDivider(color = colors.divider.copy(alpha = 0.6f))
                     }
-                    HorizontalDivider(color = colors.divider)
                 }
             }
         }
-    }
-}
-
-private enum class UsageDimension(val label: String) {
-    MODELS("模型"),
-    AGENTS("智能体"),
-    SESSIONS("会话"),
-    ACCOUNTS("账号"),
-    CALLERS("调用方"),
-    KEYS("密钥")
-}
-
-private data class TightestQuota(
-    val ratio: Double,
-    val windowId: String,
-    val accountId: String
-)
-
-private data class RankRow(
-    val name: String,
-    val main: String,
-    val secondary: String?,
-    val ratio: Float
-)
-
-private data class DimensionData(
-    val sortLabel: String,
-    val rows: List<RankRow>
-)
-
-private fun costHint(usage: UsageSnapshot?, isLoading: Boolean): String {
-    if (usage == null) return if (isLoading) "同步中" else "未提供计价"
-    val unpriced = usage.unpriced ?: 0L
-    return when {
-        usage.cost == null && unpriced > 0L -> "未提供计价，" + unpriced + " 次未计价"
-        usage.cost == null -> "未提供计价"
-        unpriced > 0L -> unpriced.toString() + " 次未计价，未计入费用"
-        usage.cost == 0.0 -> "本期无计费调用"
-        else -> "已计价累计"
-    }
-}
-
-@Composable
-private fun quotaRatioColor(ratio: Double): Color {
-    val colors = MagpieTheme.colors
-    return when {
-        ratio >= 1.0 -> colors.error
-        ratio >= 0.85 -> colors.warning
-        else -> colors.accent
-    }
-}
-
-private fun tokensOf(item: UsageBreakdownItem): Long? {
-    val total = (item.input ?: 0L) + (item.output ?: 0L) +
-        (item.cacheRead ?: 0L) + (item.cacheWrite ?: 0L)
-    return if (total > 0L) total else null
-}
-
-private fun breakdownFor(
-    usage: UsageSnapshot?,
-    dimension: UsageDimension,
-    maskAccounts: Boolean
-): DimensionData {
-    if (usage == null) return DimensionData("同步中", emptyList())
-
-    if (dimension == UsageDimension.MODELS) {
-        val items = usage.models.sortedByDescending { it.totalTokens }
-        val total = items.sumOf { it.totalTokens }
-        val rows = items.map { item ->
-            RankRow(
-                name = item.modelId,
-                main = MetricCalculators.formatCompactNumber(item.totalTokens) + " token",
-                secondary = null,
-                ratio = if (total > 0L) item.totalTokens.toFloat() / total.toFloat() else 0f
-            )
-        }
-        return DimensionData("按 Token", rows)
-    }
-
-    val source = when (dimension) {
-        UsageDimension.AGENTS -> usage.agents
-        UsageDimension.SESSIONS -> usage.sessions
-        UsageDimension.ACCOUNTS -> usage.accounts
-        UsageDimension.CALLERS -> usage.callerKeys
-        UsageDimension.KEYS -> usage.providerKeys
-        UsageDimension.MODELS -> emptyList()
-    }
-
-    // Rank by what the user actually spends: money first, then volume, then call count.
-    val anyCost = source.any { it.cost != null }
-    val anyTokens = source.any { tokensOf(it) != null }
-    val anyCalls = source.any { it.calls != null }
-    val sorted = when {
-        anyCost -> source.sortedWith(
-            compareByDescending<UsageBreakdownItem> { it.cost ?: Double.NEGATIVE_INFINITY }
-                .thenBy { it.label ?: it.id.orEmpty() }
-        )
-        anyTokens -> source.sortedWith(
-            compareByDescending<UsageBreakdownItem> { tokensOf(it) ?: -1L }
-                .thenBy { it.label ?: it.id.orEmpty() }
-        )
-        else -> source.sortedWith(
-            compareByDescending<UsageBreakdownItem> { it.calls ?: -1L }
-                .thenBy { it.label ?: it.id.orEmpty() }
-        )
-    }
-
-    val totalCost = if (anyCost) sorted.sumOf { it.cost ?: 0.0 } else 0.0
-    val totalTokens = sorted.sumOf { tokensOf(it) ?: 0L }
-    val totalCalls = sorted.sumOf { it.calls ?: 0L }
-
-    val rows = sorted.map { item ->
-        val tokens = tokensOf(item)
-        val name = displayBreakdownName(item, dimension, maskAccounts)
-        val main = when {
-            item.cost != null -> MetricCalculators.formatCost(item.cost)
-            tokens != null -> MetricCalculators.formatCompactNumber(tokens) + " token"
-            item.calls != null -> item.calls.toString() + " 次"
-            else -> "—"
-        }
-        val secondary = when {
-            item.cost != null && tokens != null ->
-                MetricCalculators.formatCompactNumber(tokens) + " token"
-            item.cost != null && item.calls != null -> item.calls.toString() + " 次请求"
-            item.cost == null && tokens != null && item.calls != null -> item.calls.toString() + " 次请求"
-            item.cost == null && tokens == null && item.calls != null -> "费用/Token 未提供"
-            else -> null
-        }
-        val ratio = when {
-            anyCost && totalCost > 0.0 -> ((item.cost ?: 0.0) / totalCost).toFloat()
-            totalTokens > 0L -> (tokens ?: 0L).toFloat() / totalTokens.toFloat()
-            totalCalls > 0L -> (item.calls ?: 0L).toFloat() / totalCalls.toFloat()
-            else -> 0f
-        }
-        RankRow(name = name, main = main, secondary = secondary, ratio = ratio)
-    }
-
-    val sortLabel = when {
-        anyCost -> "按费用"
-        anyTokens -> "按 Token"
-        else -> "按请求"
-    }
-    return DimensionData(sortLabel, rows)
-}
-
-private fun displayBreakdownName(
-    item: UsageBreakdownItem,
-    dimension: UsageDimension,
-    maskAccounts: Boolean
-): String {
-    val raw = item.label?.takeIf { it.isNotBlank() }
-        ?: item.id?.takeIf { it.isNotBlank() }
-        ?: "未命名"
-    return when (dimension) {
-        UsageDimension.AGENTS -> when (raw) {
-            "codex" -> "Codex"
-            "claude-code", "claude_code" -> "Claude Code"
-            else -> raw
-        }
-        UsageDimension.SESSIONS -> if (raw.length > 6) "…" + raw.takeLast(6) else raw
-        UsageDimension.ACCOUNTS -> MetricCalculators.maskAccountName(raw, maskAccounts)
-        UsageDimension.CALLERS -> if (raw.contains("@")) {
-            MetricCalculators.maskAccountName(raw, maskAccounts)
-        } else {
-            raw
-        }
-        UsageDimension.KEYS -> "…" + raw.takeLast(4)
-        UsageDimension.MODELS -> raw
-    }
-}
-
-@Composable
-private fun DemoBadge() {
-    val colors = MagpieTheme.colors
-    Text(
-        text = "演示",
-        fontSize = 11.sp,
-        color = colors.accent,
-        lineHeight = 14.sp,
-        modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(colors.accentSurface)
-            .padding(horizontal = 6.dp, vertical = 2.dp)
-    )
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun DimensionChips(selected: UsageDimension, onSelect: (UsageDimension) -> Unit) {
-    val colors = MagpieTheme.colors
-    FlowRow(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(0.dp)
-    ) {
-        UsageDimension.values().forEach { dimension ->
-            val isSelected = dimension == selected
+        if (rows.size > 5) {
             Box(
                 modifier = Modifier
+                    .fillMaxWidth()
                     .height(MagpieDimensions.TouchTargetMinimum)
-                    .selectable(
-                        selected = isSelected,
-                        role = Role.RadioButton,
-                        onClick = { onSelect(dimension) }
-                    ),
+                    .springPress(scaleDown = 0.98f, onClick = onToggleExpanded),
                 contentAlignment = Alignment.Center
             ) {
-                Box(
-                    modifier = Modifier
-                        .height(34.dp)
-                        .clip(RoundedCornerShape(17.dp))
-                        .background(if (isSelected) colors.accentSurface else colors.surface)
-                        .border(
-                            width = 0.75.dp,
-                            color = if (isSelected) colors.accent.copy(alpha = 0.26f) else colors.divider,
-                            shape = RoundedCornerShape(17.dp)
-                        )
-                        .padding(horizontal = 12.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = dimension.label,
-                        fontSize = 12.sp,
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                        color = if (isSelected) colors.accent else colors.textSecondary
-                    )
-                }
+                Text(
+                    text = if (expanded) "收起" else "查看全部 " + rows.size + " 项",
+                    style = MagpieTypography.SubheadStyle,
+                    color = colors.accent
+                )
             }
         }
     }
 }
 
 @Composable
-private fun RankRowView(row: RankRow) {
+private fun DetailRow(row: UsageRow, sort: UsageSort) {
     val colors = MagpieTheme.colors
-    Column {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 9.dp)
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Top
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = row.name,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
+                style = MagpieTypography.BodyStyle.copy(fontWeight = FontWeight.Medium),
                 color = colors.textPrimary,
-                maxLines = 2,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                lineHeight = 20.sp,
                 modifier = Modifier.weight(1f)
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = row.main,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
+                text = sortValue(row, sort),
+                style = MagpieTypography.SubheadStyle.copy(fontWeight = FontWeight.Medium),
+                color = colors.textPrimary,
+                maxLines = 1
+            )
+        }
+        val secondary = secondaryText(row, sort)
+        if (secondary != null) {
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = secondary,
+                style = MagpieTypography.LabelStyle,
+                color = colors.textSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun QuotaPanel(
+    rows: List<QuotaRow>,
+    allUnlimited: Boolean,
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit,
+    onOpenDetail: (QuotaRow) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = MagpieTheme.colors
+    val tightestAccount = rows.filter { it.view.ratio != null }
+        .maxByOrNull { it.view.ratio ?: -1.0 }
+    DataPanel(modifier = modifier.fillMaxWidth(), contentPadding = PaddingValues(18.dp)) {
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 64.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val ringRatio = tightestAccount?.view?.ratio
+                if (ringRatio != null) {
+                    QuotaHealthRing(ratio = ringRatio, color = quotaRatioColor(ringRatio))
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(30.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(colors.accentSurface),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Key,
+                            contentDescription = null,
+                            tint = colors.accent,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    if (tightestAccount != null) {
+                        Text(
+                            text = "最紧账号",
+                            style = MagpieTypography.LabelStyle,
+                            color = colors.textSecondary
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = tightestAccount.view.label,
+                            style = MagpieTypography.BodyStyle.copy(fontWeight = FontWeight.Medium),
+                            color = colors.textPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = quotaStateText(tightestAccount),
+                            style = MagpieTypography.LabelStyle,
+                            color = colors.textSecondary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    } else {
+                        Text(
+                            text = when {
+                                rows.isEmpty() -> "暂无额度数据"
+                                allUnlimited -> "全部账号无限额"
+                                else -> "额度不可用"
+                            },
+                            style = MagpieTypography.BodyStyle.copy(fontWeight = FontWeight.Medium),
+                            color = colors.textPrimary
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = when {
+                                rows.isEmpty() -> "未配置或暂无可查询的额度窗口"
+                                allUnlimited -> "供应商未返回额度窗口"
+                                else -> "供应商未提供额度"
+                            },
+                            style = MagpieTypography.LabelStyle,
+                            color = colors.textSecondary
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = "85% 起提示，100% 为超限。",
+                style = MagpieTypography.LabelStyle,
+                color = colors.textTertiary
+            )
+            if (rows.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                HorizontalDivider(color = colors.divider)
+                val shown = if (expanded) rows else rows.take(4)
+                shown.forEach { row ->
+                    QuotaRowView(
+                        row = row,
+                        onClick = if (row.quota != null) ({ onOpenDetail(row) }) else null
+                    )
+                }
+                if (rows.size > 4) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(MagpieDimensions.TouchTargetMinimum)
+                            .springPress(scaleDown = 0.98f, onClick = onToggleExpanded),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (expanded) {
+                                "收起"
+                            } else {
+                                "展开全部 " + rows.size + " 个账号"
+                            },
+                            style = MagpieTypography.SubheadStyle,
+                            color = colors.accent
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuotaRowView(row: QuotaRow, onClick: (() -> Unit)?) {
+    val colors = MagpieTheme.colors
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 56.dp)
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(onClick = onClick)
+                } else {
+                    Modifier
+                }
+            )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = row.view.label,
+                        style = MagpieTypography.SubheadStyle.copy(fontWeight = FontWeight.Medium),
+                        color = colors.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    val ratio = row.view.ratio
+                    if (ratio != null && ratio >= 0.85) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        QuotaWarningBadge()
+                    }
+                }
+                Text(
+                    text = quotaStateText(row),
+                    style = MagpieTypography.LabelStyle,
+                    color = colors.textSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = MetricCalculators.formatPercent(row.view.ratio),
+                style = MagpieTypography.SubheadStyle,
                 color = colors.textPrimary
             )
         }
-        Spacer(modifier = Modifier.height(6.dp))
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(6.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(colors.divider)
-        ) {
+        val ratio = row.view.ratio
+        if (ratio != null) {
+            Spacer(modifier = Modifier.height(6.dp))
             Box(
                 modifier = Modifier
-                    .fillMaxWidth(row.ratio.coerceIn(0f, 1f))
-                    .fillMaxSize()
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(colors.accent)
-            )
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(colors.divider)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(ratio.coerceIn(0.0, 1.0).toFloat())
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(quotaRatioColor(ratio))
+                )
+            }
         }
-        Spacer(modifier = Modifier.height(6.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(
-                text = row.secondary.orEmpty(),
-                fontSize = 11.sp,
-                color = colors.textSecondary
-            )
-            Text(
-                text = MetricCalculators.formatPercent(row.ratio.toDouble()),
-                fontSize = 11.sp,
-                color = colors.textSecondary
-            )
-        }
+        Spacer(modifier = Modifier.height(10.dp))
+        HorizontalDivider(color = colors.divider)
     }
 }
 
@@ -879,192 +938,106 @@ private fun QuotaHealthRing(ratio: Double, color: Color) {
             )
         }
         Text(
-            text = (ratio * 100.0).roundToInt().toString() + "%",
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold,
+            text = MetricCalculators.formatPercent(ratio),
+            style = MagpieTypography.LabelStyle.copy(fontWeight = FontWeight.SemiBold),
             color = colors.textPrimary
         )
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SectionLabel(label: String, trailing: String) {
+private fun QuotaDetailSheet(
+    quota: AccountQuota,
+    accountLabel: String,
+    onDismiss: () -> Unit
+) {
     val colors = MagpieTheme.colors
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 20.dp, bottom = 9.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(
-            label,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium,
-            color = colors.textPrimary,
-            lineHeight = 16.sp
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = colors.surface,
+        shape = RoundedCornerShape(
+            topStart = MagpieDimensions.RadiusSheetTop,
+            topEnd = MagpieDimensions.RadiusSheetTop
         )
-        Text(trailing, fontSize = 11.sp, color = colors.textSecondary, lineHeight = 16.sp)
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun TokenCompositionBar(usage: UsageSnapshot?) {
-    val colors = MagpieTheme.colors
-    val tokens = usage?.tokens
-    val values = listOf(
-        tokens?.cacheRead ?: 0L,
-        tokens?.inputUncached ?: 0L,
-        tokens?.output ?: 0L,
-        tokens?.cacheWrite ?: 0L
-    )
-    val total = values.sum()
-    val palette = listOf(
-        colors.accent,
-        colors.accent.copy(alpha = 0.62f),
-        colors.accent.copy(alpha = 0.34f),
-        colors.textTertiary.copy(alpha = 0.45f)
-    )
-    Column {
-        Row(
+    ) {
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(8.dp)
-                .clip(RoundedCornerShape(8.dp))
-                .background(colors.divider),
-            horizontalArrangement = Arrangement.spacedBy(2.dp)
+                .padding(horizontal = MagpieDimensions.PagePadding)
+                .padding(bottom = 32.dp)
         ) {
-            if (total > 0) {
-                values.forEachIndexed { index, value ->
-                    if (value > 0) {
-                        Box(
-                            modifier = Modifier
-                                .weight(value.toFloat() / total.toFloat())
-                                .fillMaxSize()
-                                .background(palette[index])
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "额度窗口详情",
+                        style = MagpieTypography.SheetTitleStyle,
+                        color = colors.textPrimary
+                    )
+                    Text(
+                        text = accountLabel,
+                        style = MagpieTypography.LabelStyle,
+                        color = colors.textSecondary
+                    )
+                }
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(MagpieDimensions.TouchTargetMinimum)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = "关闭",
+                        tint = colors.textSecondary
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(12.dp))
+            if (quota.windows.isEmpty()) {
+                Text(
+                    text = "供应商未返回窗口明细",
+                    style = MagpieTypography.LabelStyle,
+                    color = colors.textSecondary
+                )
+            }
+            quota.windows.forEach { window ->
+                val ratio = MetricCalculators.calculateQuotaUsedRatio(window)
+                Column(modifier = Modifier.padding(vertical = 9.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = window.id,
+                            style = MagpieTypography.SubheadStyle.copy(fontWeight = FontWeight.Medium),
+                            color = colors.textPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = quotaWindowText(window, ratio),
+                            style = MagpieTypography.SubheadStyle,
+                            color = colors.textSecondary,
+                            maxLines = 1
+                        )
+                    }
+                    if (window.resetsAt != null) {
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Text(
+                            text = "重置 " + window.resetsAt,
+                            style = MagpieTypography.LabelStyle,
+                            color = colors.textSecondary
                         )
                     }
                 }
+                HorizontalDivider(color = colors.divider)
             }
         }
-        Spacer(modifier = Modifier.height(7.dp))
-        FlowRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            listOf("缓存", "未缓存", "输出", "写入").forEachIndexed { index, label ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(5.dp)
-                            .clip(RoundedCornerShape(5.dp))
-                            .background(palette[index])
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(label, fontSize = 11.sp, color = colors.textSecondary, lineHeight = 16.sp)
-                }
-            }
-        }
-    }
-}
-
-private fun quotaWindowText(window: QuotaWindow, ratio: Double?): String {
-    if (window.unlimited) return "无限额"
-    if (!window.known) return "额度未知"
-    val percent = ratio?.let { MetricCalculators.formatPercent(it) } ?: window.display ?: "—"
-    val amount = window.amount ?: window.allowanceLimit
-    return if (amount != null && window.allowanceLimit != null) {
-        formatQuotaNumber(window.amount ?: 0.0) + " / " + formatQuotaNumber(window.allowanceLimit) +
-            " " + window.unit + " · " + percent
-    } else {
-        percent + if (window.unit.isNotBlank()) " " + window.unit else ""
-    }
-}
-
-private fun formatQuotaNumber(value: Double): String =
-    if (value == value.toLong().toDouble()) value.toLong().toString()
-    else String.format(java.util.Locale.US, "%.1f", value)
-
-@Composable
-private fun QuotaRow(quota: AccountQuota, maskedAccount: String, onClick: () -> Unit) {
-    val colors = MagpieTheme.colors
-    val warningWindow = quota.windows.firstOrNull { MetricCalculators.isQuotaWarning(it) }
-    val primary = quota.windows.firstOrNull()
-    val primaryRatio = primary?.let { MetricCalculators.calculateQuotaUsedRatio(it) }
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 56.dp)
-            .clickable(onClick = onClick)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        maskedAccount,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = colors.textPrimary,
-                        lineHeight = 18.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
-                    if (warningWindow != null) {
-                        Spacer(modifier = Modifier.width(6.dp))
-                        QuotaWarningBadge()
-                    }
-                }
-                Text(
-                    text = when {
-                        !quota.known -> "供应商未提供额度"
-                        primary == null -> "暂无额度窗口"
-                        else -> "已用 " + MetricCalculators.formatPercent(primaryRatio) +
-                            (primary.resetsAt?.let { " · " + it + " 重置" } ?: "")
-                    },
-                    fontSize = 11.sp,
-                    color = colors.textSecondary,
-                    lineHeight = 16.sp
-                )
-            }
-            // The percentage stays readable even in the warning zone; the badge carries the
-            // judgement instead of replacing the number.
-            if (!quota.known) {
-                Text("未知", fontSize = 11.sp, color = colors.textSecondary)
-            } else if (primaryRatio != null) {
-                Text(
-                    text = MetricCalculators.formatPercent(primaryRatio),
-                    fontSize = 13.sp,
-                    color = colors.textPrimary
-                )
-            }
-        }
-        if (primaryRatio != null) {
-            Spacer(modifier = Modifier.height(6.dp))
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(colors.divider)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth(primaryRatio.coerceIn(0.0, 1.0).toFloat())
-                        .fillMaxSize()
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(quotaRatioColor(primaryRatio))
-                )
-            }
-        }
-        Spacer(modifier = Modifier.height(10.dp))
-        HorizontalDivider(color = colors.divider)
     }
 }
 
@@ -1073,8 +1046,7 @@ private fun QuotaWarningBadge() {
     val colors = MagpieTheme.colors
     Text(
         text = "额度偏低",
-        fontSize = 11.sp,
-        lineHeight = 14.sp,
+        style = MagpieTypography.LabelStyle.copy(fontWeight = FontWeight.Medium),
         color = colors.warning,
         modifier = Modifier
             .clip(RoundedCornerShape(6.dp))
@@ -1082,3 +1054,234 @@ private fun QuotaWarningBadge() {
             .padding(horizontal = 6.dp, vertical = 2.dp)
     )
 }
+
+@Composable
+private fun DemoBadge() {
+    val colors = MagpieTheme.colors
+    Text(
+        text = "演示",
+        style = MagpieTypography.LabelStyle,
+        color = colors.accent,
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(colors.accentSurface)
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+    )
+}
+
+private enum class UsageDimension(val label: String) {
+    MODELS("模型"),
+    AGENTS("智能体"),
+    SESSIONS("会话"),
+    ACCOUNTS("账号"),
+    CALLER_KEYS("调用方密钥"),
+    PROVIDER_KEYS("供应商密钥")
+}
+
+private enum class UsageSort(val label: String) {
+    COST("费用"),
+    TOKENS("Token"),
+    CALLS("调用")
+}
+
+private data class UsageRow(
+    val name: String,
+    val calls: Long?,
+    val cost: Double?,
+    val tokens: Long?,
+    val errors: Long?
+)
+
+private data class QuotaRow(
+    val view: AccountQuotaView,
+    val quota: AccountQuota?
+)
+
+private fun periodCostLabel(period: Period): String =
+    if (period == Period.TODAY) "今日费用" else "该周期费用"
+
+private fun creditText(credits: Double?): String =
+    credits?.let { "¥" + MetricCalculators.formatCredits(it) } ?: "—"
+
+private fun formatDecodeSpeed(speed: Double?): String =
+    speed?.let { String.format(Locale.US, "%.1f tok/s", it) } ?: "—"
+
+private fun trendLabels(labels: List<String>): List<String> {
+    if (labels.size <= 5) return labels
+    val indexes = listOf(0, labels.size / 3, labels.size * 2 / 3, labels.lastIndex).distinct()
+    return indexes.map { labels[it] }
+}
+
+private fun usageRows(
+    usage: UsageSnapshot?,
+    dimension: UsageDimension,
+    maskAccountNames: Boolean
+): List<UsageRow> {
+    if (usage == null) return emptyList()
+    if (dimension == UsageDimension.MODELS) {
+        return usage.models
+            .sortedByDescending { it.totalTokens }
+            .map { item ->
+                UsageRow(
+                    name = item.modelId,
+                    calls = null,
+                    cost = null,
+                    tokens = item.totalTokens,
+                    errors = null
+                )
+            }
+    }
+    val source = when (dimension) {
+        UsageDimension.AGENTS -> usage.agents
+        UsageDimension.SESSIONS -> usage.sessions
+        UsageDimension.ACCOUNTS -> usage.accounts
+        UsageDimension.CALLER_KEYS -> usage.callerKeys
+        UsageDimension.PROVIDER_KEYS -> usage.providerKeys
+        UsageDimension.MODELS -> emptyList()
+    }
+    return source.map { item ->
+        UsageRow(
+            name = displayBreakdownName(item, dimension, maskAccountNames),
+            calls = item.calls,
+            cost = item.cost,
+            tokens = tokensOf(item),
+            errors = item.errors
+        )
+    }
+}
+
+private fun tokensOf(item: UsageBreakdownItem): Long? {
+    val categories = listOf(item.input, item.output, item.cacheRead, item.cacheWrite)
+    if (categories.all { it == null }) return null
+    return categories.sumOf { it ?: 0L }
+}
+
+private fun displayBreakdownName(
+    item: UsageBreakdownItem,
+    dimension: UsageDimension,
+    maskAccountNames: Boolean
+): String {
+    val raw = item.label?.takeIf { it.isNotBlank() }
+        ?: item.id?.takeIf { it.isNotBlank() }
+        ?: "—"
+    return when (dimension) {
+        UsageDimension.AGENTS -> when (raw) {
+            "codex" -> "Codex"
+            "claude-code", "claude_code" -> "Claude Code"
+            else -> raw
+        }
+        UsageDimension.SESSIONS -> if (raw != "—" && raw.length > 6) "…" + raw.takeLast(6) else raw
+        UsageDimension.ACCOUNTS -> MetricCalculators.maskAccountName(raw, maskAccountNames)
+        UsageDimension.CALLER_KEYS -> if (raw.contains("@")) {
+            MetricCalculators.maskAccountName(raw, maskAccountNames)
+        } else {
+            raw
+        }
+        UsageDimension.PROVIDER_KEYS -> if (raw == "—") raw else "…" + raw.takeLast(4)
+        UsageDimension.MODELS -> raw
+    }
+}
+
+private fun defaultSort(dimension: UsageDimension, rows: List<UsageRow>): UsageSort {
+    if (dimension == UsageDimension.MODELS) return UsageSort.TOKENS
+    return when {
+        rows.any { it.cost != null } -> UsageSort.COST
+        rows.any { (it.tokens ?: 0L) > 0L } -> UsageSort.TOKENS
+        else -> UsageSort.CALLS
+    }
+}
+
+private fun sortRows(rows: List<UsageRow>, sort: UsageSort): List<UsageRow> =
+    rows.sortedWith(
+        compareByDescending<UsageRow> { sortMetric(it, sort) ?: Double.NEGATIVE_INFINITY }
+            .thenBy { it.name }
+    )
+
+private fun sortMetric(row: UsageRow, sort: UsageSort): Double? = when (sort) {
+    UsageSort.COST -> row.cost
+    UsageSort.TOKENS -> row.tokens?.toDouble()
+    UsageSort.CALLS -> row.calls?.toDouble()
+}
+
+private fun sortValue(row: UsageRow, sort: UsageSort): String = when (sort) {
+    UsageSort.COST -> MetricCalculators.formatCost(row.cost)
+    UsageSort.TOKENS -> row.tokens?.let {
+        MetricCalculators.formatCompactNumber(it) + " token"
+    } ?: "—"
+    UsageSort.CALLS -> row.calls?.let { it.toString() + " 次" } ?: "—"
+}
+
+private fun secondaryText(row: UsageRow, sort: UsageSort): String? {
+    val parts = buildList {
+        if (sort != UsageSort.CALLS) {
+            row.calls?.let { add(it.toString() + " 次调用") }
+        }
+        if (sort != UsageSort.TOKENS) {
+            row.tokens?.takeIf { it > 0L }?.let {
+                add(MetricCalculators.formatCompactNumber(it) + " token")
+            }
+        }
+        if (sort != UsageSort.COST) {
+            row.cost?.let { add("¥" + MetricCalculators.formatCost(it)) }
+        }
+        row.errors?.takeIf { it > 0L }?.let {
+            add(it.toString() + " 次最终失败")
+        }
+    }
+    return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+}
+
+private fun buildQuotaRows(
+    views: List<AccountQuotaView>,
+    quotas: List<AccountQuota>
+): List<QuotaRow> {
+    val byAccount = quotas.associateBy { it.accountId }
+    return views.map { view ->
+        QuotaRow(view = view, quota = byAccount[view.accountId])
+    }
+}
+
+private fun quotaStateText(row: QuotaRow): String {
+    val window = row.view.tightestWindow
+    if (window != null) {
+        return window.id + (window.resetsAt?.let { " · 重置 " + it } ?: "")
+    }
+    if (!row.view.known) return "供应商未提供额度"
+    val quota = row.quota ?: return "暂无额度窗口"
+    return when {
+        quota.windows.isEmpty() -> "暂无额度窗口"
+        quota.windows.all { it.unlimited } -> "无限额"
+        else -> "额度未知"
+    }
+}
+
+@Composable
+private fun quotaRatioColor(ratio: Double): Color {
+    val colors = MagpieTheme.colors
+    return when {
+        ratio >= 1.0 -> colors.error
+        ratio >= 0.85 -> colors.warning
+        else -> colors.accent
+    }
+}
+
+private fun quotaWindowText(window: QuotaWindow, ratio: Double?): String {
+    if (window.unlimited) return "无限额"
+    if (!window.known) return "额度未知"
+    val percent = ratio?.let { MetricCalculators.formatPercent(it) } ?: window.display ?: "—"
+    val amount = window.amount
+    val allowance = window.allowanceLimit
+    return if (amount != null && allowance != null) {
+        formatQuotaNumber(amount) + " / " + formatQuotaNumber(allowance) +
+            " " + window.unit + " · " + percent
+    } else {
+        percent + if (window.unit.isNotBlank()) " " + window.unit else ""
+    }
+}
+
+private fun formatQuotaNumber(value: Double): String =
+    if (value == value.toLong().toDouble()) {
+        value.toLong().toString()
+    } else {
+        String.format(Locale.US, "%.1f", value)
+    }
