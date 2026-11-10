@@ -66,7 +66,6 @@ import com.magpie.pocket.core.model.DataMode
 import com.magpie.pocket.core.model.ThemeMode
 import com.magpie.pocket.feature.connect.ConnectBottomSheet
 import com.magpie.pocket.feature.connect.DisplayPreferencesSheet
-import com.magpie.pocket.feature.connect.GatewayDetailSheet
 import com.magpie.pocket.feature.more.MoreScreen
 import com.magpie.pocket.feature.overview.OverviewScreen
 import com.magpie.pocket.feature.privacy.PrivacySheet
@@ -240,14 +239,12 @@ fun MainAppRoot(viewModel: AppViewModel) {
     val revealedMaskingValues by viewModel.revealedMaskingValues.collectAsState()
 
     var showConnectSheet by remember { mutableStateOf(false) }
-    var showGatewayDetailSheet by remember { mutableStateOf(false) }
     var showPreferencesSheet by remember { mutableStateOf(false) }
     var showProviderSheet by remember { mutableStateOf(false) }
     var showPrivacySheet by remember { mutableStateOf(false) }
     var usageInitialSection by remember { mutableStateOf<String?>(null) }
 
     val connectSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val gatewaySheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val preferencesSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     val density = LocalDensity.current
@@ -302,7 +299,7 @@ fun MainAppRoot(viewModel: AppViewModel) {
                         val nextTheme = if (colors.isDark) ThemeMode.LIGHT else ThemeMode.DARK
                         viewModel.updateTheme(nextTheme)
                     },
-                    onOpenGateway = { showGatewayDetailSheet = true },
+                    onOpenMore = { viewModel.selectTab(AppTab.MORE) },
                     onOpenQuota = {
                         usageInitialSection = "quota"
                         viewModel.selectTab(AppTab.USAGE)
@@ -373,12 +370,18 @@ fun MainAppRoot(viewModel: AppViewModel) {
             }
             AppTab.MORE -> {
                 MoreScreen(
+                    config = connectionConfig,
+                    capabilities = capabilities,
+                    status = connectionStatus,
                     providerCatalog = providerCatalogState,
                     privacy = privacyState,
                     contentPadding = screenPaddingValues,
                     onOpenProviders = { showProviderSheet = true },
                     onOpenPrivacy = { showPrivacySheet = true },
                     onOpenDisplayPreferences = { showPreferencesSheet = true },
+                    onEditConnection = { showConnectSheet = true },
+                    onDisconnect = { viewModel.disconnect() },
+                    onRetry = { viewModel.refreshAll() },
                     onKeepLiveConnectionChange = {
                         viewModel.updateKeepLiveConnectionInBackground(it)
                     }
@@ -400,7 +403,6 @@ fun MainAppRoot(viewModel: AppViewModel) {
                 mode = connectionConfig.mode,
                 isOnline = isOnline,
                 status = connectionStatus,
-                onGatewayClick = { showGatewayDetailSheet = true },
                 onToggleTheme = {
                     val nextTheme = if (colors.isDark) ThemeMode.LIGHT else ThemeMode.DARK
                     viewModel.updateTheme(nextTheme)
@@ -424,30 +426,6 @@ fun MainAppRoot(viewModel: AppViewModel) {
                 onTabSelected = { viewModel.selectTab(it) }
             )
         }
-    }
-
-    // Modal Sheet: Gateway Details
-    if (showGatewayDetailSheet) {
-        GatewayDetailSheet(
-            config = connectionConfig,
-            capabilities = capabilities,
-            status = connectionStatus,
-            sheetState = gatewaySheetState,
-            onDismiss = { showGatewayDetailSheet = false },
-            onOpenPreferences = {
-                showGatewayDetailSheet = false
-                showPreferencesSheet = true
-            },
-            onEditConnection = {
-                showGatewayDetailSheet = false
-                showConnectSheet = true
-            },
-            onRetry = { viewModel.refreshAll() },
-            onDisconnect = {
-                showGatewayDetailSheet = false
-                viewModel.disconnect()
-            }
-        )
     }
 
     // Modal Sheet: Connect / Edit Gateway

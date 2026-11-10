@@ -22,6 +22,8 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Tune
@@ -43,28 +45,41 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.magpie.pocket.core.design.DataPanel
+import com.magpie.pocket.core.design.InlineNotice
 import com.magpie.pocket.core.design.MagpieDimensions
 import com.magpie.pocket.core.design.MagpieSwitch
 import com.magpie.pocket.core.design.MagpieTheme
 import com.magpie.pocket.core.design.MagpieTypography
 import com.magpie.pocket.core.design.springPress
+import com.magpie.pocket.core.model.Capabilities
+import com.magpie.pocket.core.model.ConnectionConfig
+import com.magpie.pocket.core.model.ConnectionHealth
+import com.magpie.pocket.core.model.ConnectionStatus
+import com.magpie.pocket.core.model.DataMode
 import com.magpie.pocket.core.model.PrivacyState
 import com.magpie.pocket.core.model.ProviderCatalogState
 
 /**
- * More page: three panels of entries that belong to no single statistic. The catalog and the
- * masking log open their existing sheets, display preferences reuse the sheet the gateway
- * detail already opens, and the background keep-alive toggle writes the same preference the
- * sheet writes. Keeping them here leaves the usage page purely statistical.
+ * More page: the gateway panel and three panels of entries that belong to no single statistic.
+ * The gateway panel is first because a failed connection is the one thing a reader must be able
+ * to fix from here; the catalog and the masking log open their existing sheets, display
+ * preferences open their own sheet, and the background keep-alive toggle writes the preference
+ * that sheet also writes. Keeping them here leaves the usage page purely statistical.
  */
 @Composable
 fun MoreScreen(
+    config: ConnectionConfig,
+    capabilities: Capabilities?,
+    status: ConnectionStatus?,
     providerCatalog: ProviderCatalogState,
     privacy: PrivacyState,
     contentPadding: PaddingValues,
     onOpenProviders: () -> Unit,
     onOpenPrivacy: () -> Unit,
     onOpenDisplayPreferences: () -> Unit,
+    onEditConnection: () -> Unit,
+    onDisconnect: () -> Unit,
+    onRetry: () -> Unit,
     onKeepLiveConnectionChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -73,6 +88,10 @@ fun MoreScreen(
     val versionName = rememberVersionName()
     val keepAlive = preferences.keepLiveConnectionInBackground
     val keepAliveLabel = if (keepAlive) "已开启" else "已关闭"
+    val statusMessage = status?.message
+    val needsCredentials =
+        status?.health == ConnectionHealth.AUTH_REQUIRED ||
+            status?.health == ConnectionHealth.ACCESS_DENIED
 
     LazyColumn(
         modifier = modifier
@@ -91,11 +110,84 @@ fun MoreScreen(
                 )
                 Spacer(modifier = Modifier.height(3.dp))
                 Text(
-                    text = "数据、偏好与关于",
+                    text = "网关、数据、偏好与关于",
                     fontSize = MagpieTypography.Subhead,
                     color = colors.textSecondary,
                     lineHeight = 18.sp
                 )
+            }
+        }
+
+        item { SectionLabel("网关") }
+
+        item {
+            DataPanel(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(MagpieDimensions.RadiusDataPanel),
+                contentPadding = PaddingValues(18.dp)
+            ) {
+                Column {
+                    if (statusMessage != null) {
+                        InlineNotice(
+                            message = statusMessage,
+                            isError = true,
+                            actionLabel = if (needsCredentials) "修改连接" else "重试",
+                            onAction = if (needsCredentials) onEditConnection else onRetry
+                        )
+                        Spacer(modifier = Modifier.height(14.dp))
+                    }
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = config.name,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = colors.textPrimary,
+                            lineHeight = 20.sp
+                        )
+                        Text(
+                            text = gatewayEndpointLabel(config),
+                            fontSize = MagpieTypography.Caption,
+                            color = colors.textSecondary,
+                            lineHeight = 16.sp
+                        )
+                    }
+
+                    HorizontalDivider(
+                        color = colors.divider,
+                        modifier = Modifier.padding(vertical = 10.dp)
+                    )
+
+                    capabilityRows(capabilities).forEach { (label, supported) ->
+                        CapabilityStatusRow(label = label, supported = supported)
+                    }
+
+                    HorizontalDivider(
+                        color = colors.divider,
+                        modifier = Modifier.padding(vertical = 10.dp)
+                    )
+
+                    MoreRow(
+                        icon = Icons.Filled.Link,
+                        title = "配置网关连接",
+                        subtitle = if (config.mode == DataMode.DEMO) "切换到实时网关" else "修改地址与凭证",
+                        onClick = onEditConnection
+                    )
+
+                    if (config.mode == DataMode.LIVE) {
+                        HorizontalDivider(color = colors.divider)
+                        MoreRow(
+                            icon = Icons.Filled.PowerSettingsNew,
+                            title = "断开连接并返回演示模式",
+                            subtitle = "清除已保存的地址与凭证",
+                            onClick = onDisconnect
+                        )
+                    }
+                }
             }
         }
 
@@ -278,6 +370,70 @@ private fun SectionLabel(label: String) {
             .padding(top = 20.dp, bottom = 9.dp)
     )
 }
+
+/**
+ * One gateway capability and its answer. A null [supported] means the app has not learned the
+ * capability list yet, so the row prints an em dash instead of borrowing the model's defaults.
+ */
+@Composable
+private fun CapabilityStatusRow(
+    label: String,
+    supported: Boolean?
+) {
+    val colors = MagpieTheme.colors
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 5.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            fontSize = 13.sp,
+            color = colors.textPrimary,
+            lineHeight = 18.sp
+        )
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(4.dp))
+                .background(if (supported == true) colors.success.copy(alpha = 0.14f) else colors.divider)
+                .padding(horizontal = 6.dp, vertical = 2.dp)
+        ) {
+            Text(
+                text = when (supported) {
+                    true -> "可用"
+                    false -> "不可用"
+                    null -> "—"
+                },
+                fontSize = MagpieTypography.Caption,
+                color = when (supported) {
+                    true -> colors.success
+                    false -> colors.textSecondary
+                    null -> colors.textTertiary
+                },
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+
+/**
+ * The five gateway capabilities this page reports: trace, ledger, usage, quotas, groups.
+ * A null [capabilities] means the first probe has not answered, so every answer stays null and
+ * the rows print em dashes rather than the model's "supported" defaults.
+ */
+internal fun capabilityRows(capabilities: Capabilities?): List<Pair<String, Boolean?>> = listOf(
+    "路由追踪" to capabilities?.trace,
+    "历史账本" to capabilities?.ledger,
+    "用量" to capabilities?.usage,
+    "额度" to capabilities?.quotas,
+    "路由组" to capabilities?.groups
+)
+
+/** Live gateways name the address they talk to; the demo gateway keeps everything on-device. */
+private fun gatewayEndpointLabel(config: ConnectionConfig): String =
+    if (config.mode == DataMode.DEMO) "演示模式 · 本地数据隔离" else (config.baseUrl ?: "已连接")
 
 /**
  * Same count wording as the provider sheet header, so the row and the sheet never disagree.

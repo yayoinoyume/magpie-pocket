@@ -21,7 +21,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.LightMode
-import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -84,7 +83,7 @@ fun OverviewScreen(
     connectionStatus: ConnectionStatus,
     isDemo: Boolean,
     onToggleTheme: () -> Unit,
-    onOpenGateway: () -> Unit,
+    onOpenMore: () -> Unit,
     onOpenQuota: () -> Unit,
     onOpenRequest: (String) -> Unit,
     contentPadding: PaddingValues,
@@ -141,11 +140,6 @@ fun OverviewScreen(
                         description = "切换深浅主题",
                         onClick = onToggleTheme
                     )
-                    HeaderAction(
-                        icon = Icons.Outlined.Settings,
-                        description = "网关详情",
-                        onClick = onOpenGateway
-                    )
                 }
             )
         }
@@ -155,7 +149,7 @@ fun OverviewScreen(
                 connectionLabel = connectionLabel,
                 demo = isDemo,
                 dateLabel = statisticsDay?.let { "统计日 $it" },
-                onConnectionClick = onOpenGateway,
+                onConnectionClick = onOpenMore,
                 modifier = pageInset
             )
         }
