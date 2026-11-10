@@ -1,7 +1,6 @@
 package com.magpie.pocket.feature.requests
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -9,8 +8,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -49,19 +46,30 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.magpie.pocket.core.design.AttemptEntry
+import com.magpie.pocket.core.design.AttemptState
+import com.magpie.pocket.core.design.AttemptTimeline
+import com.magpie.pocket.core.design.ErrorBlock
+import com.magpie.pocket.core.design.FilterChipRow
+import com.magpie.pocket.core.design.KvGrid
 import com.magpie.pocket.core.design.MagpieDimensions
+import com.magpie.pocket.core.design.MagpiePageHeader
 import com.magpie.pocket.core.design.MagpieTheme
 import com.magpie.pocket.core.design.MagpieTypography
+import com.magpie.pocket.core.design.SectionHeader
 import com.magpie.pocket.core.design.StatusBadge
-import com.magpie.pocket.core.design.springPress
+import com.magpie.pocket.core.design.displayOrDash
 import com.magpie.pocket.core.model.Account
+import com.magpie.pocket.core.model.Attempt
 import com.magpie.pocket.core.model.FinalState
 import com.magpie.pocket.core.model.RequestDetail
+import com.magpie.pocket.core.model.RequestFilter
 import com.magpie.pocket.core.model.RequestPage
 import com.magpie.pocket.core.model.RequestSummary
 import com.magpie.pocket.core.util.MetricCalculators
@@ -72,7 +80,14 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+/** The ledger fixes the row title one step above the 14sp body; no type token carries 15sp. */
+private val RequestModelStyle = TextStyle(
+    fontSize = 15.sp,
+    lineHeight = 20.sp,
+    fontWeight = FontWeight.SemiBold
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RequestsScreen(
     requestPage: RequestPage?,
@@ -81,9 +96,9 @@ fun RequestsScreen(
     onSearchQueryChange: (String) -> Unit,
     statusFilter: String,
     onStatusFilterChange: (String) -> Unit,
+    supportedFilters: Set<RequestFilter>,
     selectedDay: String?,
     onSelectDay: (String?) -> Unit,
-    onRefresh: () -> Unit,
     onLoadMore: () -> Unit,
     onRequestClick: (RequestSummary) -> Unit,
     accounts: List<Account> = emptyList(),
@@ -95,6 +110,12 @@ fun RequestsScreen(
     var localSearch by remember(searchQuery) { mutableStateOf(searchQuery) }
     var showDatePicker by remember { mutableStateOf(false) }
 
+    // Only the filters the active connection can really apply are drawn, in enum order.
+    val availableFilters = remember(supportedFilters) {
+        RequestFilter.entries.filter { it in supportedFilters }
+    }
+    val pagePadding = Modifier.padding(horizontal = MagpieDimensions.PagePadding)
+
     LaunchedEffect(localSearch) {
         if (localSearch != searchQuery) {
             delay(300)
@@ -103,199 +124,86 @@ fun RequestsScreen(
     }
 
     LazyColumn(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = MagpieDimensions.PagePadding),
+        modifier = modifier.fillMaxSize(),
         contentPadding = contentPadding,
         verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
         item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "请求",
-                        fontSize = MagpieTypography.PageTitle,
-                        fontWeight = FontWeight.Bold,
-                        color = colors.textPrimary
-                    )
-                    Spacer(modifier = Modifier.height(3.dp))
-                    Text(
-                        "从一次调用，看到完整经过",
-                        fontSize = MagpieTypography.SubheadStyle.fontSize,
-                        color = colors.textSecondary
+            MagpiePageHeader(
+                title = "请求",
+                subtitle = "账本",
+                actions = {
+                    RealtimeDayPill(
+                        selectedDay = selectedDay,
+                        onClick = { showDatePicker = true }
                     )
                 }
-                Row(
-                    modifier = Modifier
-                        .heightIn(min = 48.dp)
-                        .clip(RoundedCornerShape(14.dp))
-                        .clickable { showDatePicker = true },
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(14.dp))
-                            .background(if (selectedDay == null) colors.successSurface else colors.surfaceSubtle)
-                            .padding(horizontal = 8.dp, vertical = 5.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(5.dp)
-                                .clip(CircleShape)
-                                .background(if (selectedDay == null) colors.success else colors.textSecondary)
-                        )
-                        Spacer(modifier = Modifier.width(5.dp))
-                        Text(
-                            text = if (selectedDay == null) "实时" else "历史",
-                            fontSize = MagpieTypography.LabelStyle.fontSize,
-                            fontWeight = FontWeight.Medium,
-                            color = if (selectedDay == null) colors.success else colors.textSecondary
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Icon(
-                            Icons.Outlined.CalendarMonth,
-                            contentDescription = "选择日期",
-                            tint = if (selectedDay == null) colors.success else colors.textSecondary,
-                            modifier = Modifier.size(15.dp)
-                        )
-                    }
-                }
-            }
-        }
-
-        item { Spacer(modifier = Modifier.height(14.dp)) }
-
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 48.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(colors.surface)
-                    .padding(start = 14.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Icon(Icons.Filled.Search, contentDescription = null, tint = colors.textSecondary, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(10.dp))
-                BasicTextField(
-                    value = localSearch,
-                    onValueChange = { localSearch = it },
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(vertical = 6.dp),
-                    singleLine = true,
-                    textStyle = MagpieTypography.SubheadStyle.copy(color = colors.textPrimary),
-                    cursorBrush = SolidColor(colors.accent),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    decorationBox = { innerTextField ->
-                        Box(contentAlignment = Alignment.CenterStart) {
-                            if (localSearch.isEmpty()) {
-                                Text(
-                                    "搜索模型、Agent 或路由组",
-                                    fontSize = MagpieTypography.SubheadStyle.fontSize,
-                                    color = colors.textSecondary
-                                )
-                            }
-                            innerTextField()
-                        }
-                    }
-                )
-                if (localSearch.isNotEmpty()) {
-                    IconButton(onClick = {
-                        localSearch = ""
-                        onSearchQueryChange("")
-                    }, modifier = Modifier.size(48.dp)) {
-                        Icon(Icons.Filled.Close, contentDescription = "清除搜索", tint = colors.textSecondary, modifier = Modifier.size(16.dp))
-                    }
-                }
-            }
+            )
         }
 
         item {
-            FlowRow(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 10.dp, bottom = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                listOf(
-                    "ALL" to "全部",
-                    "RUNNING" to "处理中",
-                    "REROUTED" to "改道",
-                    "ERROR" to "错误"
-                ).forEach { (code, label) ->
-                    val selected = statusFilter == code
-                    val disabled = code == "RUNNING" && selectedDay != null
-                    Box(
-                        modifier = Modifier
-                            .height(34.dp)
-                            .clip(RoundedCornerShape(17.dp))
-                            .background(if (selected) colors.accentSurface else colors.surface)
-                            .border(0.75.dp, if (selected) colors.accent.copy(alpha = 0.26f) else colors.divider, RoundedCornerShape(17.dp))
-                            .springPress(enabled = !disabled, scaleDown = 0.98f) { onStatusFilterChange(code) }
-                            .padding(horizontal = 12.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = label,
-                            fontSize = MagpieTypography.LabelStyle.fontSize,
-                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                            color = when {
-                                disabled -> colors.textSecondary.copy(alpha = 0.42f)
-                                selected -> colors.accent
-                                else -> colors.textSecondary
-                            }
-                        )
-                    }
-                }
-            }
+            RequestSearchField(
+                value = localSearch,
+                onValueChange = { localSearch = it },
+                onClear = {
+                    localSearch = ""
+                    onSearchQueryChange("")
+                },
+                modifier = pagePadding
+            )
+        }
+
+        item {
+            FilterChipRow(
+                options = availableFilters.map { filterLabel(it) },
+                selectedIndex = availableFilters.indexOfFirst { it.code == statusFilter },
+                onSelect = { index ->
+                    availableFilters.getOrNull(index)?.let { onStatusFilterChange(it.code) }
+                },
+                modifier = pagePadding.padding(top = 10.dp, bottom = 4.dp)
+            )
         }
 
         item {
             Row(
-                modifier = Modifier
+                modifier = pagePadding
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp),
+                    .padding(vertical = 6.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     text = if (selectedDay == null) "最近请求" else "历史请求 · $selectedDay",
-                    fontSize = MagpieTypography.LabelStyle.fontSize,
-                    fontWeight = FontWeight.Medium,
-                    color = colors.textPrimary
+                    style = MagpieTypography.LabelStyle,
+                    color = colors.textPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
                 )
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = if (requestPage != null) "共 ${requestPage.total} 条" else "加载中",
-                    fontSize = MagpieTypography.LabelStyle.fontSize,
-                    color = colors.textSecondary
+                    text = requestPage?.let { "共 ${it.total} 条" } ?: "加载中",
+                    style = MagpieTypography.LabelStyle,
+                    color = colors.textSecondary,
+                    maxLines = 1
                 )
             }
         }
 
-        item { HorizontalDivider(color = colors.divider) }
+        item { HorizontalDivider(modifier = pagePadding, color = colors.divider) }
 
         val itemsList = requestPage?.items.orEmpty()
         if (itemsList.isEmpty() && !isLoading) {
             item {
                 Box(
-                    modifier = Modifier
+                    modifier = pagePadding
                         .fillMaxWidth()
                         .padding(vertical = 48.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         "未找到匹配的请求记录",
-                        fontSize = MagpieTypography.LabelStyle.fontSize,
+                        style = MagpieTypography.LabelStyle,
                         color = colors.textSecondary
                     )
                 }
@@ -305,8 +213,11 @@ fun RequestsScreen(
                 RequestRow(
                     summary = request,
                     maskAccount = preferences.maskAccountNames,
-                    accountAlias = request.accountId?.let { accounts.firstOrNull { account -> account.id == it }?.alias },
-                    onClick = { onRequestClick(request) }
+                    accountAlias = request.accountId?.let { id ->
+                        accounts.firstOrNull { it.id == id }?.alias
+                    },
+                    onClick = { onRequestClick(request) },
+                    modifier = pagePadding
                 )
             }
         }
@@ -314,22 +225,20 @@ fun RequestsScreen(
         if (requestPage?.hasMore == true) {
             item {
                 Box(
-                    modifier = Modifier
+                    modifier = pagePadding
                         .fillMaxWidth()
-                        .height(48.dp)
+                        .height(MagpieDimensions.TouchTargetMinimum)
                         .clickable(onClick = onLoadMore),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         "加载更多",
-                        fontSize = MagpieTypography.LabelStyle.fontSize,
-                        fontWeight = FontWeight.Medium,
+                        style = MagpieTypography.LabelStyle.copy(fontWeight = FontWeight.Medium),
                         color = colors.accent
                     )
                 }
             }
         }
-
     }
 
     if (showDatePicker) {
@@ -359,7 +268,119 @@ fun RequestsScreen(
             DatePicker(state = datePickerState)
         }
     }
+}
 
+/** Live / history capsule with the calendar entry; the state comes from the selected day. */
+@Composable
+private fun RealtimeDayPill(
+    selectedDay: String?,
+    onClick: () -> Unit
+) {
+    val colors = MagpieTheme.colors
+    val live = selectedDay == null
+    Box(
+        modifier = Modifier
+            .heightIn(min = MagpieDimensions.TouchTargetMinimum)
+            .clip(CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Row(
+            modifier = Modifier
+                .clip(CircleShape)
+                .background(if (live) colors.successSurface else colors.surfaceSubtle)
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(5.dp)
+                    .clip(CircleShape)
+                    .background(if (live) colors.success else colors.textSecondary)
+            )
+            Spacer(modifier = Modifier.width(5.dp))
+            Text(
+                text = if (live) "实时" else "历史",
+                style = MagpieTypography.LabelStyle.copy(fontWeight = FontWeight.Medium),
+                color = if (live) colors.success else colors.textSecondary
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Icon(
+                Icons.Outlined.CalendarMonth,
+                contentDescription = "选择日期",
+                tint = if (live) colors.success else colors.textSecondary,
+                modifier = Modifier.size(15.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun RequestSearchField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    onClear: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = MagpieTheme.colors
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = MagpieDimensions.TouchTargetMinimum)
+            .clip(RoundedCornerShape(MagpieDimensions.RadiusSearch))
+            .background(colors.surface)
+            .padding(start = 14.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            Icons.Filled.Search,
+            contentDescription = null,
+            tint = colors.textSecondary,
+            modifier = Modifier.size(18.dp)
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = Modifier
+                .weight(1f)
+                .padding(vertical = 6.dp),
+            singleLine = true,
+            textStyle = MagpieTypography.SubheadStyle.copy(color = colors.textPrimary),
+            cursorBrush = SolidColor(colors.accent),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            decorationBox = { innerTextField ->
+                Box(contentAlignment = Alignment.CenterStart) {
+                    if (value.isEmpty()) {
+                        Text(
+                            "搜索模型、来源或路由组",
+                            style = MagpieTypography.SubheadStyle,
+                            color = colors.textSecondary
+                        )
+                    }
+                    innerTextField()
+                }
+            }
+        )
+        if (value.isNotEmpty()) {
+            IconButton(onClick = onClear, modifier = Modifier.size(48.dp)) {
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = "清除搜索",
+                    tint = colors.textSecondary,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+    }
+}
+
+/** Wire codes of [RequestFilter] in the wording the ledger uses. */
+private fun filterLabel(filter: RequestFilter): String = when (filter) {
+    RequestFilter.ALL -> "全部"
+    RequestFilter.RUNNING -> "处理中"
+    RequestFilter.REROUTED -> "改道"
+    RequestFilter.ERROR -> "错误"
 }
 
 @Composable
@@ -367,13 +388,15 @@ fun RequestRow(
     summary: RequestSummary,
     maskAccount: Boolean,
     accountAlias: String? = null,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val colors = MagpieTheme.colors
-    val totalTokens = MetricCalculators.calculateTotalTokens(summary.usage)
-    val account = (accountAlias ?: summary.accountId)?.let { MetricCalculators.maskAccountName(it, maskAccount) }
+    val totalTokens = MetricCalculators.calculateTotalTokensOrNull(summary.usage)
+    val account = (accountAlias ?: summary.accountId)
+        ?.let { MetricCalculators.maskAccountName(it, maskAccount) }
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
             .padding(vertical = 13.dp)
@@ -384,50 +407,48 @@ fun RequestRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = displayModel(summary.servedModel, summary.requestedModel),
-                fontSize = MagpieTypography.SubheadStyle.fontSize,
-                fontWeight = FontWeight.SemiBold,
+                text = displayOrDash(modelText(summary.servedModel, summary.requestedModel)),
+                style = RequestModelStyle,
                 color = colors.textPrimary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
             Spacer(modifier = Modifier.width(8.dp))
-            StatusBadge(summary.finalState, rerouteCount = 0)
+            Text(
+                text = RequestTimestamps.formatTime(summary.startedAt),
+                style = MagpieTypography.LabelStyle,
+                color = colors.textSecondary,
+                maxLines = 1
+            )
         }
-        Spacer(modifier = Modifier.height(5.dp))
+        Spacer(modifier = Modifier.height(6.dp))
+        // The real reroute count keeps "成功 · 改道 N 次" matching the 改道 filter.
+        StatusBadge(state = summary.finalState, rerouteCount = summary.rerouteCount)
+        Spacer(modifier = Modifier.height(7.dp))
         Text(
-            text = listOfNotNull(summary.agentId, summary.providerId, account).joinToString(" · ").ifBlank { "来源未知" },
-            fontSize = MagpieTypography.CaptionStyle.fontSize,
+            text = listOf(
+                displayOrDash(summary.agentId),
+                displayOrDash(summary.providerId),
+                displayOrDash(account)
+            ).joinToString(" · "),
+            style = MagpieTypography.LabelStyle,
             color = colors.textSecondary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
-        Spacer(modifier = Modifier.height(7.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = listOf(
-                    "首响 ${MetricCalculators.formatDurationMs(summary.ttftMs)}",
-                    "耗时 ${MetricCalculators.formatDurationMs(summary.durationMs)}",
-                    "${MetricCalculators.formatCompactNumber(totalTokens)} token"
-                ).joinToString("  ·  "),
-                fontSize = MagpieTypography.CaptionStyle.fontSize,
-                color = colors.textSecondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(
-                text = RequestTimestamps.formatTime(summary.startedAt),
-                fontSize = MagpieTypography.CaptionStyle.fontSize,
-                color = colors.textSecondary
-            )
-        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = listOf(
+                "首响 ${MetricCalculators.formatDurationMs(summary.ttftMs)}",
+                "耗时 ${MetricCalculators.formatDurationMs(summary.durationMs)}",
+                totalTokens?.let { "${MetricCalculators.formatCompactNumber(it)} token" } ?: "— token"
+            ).joinToString("  ·  "),
+            style = MagpieTypography.LabelStyle,
+            color = colors.textSecondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
         Spacer(modifier = Modifier.height(13.dp))
         HorizontalDivider(color = colors.divider)
     }
@@ -442,7 +463,24 @@ fun RequestDetailSheetContent(
 ) {
     val colors = MagpieTheme.colors
     val summary = detail.summary
-    val totalTokens = MetricCalculators.calculateTotalTokens(summary.usage)
+    val totalTokens = MetricCalculators.calculateTotalTokensOrNull(summary.usage)
+    val account = summary.accountId?.let { id ->
+        val alias = accounts.firstOrNull { it.id == id }?.alias ?: id
+        MetricCalculators.maskAccountName(alias, maskAccount)
+    }
+    val fields: List<Pair<String, String?>> = listOf(
+        "开始时间" to RequestTimestamps.formatFullLocal(summary.startedAt),
+        "来源" to summary.agentId,
+        "路由组" to summary.groupId,
+        "请求模型" to validModel(summary.requestedModel),
+        "应答模型" to modelText(summary.servedModel, summary.requestedModel),
+        "供应商" to summary.providerId,
+        "账号" to account,
+        "首响" to MetricCalculators.formatDurationMs(summary.ttftMs),
+        "总耗时" to MetricCalculators.formatDurationMs(summary.durationMs),
+        "Token" to totalTokens?.let { MetricCalculators.formatCompactNumber(it) }
+    )
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -452,154 +490,104 @@ fun RequestDetailSheetContent(
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    "请求详情",
-                    fontSize = MagpieTypography.SheetTitleStyle.fontSize,
-                    fontWeight = MagpieTypography.SheetTitleStyle.fontWeight,
-                    color = colors.textPrimary
-                )
-                Text(
-                    text = "#${summary.key.routeId} · ${RequestTimestamps.formatFullLocal(summary.startedAt)}",
-                    fontSize = MagpieTypography.CaptionStyle.fontSize,
-                    color = colors.textSecondary,
-                    lineHeight = 16.sp,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            IconButton(onClick = onDismiss, modifier = Modifier.size(48.dp)) {
+            Text(
+                text = "#${summary.key.routeId}",
+                style = MagpieTypography.SheetTitleStyle,
+                color = colors.textPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            IconButton(onClick = onDismiss, modifier = Modifier.size(MagpieDimensions.TouchTargetMinimum)) {
                 Icon(Icons.Filled.Close, contentDescription = "关闭", tint = colors.textSecondary)
             }
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(10.dp))
+        // The badge carries the state alone; the count stays a separate line so an
+        // in-progress request with reroutes still shows how many times it was rerouted.
         Row(verticalAlignment = Alignment.CenterVertically) {
-            StatusBadge(summary.finalState, rerouteCount = 0)
-            Spacer(modifier = Modifier.width(8.dp))
+            StatusBadge(state = summary.finalState)
             if (summary.rerouteCount > 0) {
+                Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     "改道 ${summary.rerouteCount} 次",
-                    fontSize = MagpieTypography.LabelStyle.fontSize,
+                    style = MagpieTypography.LabelStyle,
                     color = colors.textSecondary
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
-        DetailRow("开始时间", RequestTimestamps.formatFullLocal(summary.startedAt))
-        DetailRow("请求来源", summary.agentId ?: "—")
-        DetailRow("路由组", summary.groupId ?: "—")
-        DetailRow("请求模型", displayModel(summary.requestedModel))
-        DetailRow("应答模型", displayModel(summary.servedModel, summary.requestedModel))
-        DetailRow("供应商", summary.providerId ?: "—")
-        DetailRow("账号", summary.accountId?.let { accountId ->
-            MetricCalculators.maskAccountName(accounts.firstOrNull { it.id == accountId }?.alias ?: accountId, maskAccount)
-        } ?: "—")
-        DetailRow("首响", MetricCalculators.formatDurationMs(summary.ttftMs))
-        DetailRow("总耗时", MetricCalculators.formatDurationMs(summary.durationMs))
-        DetailRow("Token", "${MetricCalculators.formatCompactNumber(totalTokens)}")
+        Spacer(modifier = Modifier.height(16.dp))
+        KvGrid(items = fields)
 
-        if (detail.sanitizedError != null) {
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = detail.sanitizedError,
-                fontSize = 12.sp,
-                color = colors.error,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(colors.errorSurface)
-                    .padding(12.dp)
-            )
-        }
-
-        Spacer(modifier = Modifier.height(20.dp))
-        Text("尝试过程", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = colors.textPrimary,
-        lineHeight = 16.sp
+        Spacer(modifier = Modifier.height(10.dp))
+        SectionHeader(
+            title = "尝试过程",
+            note = detail.attempts.size.takeIf { it > 0 }?.let { "共 $it 次" }
         )
-        Spacer(modifier = Modifier.height(6.dp))
         if (detail.attempts.isEmpty()) {
             Text(
                 "服务端未返回尝试时间线",
-                fontSize = MagpieTypography.LabelStyle.fontSize,
+                style = MagpieTypography.LabelStyle,
                 color = colors.textSecondary
             )
         } else {
-            detail.attempts.forEach { attempt ->
-                val success = attempt.httpStatus in 200..299
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 10.dp),
-                    verticalAlignment = Alignment.Top
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .padding(top = 4.dp)
-                            .size(7.dp)
-                            .clip(CircleShape)
-                            .background(if (success) colors.success else colors.textTertiary)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "#${attempt.index} ${attempt.providerId ?: "未知供应商"} · ${accountDisplay(attempt.accountId, accounts, maskAccount)}",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = colors.textPrimary
-                        )
-                        Text(
-                            text = listOfNotNull(
-                                validModel(attempt.model),
-                                attempt.httpStatus?.let { "HTTP $it" },
-                                attempt.errorCode,
-                                MetricCalculators.formatDurationMs(attempt.durationMs)
-                            ).joinToString(" · ").ifBlank { "进行中" },
-                            fontSize = MagpieTypography.CaptionStyle.fontSize,
-                            color = if (success) colors.textSecondary else colors.error
-                        )
-                    }
-                }
-                HorizontalDivider(color = colors.divider)
-            }
+            AttemptTimeline(
+                entries = detail.attempts.map { attemptEntry(it, accounts, maskAccount) }
+            )
+        }
+
+        val errorText = detail.sanitizedError
+        if (!errorText.isNullOrBlank()) {
+            Spacer(modifier = Modifier.height(14.dp))
+            ErrorBlock(
+                title = if (summary.finalState == FinalState.FAILED) "最终失败" else "错误信息",
+                message = errorText
+            )
         }
     }
 }
 
-@Composable
-private fun DetailRow(label: String, value: String) {
-    val colors = MagpieTheme.colors
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 7.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Text(label, fontSize = 12.sp, color = colors.textSecondary,
-        lineHeight = 16.sp
-        )
-        Text(
-            value,
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Medium,
-            color = colors.textPrimary,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(start = 12.dp)
-        )
+/**
+ * One attempt entry for the shared timeline: a 2xx status is a success, a handoff
+ * to the next target is a reroute, and everything else is a failed attempt.
+ */
+private fun attemptEntry(
+    attempt: Attempt,
+    accounts: List<Account>,
+    maskAccount: Boolean
+): AttemptEntry {
+    val status = attempt.httpStatus
+    val state = when {
+        status != null && status in 200..299 -> AttemptState.SUCCEEDED
+        attempt.handedOn -> AttemptState.REROUTED
+        else -> AttemptState.FAILED
     }
+    val detail = listOfNotNull(
+        validModel(attempt.model),
+        attempt.accountId?.let { accountDisplay(it, accounts, maskAccount) },
+        status?.let { "HTTP $it" },
+        attempt.errorCode
+    ).joinToString(" · ")
+    return AttemptEntry(
+        index = attempt.index,
+        target = displayOrDash(attempt.providerId),
+        detail = detail.ifBlank { "进行中" },
+        meta = MetricCalculators.formatDurationMs(attempt.durationMs),
+        state = state
+    )
 }
 
 private fun validModel(value: String?): String? {
     return value?.trim()?.takeUnless { it.isEmpty() || it.equals("null", ignoreCase = true) }
 }
 
-private fun displayModel(value: String?, fallback: String? = null): String {
-    return validModel(value) ?: validModel(fallback) ?: "未记录模型"
+/** Served model first, then the requested one, then null so the caller prints an em dash. */
+private fun modelText(served: String?, requested: String?): String? {
+    return validModel(served) ?: validModel(requested)
 }
 
 private fun accountDisplay(accountId: String?, accounts: List<Account>, maskAccount: Boolean): String {
