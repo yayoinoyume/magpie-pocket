@@ -67,6 +67,7 @@ import com.magpie.pocket.core.model.GlassTier
 import com.magpie.pocket.core.model.ThemeMode
 import com.magpie.pocket.core.network.MagpieApiClient
 import com.magpie.pocket.core.network.MagpieSession
+import com.magpie.pocket.core.network.MagpieTiming
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -76,7 +77,8 @@ fun ConnectBottomSheet(
     currentConfig: ConnectionConfig,
     sheetState: SheetState,
     onDismiss: () -> Unit,
-    onConnectSuccess: (ConnectionConfig) -> Unit,
+    // Receives the config plus the client the verification already signed in on.
+    onConnectSuccess: (ConnectionConfig, MagpieApiClient) -> Unit,
     onSwitchToDemo: () -> Unit
 ) {
     val colors = MagpieTheme.colors
@@ -303,6 +305,7 @@ fun ConnectBottomSheet(
                                 webKey = keyInput.ifBlank { null }
                             )
                             probeResult = result.capabilities
+                            MagpieTiming.mark("connect-verified")
 
                             val newConfig = ConnectionConfig(
                                 id = "live-${System.currentTimeMillis()}",
@@ -314,7 +317,9 @@ fun ConnectBottomSheet(
                                 cfAccessClientId = cfClientIdInput.ifBlank { null },
                                 cfAccessClientSecret = cfClientSecretInput.ifBlank { null }
                             )
-                            onConnectSuccess(newConfig)
+                            // Hand over the verified client: the first refresh reuses this
+                            // session instead of signing in again on an empty cookie jar.
+                            onConnectSuccess(newConfig, client)
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Exception) {

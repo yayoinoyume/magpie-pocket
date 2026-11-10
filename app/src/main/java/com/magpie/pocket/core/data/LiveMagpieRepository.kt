@@ -34,17 +34,24 @@ import com.magpie.pocket.core.model.TraceTotals
 import com.magpie.pocket.core.model.UsageBreakdownItem
 import com.magpie.pocket.core.model.UsageModelItem
 import com.magpie.pocket.core.model.UsageSnapshot
+import com.magpie.pocket.core.network.AuthenticationRequiredException
 import com.magpie.pocket.core.network.MagpieApiClient
 import com.magpie.pocket.core.network.MagpieApiException
 import com.magpie.pocket.core.network.MagpieSession
 import com.magpie.pocket.core.network.ResourceNotFoundException
+import com.magpie.pocket.core.network.UpstreamGroupsResponse
+import com.magpie.pocket.core.network.UpstreamHistoryDay
 import com.magpie.pocket.core.network.UpstreamMaskingBucket
 import com.magpie.pocket.core.network.UpstreamRoute
 import com.magpie.pocket.core.network.UpstreamSeriesPoint
 import com.magpie.pocket.core.network.UpstreamTry
 import com.magpie.pocket.core.network.UpstreamUsageAgent
 import com.magpie.pocket.core.network.UpstreamUsageBreakdown
+import com.magpie.pocket.core.network.UpstreamUsageResponse
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -57,17 +64,37 @@ class LiveMagpieRepository(
     private val baseUrl: String,
     private val connectionId: String,
     private val apiClient: MagpieApiClient = MagpieApiClient(),
-    private val webKey: String? = null
+    private val webKey: String? = null,
+    /** The connection sheet already signed in on [apiClient]; never sign in twice for it. */
+    verifiedSession: Boolean = false,
+    /** Runs as soon as the session answers, before the capability and panel loads. */
+    private val onSessionReady: () -> Unit = {}
 ) : MagpieRepository {
 
     private val cachedRoutes = ConcurrentHashMap<String, UpstreamRoute>()
+    private val pendingRequests = PendingRequests()
     private var lastEpoch: String = ""
     private var lastSeq: Long = 0L
     private var hasObservedTrace: Boolean = false
-    private var sessionReady: Boolean = false
+    private var sessionReady: Boolean = verifiedSession
 
     override suspend fun probe(): Capabilities {
-        val result = MagpieSession.connect(apiClient, baseUrl, webKey)
+        val result = try {
+            MagpieSession.connect(
+                client = apiClient,
+                baseUrl = baseUrl,
+                webKey = webKey,
+                signInRequired = !sessionReady,
+                onStateReady = {
+                    sessionReady = true
+                    onSessionReady()
+                }
+            )
+        } catch (e: AuthenticationRequiredException) {
+            // The cookie this client held was rejected; the next probe must sign in again.
+            sessionReady = false
+            throw e
+        }
         sessionReady = true
         return result.capabilities
     }
@@ -77,14 +104,31 @@ class LiveMagpieRepository(
         apiClient.getState(baseUrl)
     }
 
+    /**
+     * `/api/groups` answers both the group list and the account rows, and the overview and
+     * the usage screen both read today's `/api/usage`. Callers that ask while one of those
+     * reads is still in flight share it instead of opening a second request.
+     */
+    private suspend fun groupsResponse(): UpstreamGroupsResponse =
+        pendingRequests.share("groups") { apiClient.getGroups(baseUrl) }
+
+    private suspend fun usageResponse(period: Period): UpstreamUsageResponse {
+        val param = periodParam(period)
+        return pendingRequests.share("usage:$param") { apiClient.getUsage(baseUrl, param) }
+    }
+
     private suspend fun ensureSession() {
         if (sessionReady) return
         MagpieSession.initialize(apiClient, baseUrl, webKey)
         sessionReady = true
     }
 
-    override suspend fun overview(period: Period): OverviewSnapshot {
-        val resp = apiClient.getUsage(baseUrl, periodParam(period))
+    override suspend fun overview(period: Period): OverviewSnapshot = coroutineScope {
+        // Day counts live behind a second endpoint; asking for both at once keeps the
+        // overview at one network wait instead of two in a row.
+        val usage = async { usageResponse(period) }
+        val days = async { historyDays() }
+        val resp = usage.await()
 
         val hourlyList = resp.series?.map {
             HourlyTrendPoint(it.label ?: it.time ?: "", it.calls)
@@ -92,7 +136,7 @@ class LiveMagpieRepository(
             HourlyTrendPoint(it.hour, it.calls)
         } ?: emptyList()
 
-        return OverviewSnapshot(
+        OverviewSnapshot(
             period = period,
             rangeStart = resp.rangeStart ?: resp.since,
             rangeEnd = resp.rangeEnd,
@@ -107,30 +151,37 @@ class LiveMagpieRepository(
             unpriced = resp.unpriced,
             decodeMs = resp.decodeMs,
             decodeOut = resp.decodeOut,
-            dailyTrends = historyDailyTrends(resp.series)
+            dailyTrends = dailyTrendsFrom(days.await(), resp.series)
         )
     }
 
     /**
      * The gateway history is the only endpoint that reports per-day request counts.
-     * A missing or failing history must not fail the overview, so it degrades to an
-     * empty trend list instead of an invented one. Daily spend is merged from the usage
-     * series when it carries the same day label; a day without a price keeps a null cost.
+     * A missing or failing history must not fail the overview, so it degrades to no days
+     * instead of an invented one.
      */
-    private suspend fun historyDailyTrends(
-        series: List<UpstreamSeriesPoint>?
-    ): List<DailyTrendPoint> {
-        val history = try {
-            apiClient.getHistory(baseUrl)
+    private suspend fun historyDays(): List<UpstreamHistoryDay> {
+        return try {
+            apiClient.getHistory(baseUrl).days.orEmpty()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            return emptyList()
+            emptyList()
         }
+    }
+
+    /**
+     * Daily spend is merged from the usage series when it carries the same day label;
+     * a day without a price keeps a null cost.
+     */
+    private fun dailyTrendsFrom(
+        days: List<UpstreamHistoryDay>,
+        series: List<UpstreamSeriesPoint>?
+    ): List<DailyTrendPoint> {
         val costByDay = series.orEmpty()
             .mapNotNull { point -> (point.label ?: point.time)?.let { it to point.cost } }
             .toMap()
-        return history.days.orEmpty().mapNotNull { day ->
+        return days.mapNotNull { day ->
             // A day without a reported count stays unknown rather than becoming 0.
             val label = day.day ?: return@mapNotNull null
             val requests = day.requests ?: return@mapNotNull null
@@ -230,7 +281,7 @@ class LiveMagpieRepository(
     }
 
     override suspend fun groups(): List<RouteGroup> {
-        val resp = apiClient.getGroups(baseUrl)
+        val resp = groupsResponse()
         return resp.groups?.map { g ->
             val info = g.memberInfo ?: g.members.orEmpty()
             // A string member is a model id, never an account id. Nested groups
@@ -254,7 +305,7 @@ class LiveMagpieRepository(
     }
 
     override suspend fun accounts(): List<Account> {
-        val groups = apiClient.getGroups(baseUrl)
+        val groups = groupsResponse()
         val list = mutableListOf<Account>()
         var idx = 1
         groups.groups?.forEach { g ->
@@ -281,7 +332,7 @@ class LiveMagpieRepository(
     }
 
     override suspend fun usage(period: Period): UsageSnapshot {
-        val resp = apiClient.getUsage(baseUrl, periodParam(period))
+        val resp = usageResponse(period)
 
         val models = resp.models?.map {
             UsageModelItem(
@@ -377,7 +428,7 @@ class LiveMagpieRepository(
     )
 
     override suspend fun quotas(): List<AccountQuota> {
-        val resp = apiClient.getQuotas(baseUrl)
+        val resp = pendingRequests.share("quotas") { apiClient.getQuotas(baseUrl) }
         return resp.quotas?.map { q ->
             val windows = q.windows?.map { w ->
                 val hasAbsolute = w.amount != null || w.limit != null
@@ -757,4 +808,52 @@ class LiveMagpieRepository(
         errorCode = error,
         handedOn = index < lastIndex
     )
+}
+
+/**
+ * Shares one in-flight upstream read per key. A caller that arrives while the read is in
+ * flight waits for that body; a caller that loses to a failure reads privately instead of
+ * replaying someone else's error. The entry is released as soon as the read finishes, so
+ * nothing outside the overlapping callers ever reads a stored response.
+ *
+ * The map is guarded by a lock that is never held across a suspension and the slot is always
+ * completed, so a cancelled read can neither strand a waiter nor leave a dead entry behind.
+ */
+private class PendingRequests {
+
+    private val lock = Any()
+    private val inFlight = mutableMapOf<String, CompletableDeferred<Any>>()
+
+    @Suppress("UNCHECKED_CAST")
+    suspend fun <T : Any> share(key: String, load: suspend () -> T): T {
+        val (slot, isLeader) = synchronized(lock) {
+            val existing = inFlight[key]
+            if (existing != null) {
+                existing to false
+            } else {
+                CompletableDeferred<Any>().also { inFlight[key] = it } to true
+            }
+        }
+
+        if (!isLeader) {
+            try {
+                return slot.await() as T
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // The read this caller waited for failed; answer it privately.
+            }
+        }
+
+        return try {
+            val value = load()
+            synchronized(lock) { if (inFlight[key] === slot) inFlight.remove(key) }
+            slot.complete(value)
+            value
+        } catch (e: Throwable) {
+            slot.completeExceptionally(e)
+            synchronized(lock) { if (inFlight[key] === slot) inFlight.remove(key) }
+            throw e
+        }
+    }
 }

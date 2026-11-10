@@ -141,8 +141,10 @@ class LiveMagpiePeriodTest {
             assertEquals("/api/usage?period=" + param, server.takeRequest().path)
 
             assertEquals(period, repo.overview(period).period)
-            assertEquals("/api/usage?period=" + param, server.takeRequest().path)
-            assertEquals("/api/gateway/history", server.takeRequest().path)
+            // The overview reads usage and history in parallel, so their arrival order is
+            // not fixed; only that both were asked for with the right parameters is.
+            val overviewPaths = List(2) { server.takeRequest().path }.filterNotNull().sorted()
+            assertEquals(listOf("/api/gateway/history", "/api/usage?period=" + param), overviewPaths)
         }
     }
 

@@ -456,8 +456,8 @@ fun MainAppRoot(viewModel: AppViewModel) {
             currentConfig = connectionConfig,
             sheetState = connectSheetState,
             onDismiss = { showConnectSheet = false },
-            onConnectSuccess = { newCfg ->
-                viewModel.saveConnection(newCfg)
+            onConnectSuccess = { newCfg, verifiedClient ->
+                viewModel.saveConnection(newCfg, verifiedClient)
                 showConnectSheet = false
             },
             onSwitchToDemo = {

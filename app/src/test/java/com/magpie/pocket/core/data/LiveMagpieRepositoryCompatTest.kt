@@ -6,6 +6,8 @@ import com.magpie.pocket.core.model.RequestKey
 import com.magpie.pocket.core.network.MagpieApiClient
 import com.magpie.pocket.core.network.MagpieSession
 import com.magpie.pocket.core.util.MetricCalculators
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.Dispatcher
@@ -235,15 +237,47 @@ class LiveMagpieRepositoryCompatTest {
     }
 
     @Test
-    fun currentSessionProbeClaimsOnlyReachedCapabilities() = runBlocking {
+    fun currentSessionProbeClaimsGroupsAndTraceAndDefersPanelsToTheDataStage() = runBlocking {
         val result = MagpieSession.connect(MagpieApiClient(), server.url("/").toString(), null)
+        // Probed here because whole screens are gated on them.
         assertTrue(result.capabilities.groups)
         assertTrue(result.capabilities.trace)
+        // Panel endpoints are claimed optimistically: the probe never asks for them, and a
+        // 404 during the data stage drops the capability (see AppViewModelAuthTest).
         assertTrue(result.capabilities.usage)
         assertTrue(result.capabilities.ledger)
         assertTrue(result.capabilities.quotas)
+        assertTrue(result.capabilities.providers)
+        assertTrue(result.capabilities.masking)
         assertFalse(result.capabilities.history)
         assertFalse(result.capabilities.requestDetail)
+    }
+
+    @Test
+    fun groupListAndAccountRowsShareOneGroupsRead() = runBlocking {
+        val groupsReads = AtomicInteger(0)
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                "/api/state" -> json("""{"version":"Magpie current","timezone":"Asia/Shanghai"}""")
+                "/api/groups" -> {
+                    groupsReads.incrementAndGet()
+                    fixture("groups-current.json")
+                }
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+
+        repo.probe()
+        // The probe reads groups once for the capability; count only the data stage.
+        groupsReads.set(0)
+        // A refresh asks for both at the same time; that overlap is what makes them share.
+        coroutineScope {
+            val groups = async { repo.groups() }
+            val accounts = async { repo.accounts() }
+            assertEquals("coding", groups.await().single().id)
+            assertTrue(accounts.await().isEmpty())
+        }
+        assertEquals(1, groupsReads.get())
     }
 
     private fun fixture(name: String) = json(fixtureText(name))

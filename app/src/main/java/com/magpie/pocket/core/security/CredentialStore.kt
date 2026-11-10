@@ -11,9 +11,14 @@ class CredentialStorageException : IllegalStateException(
     "无法使用设备加密存储，连接未保存。请检查设备锁屏与安全设置后重试。"
 )
 
+/**
+ * Encrypted connection storage. The keystore unlock, the legacy-plaintext wipe and the first
+ * decryption are disk work and run on first use instead of in the constructor, so the app
+ * can start them from a background thread ([prepare]) rather than on the main thread.
+ */
 class CredentialStore internal constructor(
-    createEncryptedPreferences: () -> SharedPreferences,
-    eraseLegacyPlaintext: () -> Unit
+    private val createEncryptedPreferences: () -> SharedPreferences,
+    private val eraseLegacyPlaintext: () -> Unit
 ) {
     constructor(context: Context) : this(
         createEncryptedPreferences = {
@@ -37,16 +42,34 @@ class CredentialStore internal constructor(
         }
     )
 
-    private var prefs: SharedPreferences? = try {
-        eraseLegacyPlaintext()
-        createEncryptedPreferences()
-    } catch (_: Exception) {
-        // Demo remains available, but live credentials cannot be saved without encryption.
-        null
+    private val openLock = Any()
+    private var opened = false
+    private var prefs: SharedPreferences? = null
+
+    /**
+     * Opens the encrypted store once. A null result means encryption is unavailable: demo
+     * remains available, but live credentials cannot be read or saved.
+     */
+    private fun open(): SharedPreferences? = synchronized(openLock) {
+        if (!opened) {
+            opened = true
+            prefs = try {
+                eraseLegacyPlaintext()
+                createEncryptedPreferences()
+            } catch (_: Exception) {
+                null
+            }
+        }
+        prefs
+    }
+
+    /** Runs the deferred first open now; the app calls this from a background thread. */
+    fun prepare() {
+        open()
     }
 
     fun saveConnection(config: ConnectionConfig) {
-        val secure = prefs ?: throw CredentialStorageException()
+        val secure = open() ?: throw CredentialStorageException()
         try {
             val saved = secure.edit()
                 .putString(KEY_CONNECTION_ID, config.id)
@@ -65,11 +88,12 @@ class CredentialStore internal constructor(
     }
 
     fun getConnection(): ConnectionConfig {
-        val secure = prefs ?: return demoConnection()
+        val secure = open() ?: return demoConnection()
         return try {
             readConnection(secure)
         } catch (_: Exception) {
-            prefs = null
+            // An unreadable store must not answer writes either.
+            synchronized(openLock) { prefs = null }
             demoConnection()
         }
     }
@@ -98,7 +122,7 @@ class CredentialStore internal constructor(
     }
 
     fun clearCredentials() {
-        val secure = prefs ?: return
+        val secure = open() ?: return
         try {
             if (!secure.edit().clear().commit()) throw CredentialStorageException()
         } catch (_: Exception) {

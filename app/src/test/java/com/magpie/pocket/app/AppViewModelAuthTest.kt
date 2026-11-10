@@ -28,7 +28,11 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class AppViewModelAuthTest {
@@ -324,6 +328,132 @@ class AppViewModelAuthTest {
             oldGate.countDown()
             oldServer.shutdown()
         }
+    }
+
+    @Test
+    fun connectionIsReportedConnectedBeforeTheCapabilityProbesFinish() = runBlocking {
+        val groupsGate = CountDownLatch(1)
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                // Hold the probe's second request open: /api/state alone must be enough
+                // to report a session.
+                if (request.path == "/api/groups") groupsGate.await(5, TimeUnit.SECONDS)
+                return when {
+                    request.path == "/_magpie/sign-in" -> signIn()
+                    request.path == "/api/state" ->
+                        json("""{"version":"Magpie current","timezone":"Asia/Shanghai"}""")
+                    request.path == "/api/groups" -> json("""{"groups":[]}""")
+                    request.path?.startsWith("/api/gateway/trace") == true ->
+                        json("""{"seq":1,"mine":true,"routes":[]}""")
+                    request.path?.startsWith("/api/usage/requests") == true ->
+                        json("""{"total":0,"rows":[]}""")
+                    request.path?.startsWith("/api/usage") == true ->
+                        json("""{"calls":0,"series":[]}""")
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+        val viewModel = newViewModel(AuthFakeCredentialStore(liveConfig("early-connected")))
+        try {
+            kotlinx.coroutines.withTimeout(5000) {
+                viewModel.connectionStatus.first { it.health == ConnectionHealth.CONNECTED }
+            }
+            assertTrue(viewModel.isOnline.value)
+            // Groups is still blocked, so no panel has been requested yet.
+            assertTrue(viewModel.groups.value.isEmpty())
+            assertTrue(viewModel.requestsPage.value == null)
+        } finally {
+            groupsGate.countDown()
+        }
+        // Releasing the probe still fills the rest of the snapshot.
+        kotlinx.coroutines.withTimeout(5000) { viewModel.requestsPage.first { it != null } }
+        assertEquals(ConnectionHealth.CONNECTED, viewModel.connectionStatus.value.health)
+    }
+
+    @Test
+    fun oneBrokenEndpointDoesNotBlockTheOtherPanels() = runBlocking {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when {
+                request.path == "/_magpie/sign-in" -> signIn()
+                request.path == "/api/state" ->
+                    json("""{"version":"Magpie current","timezone":"Asia/Shanghai"}""")
+                request.path == "/api/groups" -> fixture("groups-current.json")
+                request.path?.startsWith("/api/gateway/trace") == true -> fixture("trace-current.json")
+                request.path == "/api/usage/quotas" ->
+                    MockResponse().setResponseCode(500).setBody("quota backend down")
+                request.path?.startsWith("/api/usage/requests") == true -> fixture("ledger-current.json")
+                request.path?.startsWith("/api/usage") == true -> fixture("usage-current.json")
+                request.path?.startsWith("/api/gateway/history") == true -> json("""{"days":[]}""")
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        val viewModel = newViewModel(AuthFakeCredentialStore(liveConfig("one-broken")))
+
+        // The group list and the ledger land even though the quota panel is broken.
+        kotlinx.coroutines.withTimeout(5000) { viewModel.groups.first { it.isNotEmpty() } }
+        kotlinx.coroutines.withTimeout(5000) { viewModel.requestsPage.first { it != null } }
+        assertTrue(viewModel.capabilities.value?.usage == true)
+        assertTrue(viewModel.quotas.value.isEmpty())
+    }
+
+    @Test
+    fun missingPanelEndpointOnlyDropsItsCapability() = runBlocking {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when {
+                request.path == "/_magpie/sign-in" -> signIn()
+                request.path == "/api/state" ->
+                    json("""{"version":"Magpie current","timezone":"Asia/Shanghai"}""")
+                request.path == "/api/groups" -> fixture("groups-current.json")
+                request.path?.startsWith("/api/gateway/trace") == true -> fixture("trace-current.json")
+                request.path == "/api/usage/quotas" -> MockResponse().setResponseCode(404)
+                request.path?.startsWith("/api/usage/requests") == true -> fixture("ledger-current.json")
+                request.path?.startsWith("/api/usage") == true -> fixture("usage-current.json")
+                request.path?.startsWith("/api/gateway/history") == true -> json("""{"days":[]}""")
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+        val viewModel = newViewModel(AuthFakeCredentialStore(liveConfig("no-quotas")))
+
+        val caps = kotlinx.coroutines.withTimeout(5000) {
+            viewModel.capabilities.first { it?.quotas == false }
+        }!!
+        assertTrue(caps.usage)
+        assertTrue(caps.groups)
+        assertTrue(caps.ledger)
+        assertEquals(ConnectionHealth.CONNECTED, viewModel.connectionStatus.value.health)
+        assertEquals("coding", viewModel.groups.value.single().id)
+    }
+
+    @Test
+    fun oneRefreshAsksEachEndpointOnce() = runBlocking {
+        val reads = ConcurrentHashMap<String, AtomicInteger>()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path ?: ""
+                reads.getOrPut(path) { AtomicInteger(0) }.incrementAndGet()
+                return when {
+                    path == "/_magpie/sign-in" -> signIn()
+                    path == "/api/state" -> json("""{"version":"Magpie current","timezone":"Asia/Shanghai"}""")
+                    path == "/api/groups" -> fixture("groups-current.json")
+                    path.startsWith("/api/gateway/trace") -> fixture("trace-current.json")
+                    path == "/api/usage/quotas" -> fixture("quotas-current.json")
+                    path.startsWith("/api/usage/requests") -> fixture("ledger-current.json")
+                    path.startsWith("/api/usage") -> fixture("usage-current.json")
+                    path.startsWith("/api/gateway/history") -> json("""{"days":[]}""")
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+        val viewModel = newViewModel(AuthFakeCredentialStore(liveConfig("one-each")))
+        kotlinx.coroutines.withTimeout(5000) { viewModel.requestsPage.first { it != null } }
+        kotlinx.coroutines.withTimeout(5000) { viewModel.quotas.first { it.isNotEmpty() } }
+
+        assertEquals(1, reads["/api/state"]?.get() ?: 0)
+        assertEquals(1, reads["/api/groups"]?.get() ?: 0)
+        assertEquals(1, reads["/api/usage/quotas"]?.get() ?: 0)
+        // The overview and the usage screen both read today; one read serves both.
+        assertEquals(1, reads["/api/usage?period=today"]?.get() ?: 0)
+        assertEquals(1, reads.filterKeys { it.startsWith("/api/usage/requests") }.values.sumOf { it.get() })
     }
 
     private fun currentDispatcher() = object : Dispatcher() {

@@ -16,8 +16,10 @@ class CredentialStoreTest {
     @Test fun unavailableEncryptionKeepsDemoAndRefusesCredentials() {
         var erased = false
         val store = CredentialStore({ throw IllegalStateException("provider detail") }, { erased = true })
-        assertTrue(erased)
+        // Construction does no disk work; the legacy wipe runs on the first open.
+        assertFalse(erased)
         assertEquals(DataMode.DEMO, store.getConnection().mode)
+        assertTrue(erased)
         assertThrows(CredentialStorageException::class.java) { store.saveConnection(live) }
         store.clearCredentials()
     }
