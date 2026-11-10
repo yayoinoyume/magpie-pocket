@@ -10,6 +10,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -38,7 +39,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -50,7 +50,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.State
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -64,26 +63,32 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.currentStateAsState
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.magpie.pocket.core.design.AttemptEntry
+import com.magpie.pocket.core.design.AttemptState
+import com.magpie.pocket.core.design.AttemptTimeline
 import com.magpie.pocket.core.design.DataPanel
 import com.magpie.pocket.core.design.BirdMark
 import com.magpie.pocket.core.design.DecisionMark
-import com.magpie.pocket.core.design.GlassSurface
+import com.magpie.pocket.core.design.KvGrid
+import com.magpie.pocket.core.design.MagpieColorScheme
 import com.magpie.pocket.core.design.MagpieDimensions
+import com.magpie.pocket.core.design.MagpiePageHeader
 import com.magpie.pocket.core.design.MagpieTheme
 import com.magpie.pocket.core.design.MagpieTypography
+import com.magpie.pocket.core.design.SectionHeader
 import com.magpie.pocket.core.design.StatusBadge
+import com.magpie.pocket.core.design.displayOrDash
 import com.magpie.pocket.core.design.springPress
 import com.magpie.pocket.core.model.Account
+import com.magpie.pocket.core.model.Attempt
 import com.magpie.pocket.core.model.ContextBreakdown
 import com.magpie.pocket.core.model.RequestDetail
 import com.magpie.pocket.core.model.RequestSummary
@@ -134,8 +139,6 @@ fun RoutingScreen(
 ) {
     val colors = MagpieTheme.colors
     val preferences = MagpieTheme.preferences
-    val configuration = LocalConfiguration.current
-    val compactGroupHeader = configuration.screenWidthDp < 360 || configuration.fontScale > 1.15f
     var showDecisionModal by remember { mutableStateOf(false) }
     var activeSheet by remember { mutableStateOf<RoutingSheet?>(null) }
 
@@ -143,8 +146,6 @@ fun RoutingScreen(
     // selected request is the only evidence of the active group.
     val currentGroup = selectedRequest?.groupId?.let { id -> groups.find { it.id == id } }
         ?: selectedGroupId?.let { id -> groups.find { it.id == id } }
-    val runningCount = trace?.runningRouteIds?.size ?: 0
-    val context = requestDetail?.context
     val groupProviders = currentGroup?.providerIds ?: emptyList()
     // Highlight only with matching request/attempt evidence. A running route id from a
     // different group is not evidence for this group.
@@ -175,17 +176,14 @@ fun RoutingScreen(
     }
 
     LazyColumn(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(horizontal = MagpieDimensions.PagePadding),
-        contentPadding = contentPadding,
-        verticalArrangement = Arrangement.spacedBy(0.dp)
+        modifier = modifier.fillMaxSize(),
+        contentPadding = contentPadding
     ) {
         item {
-            PageHeader(
+            MagpiePageHeader(
                 title = "路由",
-                subtitle = "看清每一次模型选择",
-                trailing = {
+                subtitle = "这一次",
+                actions = {
                     LivePill(
                         label = presentation.first,
                         tone = presentation.second,
@@ -196,201 +194,115 @@ fun RoutingScreen(
         }
 
         item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 14.dp, bottom = 8.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    "网关启动以来",
-                    fontSize = MagpieTypography.LabelStyle.fontSize,
-                    color = colors.textSecondary
-                )
-                Text(
-                    text = if (runningCount > 0) "$runningCount 个请求处理中" else "暂无处理中请求",
-                    fontSize = MagpieTypography.LabelStyle.fontSize,
-                    color = colors.textSecondary
-                )
-            }
-        }
-
-        item {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 2.dp)
-            ) {
-                HorizontalDivider(color = colors.divider)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 12.dp)
-                ) {
-                    GatewayMetric("已完成请求", trace?.totals?.completedRequests?.toString() ?: "—", Modifier.weight(1f))
-                    GatewayMetric("已改道", trace?.totals?.rerouteHandoffs?.toString() ?: "—", Modifier.weight(1f))
-                    GatewayMetric("最终错误", trace?.totals?.finalErrors?.toString() ?: "—", Modifier.weight(1f))
-                }
-                HorizontalDivider(color = colors.divider)
-            }
-        }
-
-        item { Spacer(modifier = Modifier.height(14.dp)) }
-
-        item {
-            val groupTitle = currentGroup?.name
-                ?: selectedRequest?.groupId
-                ?: if (selectedRequest != null) "直连路由" else "等待实时路由"
-            val strategy = currentGroup?.strategyLabel()
-            GlassSurface(
-                modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
-                shape = RoundedCornerShape(20.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)
-                        .padding(horizontal = 15.dp, vertical = if (compactGroupHeader) 10.dp else 0.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (compactGroupHeader) {
-                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(
-                                text = groupTitle,
-                                style = MagpieTypography.SubheadStyle,
-                                fontWeight = FontWeight.SemiBold,
-                                color = colors.textPrimary,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            if (strategy != null) Text(
-                                text = strategy,
-                                style = MagpieTypography.CaptionStyle,
-                                color = colors.textSecondary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    } else {
-                        Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = groupTitle,
-                                fontSize = MagpieTypography.SubheadStyle.fontSize,
-                                fontWeight = FontWeight.SemiBold,
-                                color = colors.textPrimary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false)
-                            )
-                            if (strategy != null) Text(
-                                text = " · $strategy",
-                                fontSize = MagpieTypography.CaptionStyle.fontSize,
-                                color = colors.textSecondary,
-                                maxLines = 1
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (isFollowingLive) "自动跟随" else "历史固定",
-                        fontSize = MagpieTypography.CaptionStyle.fontSize,
-                        color = colors.accent,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-            }
-        }
-
-        item { Spacer(modifier = Modifier.height(12.dp)) }
-
-        item {
-            DataPanel(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
-            ) {
-                Box(modifier = Modifier.fillMaxWidth()) {
-                RouteCanvas(
-                    selectedRequest = matchingSelection,
-                    currentGroup = currentGroup,
-                    accounts = accounts,
-                    activeProvider = activeProvider,
-                    activeAccountId = activeAccountId,
-                    activeAccounts = activeAccounts,
-                    visibleProviders = visibleProviders,
+            PageBlock {
+                FocusRequestCard(
+                    summary = matchingSelection,
+                    group = currentGroup,
                     phase = phase,
                     isFollowingLive = isFollowingLive,
-                    settle = settle,
-                    onConsumeSettle = onConsumeSettle,
-                    isOnline = isOnline,
-                    onProviderClick = { providerId ->
-                        activeSheet = RoutingSheet.ProviderAccounts(providerId)
-                    }
+                    traceObservable = trace?.observable != false,
+                    onResetToLatest = onResetToLatest
                 )
-                if (extraProviders.isNotEmpty()) {
-                    IconButton(
-                        onClick = { activeSheet = RoutingSheet.AllProviders },
-                        modifier = Modifier.align(Alignment.TopEnd).size(48.dp)
-                    ) {
-                        Icon(Icons.Filled.MoreHoriz, contentDescription = "更多供应商", tint = colors.textSecondary, modifier = Modifier.size(18.dp))
-                    }
-                }
-                }
             }
         }
 
         item {
-            if (!isFollowingLive) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 10.dp)
-                        .clickable(onClick = onResetToLatest),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+            PageBlock {
+                Spacer(modifier = Modifier.height(12.dp))
+                DataPanel(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(24.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
                 ) {
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        RouteCanvas(
+                            selectedRequest = matchingSelection,
+                            currentGroup = currentGroup,
+                            accounts = accounts,
+                            activeProvider = activeProvider,
+                            activeAccountId = activeAccountId,
+                            activeAccounts = activeAccounts,
+                            visibleProviders = visibleProviders,
+                            phase = phase,
+                            isFollowingLive = isFollowingLive,
+                            settle = settle,
+                            onConsumeSettle = onConsumeSettle,
+                            isOnline = isOnline,
+                            onProviderClick = { providerId ->
+                                activeSheet = RoutingSheet.ProviderAccounts(providerId)
+                            }
+                        )
+                        if (extraProviders.isNotEmpty()) {
+                            IconButton(
+                                onClick = { activeSheet = RoutingSheet.AllProviders },
+                                modifier = Modifier.align(Alignment.TopEnd).size(48.dp)
+                            ) {
+                                Icon(Icons.Filled.MoreHoriz, contentDescription = "更多供应商", tint = colors.textSecondary, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            PageBlock {
+                Spacer(modifier = Modifier.height(6.dp))
+                val decisionEvidence = requestDetail?.decisionEvidence.orEmpty()
+                SectionHeader(
+                    title = "为什么选它",
+                    note = decisionEvidence.size.takeIf { it > 0 }?.let { "$it 条证据" }
+                )
+                DecisionRow(
+                    evidence = decisionEvidence,
+                    summary = matchingSelection,
+                    onOpen = { showDecisionModal = true }
+                )
+            }
+        }
+
+        item {
+            PageBlock {
+                Spacer(modifier = Modifier.height(14.dp))
+                val attempts = requestDetail?.attempts.orEmpty()
+                SectionHeader(
+                    title = "尝试过程",
+                    note = attempts.size.takeIf { it > 0 }?.let { "$it 次" }
+                )
+                if (attempts.isEmpty()) {
                     Text(
-                        text = if (matchingSelection != null) "正在查看历史请求" else "等待实时请求",
-                        fontSize = MagpieTypography.LabelStyle.fontSize,
+                        text = "服务端未返回尝试时间线",
+                        style = MagpieTypography.LabelStyle,
                         color = colors.textSecondary
                     )
-                    Text(
-                        text = "返回实时",
-                        fontSize = MagpieTypography.LabelStyle.fontSize,
-                        fontWeight = FontWeight.Medium,
-                        color = colors.accent
+                } else {
+                    AttemptTimeline(
+                        entries = attempts.map { attempt ->
+                            attempt.toTimelineEntry(
+                                accounts = accounts,
+                                maskEnabled = preferences.maskAccountNames,
+                                routeState = requestDetail?.summary?.finalState
+                            )
+                        }
                     )
                 }
             }
         }
 
         item {
-            DecisionRow(
-                evidence = requestDetail?.decisionEvidence.orEmpty(),
-                summary = matchingSelection,
-                onOpen = { showDecisionModal = true }
-            )
-        }
-
-        item {
-            if (context != null) {
-                ContextSection(context = context)
-            } else {
-                HorizontalDivider(color = colors.divider)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 15.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+            PageBlock {
+                Spacer(modifier = Modifier.height(18.dp))
+                val context = requestDetail?.context
+                SectionHeader(
+                    title = "上下文构成",
+                    note = context?.let { "${MetricCalculators.formatCompactNumber(it.totalTokens)} token" }
+                )
+                if (context != null) {
+                    ContextSection(context = context)
+                } else {
                     Text(
-                        "最近请求的上下文",
-                        fontSize = MagpieTypography.LabelStyle.fontSize,
-                        color = colors.textSecondary
-                    )
-                    Text(
-                        "暂无详情",
-                        fontSize = MagpieTypography.LabelStyle.fontSize,
+                        text = "暂无上下文明细",
+                        style = MagpieTypography.LabelStyle,
                         color = colors.textSecondary
                     )
                 }
@@ -398,21 +310,19 @@ fun RoutingScreen(
         }
 
         item {
-            if (matchingSelection == null && trace?.observable != false) {
+            PageBlock {
+                Spacer(modifier = Modifier.height(20.dp))
+                val totals = trace?.totals
                 Text(
-                    text = "暂无实时请求；新的调用会自动成为路由焦点。",
-                    fontSize = MagpieTypography.LabelStyle.fontSize,
-                    color = colors.textSecondary,
-                    modifier = Modifier.padding(top = 12.dp)
+                    text = "本次启动以来 " + listOf(
+                        "${displayOrDash(totals?.completedRequests?.toString())} 请求",
+                        "${displayOrDash(totals?.rerouteHandoffs?.toString())} 次改道",
+                        "${displayOrDash(totals?.finalErrors?.toString())} 次最终失败"
+                    ).joinToString(" · "),
+                    style = MagpieTypography.LabelStyle,
+                    color = colors.textSecondary
                 )
-            }
-            if (trace?.observable == false) {
-                Text(
-                    text = "服务端未提供实时 trace；累计数据仍来自可用接口。",
-                    fontSize = MagpieTypography.LabelStyle.fontSize,
-                    color = colors.textSecondary,
-                    modifier = Modifier.padding(top = 12.dp)
-                )
+                Spacer(modifier = Modifier.height(12.dp))
             }
         }
     }
@@ -493,37 +403,147 @@ fun RoutingScreen(
 
 }
 
+/** LazyColumn items carry the page gutter themselves; [MagpiePageHeader] has its own. */
 @Composable
-private fun PageHeader(title: String, subtitle: String, trailing: @Composable () -> Unit) {
+private fun PageBlock(content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = MagpieDimensions.PagePadding),
+        content = content
+    )
+}
+
+/**
+ * The one request this page explains: served model, outcome and the group behind it.
+ * Follow mode and its way back to live sit on the card's last line because pinning is a
+ * sticky state the reader may need to leave from anywhere on the page.
+ */
+@Composable
+private fun FocusRequestCard(
+    summary: RequestSummary?,
+    group: RouteGroup?,
+    phase: RoutePhase,
+    isFollowingLive: Boolean,
+    traceObservable: Boolean,
+    onResetToLatest: () -> Unit
+) {
+    val colors = MagpieTheme.colors
+    DataPanel(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp)
+    ) {
+        // DataPanel stacks its content, so the card's lines need an explicit column.
+        Column(modifier = Modifier.fillMaxWidth()) {
+            if (summary == null) {
+                Text(
+                    text = "暂无实时请求",
+                    style = MagpieTypography.BodyStyle,
+                    color = colors.textPrimary
+                )
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                    text = if (traceObservable) {
+                        "新的调用会自动成为路由焦点。"
+                    } else {
+                        "服务端未提供实时 trace；累计数据仍来自可用接口。"
+                    },
+                    style = MagpieTypography.LabelStyle,
+                    color = colors.textSecondary
+                )
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = displayOrDash(summary.servedModel ?: summary.requestedModel),
+                        style = MagpieTypography.SectionTitleStyle,
+                        color = colors.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    PhaseTag(phase = phase)
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                KvGrid(
+                    items = listOf(
+                        "来源" to summary.agentId?.displayAgent(),
+                        "路由组" to (group?.name ?: summary.groupId),
+                        "状态" to phase.statusText(),
+                        "耗时" to MetricCalculators.formatDurationMs(summary.durationMs),
+                        "改道次数" to "${summary.rerouteCount} 次"
+                    )
+                )
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            HorizontalDivider(color = colors.divider)
+            FollowModeRow(isFollowingLive = isFollowingLive, onResetToLatest = onResetToLatest)
+        }
+    }
+}
+
+/** Outcome tag beside the focus model; its tint only reuses the five state colors. */
+@Composable
+private fun PhaseTag(phase: RoutePhase) {
+    val colors = MagpieTheme.colors
+    val tint = phase.tint(colors)
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(tint.copy(alpha = 0.10f))
+            .border(0.5.dp, tint.copy(alpha = 0.20f), RoundedCornerShape(6.dp))
+            .padding(horizontal = 7.dp, vertical = 2.5.dp)
+    ) {
+        Text(
+            text = phase.statusText(),
+            style = MagpieTypography.LabelStyle,
+            fontWeight = FontWeight.SemiBold,
+            color = tint,
+            maxLines = 1
+        )
+    }
+}
+
+/** Follow mode and its one-tap exit, kept in one 48dp row. */
+@Composable
+private fun FollowModeRow(isFollowingLive: Boolean, onResetToLatest: () -> Unit) {
     val colors = MagpieTheme.colors
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 8.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.Top
+            .heightIn(min = MagpieDimensions.TouchTargetMinimum),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                fontSize = MagpieTypography.PageTitleStyle.fontSize,
-                fontWeight = MagpieTypography.PageTitleStyle.fontWeight,
-                color = colors.textPrimary
-            )
-            Spacer(modifier = Modifier.height(3.dp))
-            Text(
-                text = subtitle,
-                fontSize = MagpieTypography.SubheadStyle.fontSize,
-                color = colors.textSecondary
-            )
+        Text(
+            text = if (isFollowingLive) "自动跟随" else "历史固定",
+            style = MagpieTypography.LabelStyle,
+            fontWeight = if (isFollowingLive) FontWeight.Normal else FontWeight.SemiBold,
+            color = if (isFollowingLive) colors.textSecondary else colors.accent
+        )
+        Spacer(modifier = Modifier.weight(1f))
+        if (!isFollowingLive) {
+            Box(
+                modifier = Modifier
+                    .heightIn(min = MagpieDimensions.TouchTargetMinimum)
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable(onClick = onResetToLatest)
+                    .padding(horizontal = 8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "返回实时",
+                    style = MagpieTypography.LabelStyle,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colors.accent
+                )
+            }
         }
-        trailing()
     }
 }
 
 @Composable
 private fun LivePill(label: String, tone: Color, surface: Color) {
-    val colors = MagpieTheme.colors
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(14.dp))
@@ -543,25 +563,6 @@ private fun LivePill(label: String, tone: Color, surface: Color) {
             fontSize = MagpieTypography.LabelStyle.fontSize,
             fontWeight = FontWeight.Medium,
             color = tone
-        )
-    }
-}
-
-@Composable
-private fun GatewayMetric(label: String, value: String, modifier: Modifier = Modifier) {
-    val colors = MagpieTheme.colors
-    Column(modifier = modifier) {
-        Text(
-            label,
-            fontSize = MagpieTypography.LabelStyle.fontSize,
-            color = colors.textSecondary
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = value,
-            fontSize = MagpieTypography.InlineMetricStyle.fontSize,
-            fontWeight = FontWeight.SemiBold,
-            color = colors.textPrimary
         )
     }
 }
@@ -887,10 +888,10 @@ private fun ProviderCard(
             Text(
                 text = when {
                     answering -> account?.let {
-                        "${MetricCalculators.maskAccountName(it.alias, MagpieTheme.preferences.maskAccountNames)} · 回答中"
+                        "${MetricCalculators.maskAccountName(it.alias, MagpieTheme.preferences.maskAccountNames)} · 处理中"
                     } ?: activeAccountId?.let {
-                        "${MetricCalculators.maskAccountName(it, MagpieTheme.preferences.maskAccountNames)} · 回答中"
-                    } ?: "回答中"
+                        "${MetricCalculators.maskAccountName(it, MagpieTheme.preferences.maskAccountNames)} · 处理中"
+                    } ?: "处理中"
                     isActive && phase == RoutePhase.SUCCEEDED -> "已应答"
                     isActive && phase == RoutePhase.FAILED -> "失败"
                     isActive && phase == RoutePhase.CANCELLED -> "已取消"
@@ -1072,71 +1073,46 @@ private fun ExpandProvidersRow(hiddenCount: Int, onOpen: () -> Unit) {
     }
 }
 
+/** One-line preview of the routing evidence; the full list stays in the decision sheet. */
 @Composable
 private fun DecisionRow(evidence: List<String>, summary: RequestSummary?, onOpen: () -> Unit) {
     val colors = MagpieTheme.colors
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Spacer(modifier = Modifier.height(5.dp))
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(60.dp)
-                .clickable(onClick = onOpen)
-                .padding(vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            DecisionMark(tint = colors.accent)
-            Spacer(modifier = Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    "为什么选择这个账号",
-                    fontSize = MagpieTypography.LabelStyle.fontSize,
-                    fontWeight = FontWeight.Medium,
-                    color = colors.textPrimary
-                )
-                Text(
-                    text = evidence.firstOrNull() ?: if (summary != null) "按组策略选择当前账号" else "暂无可复盘请求",
-                    fontSize = MagpieTypography.LabelStyle.fontSize,
-                    color = colors.textSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            Icon(
-                imageVector = Icons.Filled.ChevronRight,
-                contentDescription = "查看选路原因",
-                tint = colors.textSecondary,
-                modifier = Modifier.size(15.dp)
-            )
-        }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = MagpieDimensions.TouchTargetMinimum)
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(onClick = onOpen)
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        DecisionMark(tint = colors.accent)
+        Spacer(modifier = Modifier.width(10.dp))
+        Text(
+            text = evidence.firstOrNull()
+                ?: if (summary != null) "按组策略选择当前账号" else "暂无可复盘请求",
+            style = MagpieTypography.SubheadStyle,
+            color = colors.textSecondary,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Icon(
+            imageVector = Icons.Filled.ChevronRight,
+            contentDescription = "查看选路原因",
+            tint = colors.textSecondary,
+            modifier = Modifier.size(15.dp)
+        )
     }
 }
 
+/** Three-segment context bar; the window limit stays beside the legend. */
 @Composable
 private fun ContextSection(context: ContextBreakdown) {
     val colors = MagpieTheme.colors
     val segments = context.parts.take(3)
-    HorizontalDivider(color = colors.divider)
-    Column(modifier = Modifier.padding(top = 12.dp, bottom = 2.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                "最近请求的上下文",
-                fontSize = MagpieTypography.LabelStyle.fontSize,
-                fontWeight = FontWeight.Medium,
-                color = colors.textPrimary
-            )
-            Text(
-                text = "${MetricCalculators.formatCompactNumber(context.totalTokens)} token",
-                fontSize = MagpieTypography.LabelStyle.fontSize,
-                fontWeight = FontWeight.Medium,
-                color = colors.textPrimary
-            )
-        }
-        Spacer(modifier = Modifier.height(8.dp))
+    Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1159,10 +1135,7 @@ private fun ContextSection(context: ContextBreakdown) {
             }
         }
         Spacer(modifier = Modifier.height(5.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
+        Row(modifier = Modifier.fillMaxWidth()) {
             Text(
                 text = segments.take(2).joinToString(" · ") { part ->
                     "${part.kind.contextLabel()} ${MetricCalculators.formatPercent(if (context.totalTokens > 0) part.tokens.toDouble() / context.totalTokens else null)}"
@@ -1576,7 +1549,7 @@ private fun String.displayProvider(): String = when (lowercase()) {
 
 private fun Account.availabilityLabel(): String = when (availability) {
     "AVAILABLE" -> "可用"
-    "BUSY" -> "回答中"
+    "BUSY" -> "处理中"
     "COOLDOWN" -> "冷却中"
     else -> "未知"
 }
@@ -1606,7 +1579,7 @@ private fun routeCaption(
         MetricCalculators.maskAccountName(it, MagpieTheme.preferences.maskAccountNames)
     }
     val state = when (phase) {
-        RoutePhase.ACTIVE -> "回答中"
+        RoutePhase.ACTIVE -> "处理中"
         RoutePhase.SUCCEEDED -> "已应答"
         RoutePhase.FAILED -> "失败"
         RoutePhase.CANCELLED -> "已取消"
@@ -1615,6 +1588,68 @@ private fun routeCaption(
         else -> null
     }
     return listOfNotNull(model, account, state, members).joinToString(" · ").ifBlank { "等待实时请求" }
+}
+
+private fun RoutePhase.statusText(): String = when (this) {
+    RoutePhase.ACTIVE -> "处理中"
+    RoutePhase.SUCCEEDED -> "成功"
+    RoutePhase.FAILED -> "最终失败"
+    RoutePhase.CANCELLED -> "已取消"
+    RoutePhase.UNCONFIRMED -> "待确认"
+    RoutePhase.PINNED -> "历史固定"
+    RoutePhase.UNAVAILABLE -> "不可观测"
+    RoutePhase.IDLE -> "等待实时"
+}
+
+private fun RoutePhase.tint(colors: MagpieColorScheme): Color = when (this) {
+    RoutePhase.ACTIVE -> colors.accent
+    RoutePhase.SUCCEEDED -> colors.success
+    RoutePhase.FAILED -> colors.error
+    RoutePhase.CANCELLED -> colors.textSecondary
+    RoutePhase.UNCONFIRMED -> colors.warning
+    RoutePhase.PINNED -> colors.accent
+    RoutePhase.UNAVAILABLE -> colors.warning
+    RoutePhase.IDLE -> colors.textSecondary
+}
+
+/**
+ * One attempt as a timeline row. [AttemptEntry.target] is the provider/account that was
+ * tried, [AttemptEntry.detail] keeps the recorded HTTP status or error next to the model,
+ * and [AttemptEntry.meta] is the duration.
+ */
+private fun Attempt.toTimelineEntry(
+    accounts: List<Account>,
+    maskEnabled: Boolean,
+    routeState: FinalState?
+): AttemptEntry {
+    val provider = providerId?.displayProvider() ?: "未知供应商"
+    val accountAlias = accountId?.let { id -> accounts.find { it.id == id }?.alias ?: id }
+    val accountLabel = accountAlias?.let { MetricCalculators.maskAccountName(it, maskEnabled) }
+    return AttemptEntry(
+        index = index,
+        target = accountLabel?.let { "$provider · $it" } ?: provider,
+        detail = listOfNotNull(
+            httpStatus?.let { "HTTP $it" } ?: errorCode,
+            model?.takeIf { it.isNotBlank() }
+        ).joinToString(" · "),
+        meta = MetricCalculators.formatDurationMs(durationMs),
+        state = timelineState(routeState)
+    )
+}
+
+/**
+ * Attempts carry handoffs and response codes, not a timeline state. A handed-on attempt is
+ * a reroute, a 2xx response succeeded and a recorded error stays failed. The last attempt
+ * of a request that is still running has no outcome yet; the warning tint is the timeline's
+ * only "not settled" state, so an unfinished attempt is never shown as a success or failure.
+ */
+private fun Attempt.timelineState(routeState: FinalState?): AttemptState = when {
+    handedOn -> AttemptState.REROUTED
+    httpStatus != null && httpStatus in 200..299 -> AttemptState.SUCCEEDED
+    httpStatus != null || errorCode != null -> AttemptState.FAILED
+    routeState == FinalState.SUCCEEDED -> AttemptState.SUCCEEDED
+    routeState == FinalState.FAILED -> AttemptState.FAILED
+    else -> AttemptState.REROUTED
 }
 
 private fun String.contextLabel(): String = when (this) {
