@@ -371,7 +371,8 @@ class AppViewModel(
         _capabilities.value = cap
 
         if (cap.usage) {
-            val ov = activeRepo.overview(_selectedPeriod.value)
+            // Overview is always today; the selected period belongs to the usage page only.
+            val ov = activeRepo.overview(Period.TODAY)
             if (generation != repoGeneration) return
             _overview.value = ov
         }
@@ -1113,9 +1114,8 @@ class AppViewModel(
         periodJob?.cancel()
         periodJob = viewModelScope.launch {
             try {
-                val overview = activeRepo.overview(period)
-                if (generation != repoGeneration) return@launch
-                _overview.value = overview
+                // The period only drives the usage page. Overview stays on today so a
+                // 7-day total is never labelled as "today's requests".
                 val usage = activeRepo.usage(period)
                 if (generation != repoGeneration) return@launch
                 _usage.value = usage

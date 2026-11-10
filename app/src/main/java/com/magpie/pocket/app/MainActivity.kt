@@ -68,6 +68,8 @@ import com.magpie.pocket.feature.connect.ConnectBottomSheet
 import com.magpie.pocket.feature.connect.DisplayPreferencesSheet
 import com.magpie.pocket.feature.connect.GatewayDetailSheet
 import com.magpie.pocket.feature.overview.OverviewScreen
+import com.magpie.pocket.feature.privacy.PrivacySheet
+import com.magpie.pocket.feature.providers.ProviderCatalogSheet
 import com.magpie.pocket.feature.requests.RequestsScreen
 import com.magpie.pocket.feature.requests.RequestDetailSheetContent
 import com.magpie.pocket.feature.routing.RoutingScreen
@@ -232,10 +234,14 @@ fun MainAppRoot(viewModel: AppViewModel) {
     val statusFilter by viewModel.statusFilter.collectAsState()
     val selectedDay by viewModel.selectedDay.collectAsState()
     val capabilities by viewModel.capabilities.collectAsState()
+    val providerCatalogState by viewModel.providerCatalogState.collectAsState()
+    val privacyState by viewModel.privacyState.collectAsState()
 
     var showConnectSheet by remember { mutableStateOf(false) }
     var showGatewayDetailSheet by remember { mutableStateOf(false) }
     var showPreferencesSheet by remember { mutableStateOf(false) }
+    var showProviderSheet by remember { mutableStateOf(false) }
+    var showPrivacySheet by remember { mutableStateOf(false) }
 
     val connectSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val gatewaySheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -320,7 +326,10 @@ fun MainAppRoot(viewModel: AppViewModel) {
                     selectedPeriod = selectedPeriod,
                     onPeriodChange = { viewModel.setPeriod(it) },
                     isLoading = isLoading,
-                    contentPadding = screenPaddingValues
+                    contentPadding = screenPaddingValues,
+                    isDemo = connectionConfig.mode == DataMode.DEMO,
+                    onOpenProviders = { showProviderSheet = true },
+                    onOpenPrivacy = { showPrivacySheet = true }
                 )
             }
             AppTab.REQUESTS -> {
@@ -434,6 +443,29 @@ fun MainAppRoot(viewModel: AppViewModel) {
             onUpdateReduceMotion = { viewModel.updateReduceMotion(it) },
             onUpdateMaskAccounts = { viewModel.updateMaskAccounts(it) },
             onUpdateKeepLiveConnection = { viewModel.updateKeepLiveConnectionInBackground(it) }
+        )
+    }
+
+    // Modal Sheet: Provider catalog (lazy load on open). M4 replaces its body.
+    if (showProviderSheet) {
+        LaunchedEffect(Unit) { viewModel.loadProviders() }
+        ProviderCatalogSheet(
+            state = providerCatalogState,
+            onDismiss = { showProviderSheet = false },
+            onRetry = { viewModel.loadProviders(force = true) }
+        )
+    }
+
+    // Modal Sheet: Privacy masking (lazy load on open). M5 replaces its body.
+    if (showPrivacySheet) {
+        LaunchedEffect(Unit) { viewModel.loadPrivacy(7) }
+        PrivacySheet(
+            state = privacyState,
+            onDismiss = { showPrivacySheet = false },
+            onRetry = { viewModel.loadPrivacy(7, force = true) },
+            onDaysChange = { viewModel.setPrivacyDays(it) },
+            onLoadMore = { viewModel.loadMoreMaskingRecords() },
+            onReveal = { viewModel.revealMaskingValue(it) }
         )
     }
 
