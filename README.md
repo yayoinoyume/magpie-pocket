@@ -23,7 +23,7 @@ v1.0.1 introduced a new signing certificate. Versions 1.0.0 and earlier require 
 
 ### 页面预览
 
-以下为 **Android 11 模拟器中的实际应用截图**，全部使用应用内标注的演示数据，账号显示为别名。
+以下为 **Android 11 模拟器中的实际应用截图**，覆盖四个主页面（「更多」页见应用内），全部使用应用内标注的演示数据，账号显示为别名。
 
 <table>
   <tr>
@@ -91,7 +91,7 @@ cd magpie-pocket
 
 ### 当前验证
 
-- **140 项单元测试通过**，无失败、错误或跳过。
+- **166 项单元测试通过**，无失败、错误或跳过。
 - **Android 11 / 14 原生验证通过**，覆盖后台心跳、故障恢复、自动路由、冷启动、动效、开关状态及正式包升级；具体范围见验证记录。
 - Debug / Release 构建成功；Lint 无错误；正式 APK v2 / v3 签名验证通过。
 
@@ -101,7 +101,7 @@ cd magpie-pocket
 
 **Magpie Pocket** is a native Android observability client for the [Magpie AI gateway](https://github.com/yetone/magpie), built with Kotlin and Jetpack Compose. It offers five pages — Overview, Routing, Usage, Requests and More — and focuses on read-only monitoring with a restrained glass-inspired interface.
 
-The screenshots and animation above are captured from the actual Android app using clearly labeled **Demo data**.
+The screenshots and animation above are captured from the actual Android app using clearly labeled **Demo data**; the table covers the four main pages, and the More page is shown in the app.
 
 - **Overview**: request statistics, mean TTFT, trends and quota information.
 - **Background connection**: optional foreground notification service, a lightweight 30-second heartbeat and reconnect backoff capped at 30 seconds per delay; no live service in Demo mode.
@@ -118,7 +118,7 @@ Requires **Android 7.0+ (API 24)**. Build with JDK 17/21 and Android SDK 34 usin
 
 Debug builds need no release key. For Release builds, copy `signing.properties.example` to the ignored `signing.properties` and supply your own signing credentials, or set the four `MAGPIE_KEYSTORE_*` / `MAGPIE_KEY_*` environment variables listed above. Private signing material must never be committed. Release builds fail explicitly when signing is not configured.
 
-Validation: **140 passing unit tests**, Android 11/14 native checks for background recovery, routing, switches and upgrades, successful Debug/Release builds and no lint errors. See [verification](docs/verification.md), [integration](docs/integration.md) and [design decisions](docs/decisions.md).
+Validation: **166 passing unit tests**, Android 11/14 native checks for background recovery, routing, switches and upgrades, successful Debug/Release builds and no lint errors. See [verification](docs/verification.md), [integration](docs/integration.md) and [design decisions](docs/decisions.md).
 
 ## 复用设计 · Reuse the design
 
@@ -126,4 +126,6 @@ Validation: **140 passing unit tests**, Android 11/14 native checks for backgrou
 
 ## License
 
-[MIT](LICENSE). The bird mark adapts Lucide artwork under the ISC license; attribution is retained in [design decisions](docs/decisions.md#bird-artwork-attribution).
+项目本体 [MIT](LICENSE)。界面图标：Material Icons (Apache-2.0)；鸟标：Lucide (ISC)。
+
+[MIT](LICENSE). The bird mark adapts Lucide artwork under the ISC license; attribution is retained in [design decisions](docs/decisions.md#bird-artwork-attribution). UI icons come from Material Icons (Apache-2.0).
