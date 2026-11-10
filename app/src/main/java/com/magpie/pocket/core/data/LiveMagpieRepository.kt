@@ -106,20 +106,30 @@ class LiveMagpieRepository(
             unpriced = resp.unpriced,
             decodeMs = resp.decodeMs,
             decodeOut = resp.decodeOut,
-            dailyTrends = dailyTrends(period, hourlyList)
+            dailyTrends = historyDailyTrends()
         )
     }
 
     /**
-     * The usage series is one bucket list whose labels are hours for today and days for
-     * longer windows, so only a multi-day window is relabelled as a daily trend.
+     * The gateway history is the only endpoint that reports per-day request counts.
+     * A missing or failing history must not fail the overview, so it degrades to an
+     * empty trend list instead of an invented one.
      */
-    private fun dailyTrends(period: Period, buckets: List<HourlyTrendPoint>): List<DailyTrendPoint> =
-        if (period == Period.TODAY) {
-            emptyList()
-        } else {
-            buckets.map { DailyTrendPoint(dayLabel = it.hourLabel, completedRequests = it.completedRequests) }
+    private suspend fun historyDailyTrends(): List<DailyTrendPoint> {
+        val history = try {
+            apiClient.getHistory(baseUrl)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return emptyList()
         }
+        return history.days.orEmpty().mapNotNull { day ->
+            // A day without a reported count stays unknown rather than becoming 0.
+            val label = day.day ?: return@mapNotNull null
+            val requests = day.requests ?: return@mapNotNull null
+            DailyTrendPoint(dayLabel = label, completedRequests = requests)
+        }
+    }
 
     override fun observeTrace(): Flow<TraceSnapshot> = flow {
         ensureSession()
@@ -310,7 +320,12 @@ class LiveMagpieRepository(
         input = input,
         output = output,
         cacheRead = cacheRead,
-        cacheWrite = cacheWrite
+        cacheWrite = cacheWrite,
+        reasoning = reasoning,
+        ttftMs = ttftMs,
+        timed = timed,
+        decodeOut = decodeOut,
+        decodeMs = decodeMs
     )
 
     /**
@@ -327,7 +342,12 @@ class LiveMagpieRepository(
         errors = errors,
         input = input,
         output = output,
-        unpriced = unpriced
+        unpriced = unpriced,
+        reasoning = reasoning,
+        ttftMs = ttftMs,
+        timed = timed,
+        decodeOut = decodeOut,
+        decodeMs = decodeMs
     )
 
     override suspend fun quotas(): List<AccountQuota> {
@@ -401,7 +421,7 @@ class LiveMagpieRepository(
                 val day = d.day ?: return@mapNotNull null
                 MaskingDayPoint(dayLabel = day, n = d.n, requests = d.requests)
             },
-            kinds = resp.kinds.orEmpty().map { MaskingCount(kind = it.kind, n = it.n) },
+            kinds = resp.kinds.orEmpty().map { MaskingCount(kind = it.kind ?: it.name, n = it.n) },
             by = resp.by ?: emptyMap(),
             agents = resp.agents.orEmpty().map { it.toBucket() },
             providers = resp.providers.orEmpty().map { it.toBucket() },
@@ -423,7 +443,7 @@ class LiveMagpieRepository(
             MaskingRecord(
                 // The key arrives as text or as a number; keep its text form only.
                 key = (r.key as? JsonPrimitive)?.contentOrNull,
-                values = r.values.orEmpty().map { MaskingCount(kind = it.kind, n = it.n) },
+                values = r.values.orEmpty().map { MaskingCount(kind = it.kind ?: it.name, n = it.n) },
                 blocked = r.blocked,
                 observedAt = r.t,
                 what = r.what,
@@ -436,11 +456,16 @@ class LiveMagpieRepository(
         return MaskingRecordsPage(items = items, more = resp.more == true)
     }
 
+    /** Null means the upstream no longer holds the value; the UI reports it as evicted. */
     override suspend fun maskingValue(placeholder: String): String? =
-        apiClient.getMaskingValue(baseUrl, placeholder).value
+        apiClient.getMaskingValue(baseUrl, placeholder)
 
-    private fun UpstreamMaskingBucket.toBucket(): MaskingBucket =
-        MaskingBucket(id = id, name = name, n = n)
+    private fun UpstreamMaskingBucket.toBucket(): MaskingBucket = MaskingBucket(
+        // Summary value rows identify themselves by placeholder, not by a numeric id.
+        id = placeholder ?: id,
+        name = name ?: placeholder,
+        n = n
+    )
 
     override suspend fun requests(query: RequestQuery): RequestPage {
         val isFailed = query.statusFilter == "ERROR"

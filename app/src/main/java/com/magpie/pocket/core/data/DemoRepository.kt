@@ -701,8 +701,78 @@ class DemoRepository(private val context: Context? = null, initialJsonString: St
     companion object {
         const val FALLBACK_DEMO_JSON = """
         {
+          "capabilities": { "providers": true, "masking": true },
           "trace": { "epoch": "demo", "seq": 100, "totals": { "completedRequests": 100, "rerouteHandoffs": 5, "finalErrors": 1 } },
-          "overview": { "completedRequests": 50, "finalErrors": 1, "ttftSumMs": 50000, "ttftSampleCount": 25 },
+          "overview": {
+            "completedRequests": 50,
+            "finalErrors": 1,
+            "ttftSumMs": 50000,
+            "ttftSampleCount": 25,
+            "cost": 0.42,
+            "unpriced": 0,
+            "decodeMs": 2000,
+            "decodeOut": 1500,
+            "dailyTrends": [{ "day": "2026-10-22", "requests": 50 }]
+          },
+          "usage": {
+            "cost": 0.42,
+            "unpriced": 0,
+            "credits": 1.5,
+            "decodeMs": 2000,
+            "decodeOut": 1500,
+            "agents": [{ "id": "agent-demo", "name": "demo", "calls": 50, "cost": 0.42, "errors": 1 }],
+            "sessions": [],
+            "accounts": [],
+            "callerKeys": [],
+            "providerKeys": []
+          },
+          "providers": [{
+            "id": "demo",
+            "name": "Demo",
+            "host": "demo.invalid",
+            "ready": true,
+            "off": false,
+            "speaks": ["openai-chat"],
+            "maxConcurrency": 1,
+            "keyList": [{ "name": "demo-key" }],
+            "models": [{
+              "id": "demo-model",
+              "name": "Demo Model",
+              "on": true,
+              "context": 8192,
+              "output": 1024,
+              "images": false,
+              "efforts": [],
+              "list": { "input": 0.1, "output": 0.2 }
+            }]
+          }],
+          "masking": {
+            "summary": {
+              "n": 2,
+              "distinct": 1,
+              "requests": 2,
+              "blocked": 1,
+              "warned": 0,
+              "days": [{ "day": "2026-10-22", "n": 2, "requests": 2 }],
+              "kinds": [{ "k": "EMAIL", "n": 2 }],
+              "by": { "EMAIL": 2 },
+              "agents": [{ "id": "demo", "name": "demo", "n": 2 }],
+              "providers": [{ "id": "demo", "name": "demo", "n": 2 }],
+              "values": [{ "id": "{{EMAIL_1}}", "name": "{{EMAIL_1}}", "n": 2 }]
+            },
+            "records": [{
+              "key": "1",
+              "values": [{ "k": "EMAIL", "n": 1 }],
+              "blocked": false,
+              "t": "2026-10-22T00:00:00Z",
+              "what": "body",
+              "agent": "demo",
+              "provider": "demo",
+              "model": "demo-model",
+              "snips": { "EMAIL_1": "{{EMAIL_1}}" }
+            }],
+            "values": { "{{EMAIL_1}}": "demo@example.test" }
+          },
           "groups": [],
           "accounts": [],
           "quotas": [],

@@ -4,6 +4,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.FormBody
@@ -184,8 +189,19 @@ class MagpieApiClient(
         return executeGet(baseUrl, builder.toString())
     }
 
-    suspend fun getMaskingValue(baseUrl: String, placeholder: String): UpstreamMaskingValue =
-        executeGet(baseUrl, "/api/masking/value?p=${encodeQueryValue(placeholder)}")
+    /**
+     * The reveal endpoint answers with a bare JSON null once the value is no longer in
+     * the upstream memory, so the raw element is decoded instead of a value object.
+     */
+    suspend fun getMaskingValue(baseUrl: String, placeholder: String): String? {
+        val body = executeGet<JsonElement>(
+            baseUrl,
+            "/api/masking/value?p=${encodeQueryValue(placeholder)}"
+        )
+        if (body is JsonNull) return null
+        val valueElement = (body as? JsonObject)?.get("value")
+        return (valueElement as? JsonPrimitive)?.contentOrNull
+    }
 
     private suspend inline fun <reified T> executeGet(
         baseUrl: String,

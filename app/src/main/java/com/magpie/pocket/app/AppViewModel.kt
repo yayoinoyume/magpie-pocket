@@ -207,9 +207,12 @@ class AppViewModel(
     private val _privacyState = MutableStateFlow<PrivacyState>(PrivacyState.Idle)
     val privacyState: StateFlow<PrivacyState> = _privacyState.asStateFlow()
 
-    /** Revealed masking values keyed by placeholder; only ever filled by an explicit reveal. */
-    private val _revealedMaskingValues = MutableStateFlow<Map<String, String>>(emptyMap())
-    val revealedMaskingValues: StateFlow<Map<String, String>> = _revealedMaskingValues.asStateFlow()
+    /**
+     * Revealed masking values keyed by placeholder; only an explicit reveal writes here.
+     * A present key with a null value means the upstream no longer holds that value.
+     */
+    private val _revealedMaskingValues = MutableStateFlow<Map<String, String?>>(emptyMap())
+    val revealedMaskingValues: StateFlow<Map<String, String?>> = _revealedMaskingValues.asStateFlow()
 
     private var activeRepo: MagpieRepository = demoRepo
     private var repoGeneration: Long = 0L
@@ -1236,7 +1239,10 @@ class AppViewModel(
         }
     }
 
-    /** Reveals one masked placeholder; the value is cached so repeat reads stay local. */
+    /**
+     * Reveals one masked placeholder. A null upstream answer is cached as null so the UI
+     * can report that the value is no longer in memory instead of showing nothing.
+     */
     fun revealMaskingValue(placeholder: String) {
         if (placeholder.isBlank()) return
         if (_revealedMaskingValues.value.containsKey(placeholder)) return
@@ -1244,7 +1250,7 @@ class AppViewModel(
         val generation = repoGeneration
         revealJob = viewModelScope.launch {
             try {
-                val value = activeRepo.maskingValue(placeholder) ?: return@launch
+                val value = activeRepo.maskingValue(placeholder)
                 if (generation != repoGeneration) return@launch
                 _revealedMaskingValues.value =
                     _revealedMaskingValues.value + (placeholder to value)

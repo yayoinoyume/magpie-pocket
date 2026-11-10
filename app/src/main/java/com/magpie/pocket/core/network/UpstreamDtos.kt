@@ -507,7 +507,12 @@ data class UpstreamUsageAgent(
     @SerialName("input") val input: Long? = null,
     @SerialName("output") val output: Long? = null,
     @SerialName("cache_read") val cacheRead: Long? = null,
-    @SerialName("cache_write") val cacheWrite: Long? = null
+    @SerialName("cache_write") val cacheWrite: Long? = null,
+    @SerialName("reasoning") val reasoning: Long? = null,
+    @SerialName("ttft_ms") val ttftMs: Long? = null,
+    @SerialName("timed") val timed: Long? = null,
+    @SerialName("decode_out") val decodeOut: Long? = null,
+    @SerialName("decode_ms") val decodeMs: Long? = null
 )
 
 /** One breakdown row for sessions, accounts, caller keys and provider keys. */
@@ -530,7 +535,12 @@ data class UpstreamUsageBreakdown(
     @SerialName("providerKeyId") @Serializable(with = FlexibleStringSerializer::class)
     val providerKeyId: String? = null,
     @SerialName("providerKeyName") val providerKeyName: String? = null,
-    @SerialName("unpriced") val unpriced: Long? = null
+    @SerialName("unpriced") val unpriced: Long? = null,
+    @SerialName("reasoning") val reasoning: Long? = null,
+    @SerialName("ttft_ms") val ttftMs: Long? = null,
+    @SerialName("timed") val timed: Long? = null,
+    @SerialName("decode_out") val decodeOut: Long? = null,
+    @SerialName("decode_ms") val decodeMs: Long? = null
 )
 
 @Serializable
@@ -600,7 +610,9 @@ data class UpstreamMaskingDay(
 
 @Serializable
 data class UpstreamMaskingCount(
+    /** Records report the kind as "k"; the summary reports the same value as "name". */
     @SerialName("k") val kind: String? = null,
+    @SerialName("name") val name: String? = null,
     @SerialName("n") val n: Long? = null
 )
 
@@ -608,6 +620,11 @@ data class UpstreamMaskingCount(
 data class UpstreamMaskingBucket(
     @SerialName("id") val id: String? = null,
     @SerialName("name") val name: String? = null,
+    /** Placeholder used by the reveal endpoint, e.g. {{EMAIL_1}}. */
+    @SerialName("p") val placeholder: String? = null,
+    @SerialName("kind") val kind: String? = null,
+    @SerialName("head") val head: String? = null,
+    @SerialName("len") val len: Long? = null,
     @SerialName("n") val n: Long? = null
 )
 
@@ -631,7 +648,3 @@ data class UpstreamMaskingRecord(
     @SerialName("snips") val snips: Map<String, String>? = null
 )
 
-@Serializable
-data class UpstreamMaskingValue(
-    @SerialName("value") val value: String? = null
-)

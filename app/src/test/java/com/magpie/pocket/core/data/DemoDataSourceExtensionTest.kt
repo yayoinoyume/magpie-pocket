@@ -70,6 +70,30 @@ class DemoDataSourceExtensionTest {
     }
 
     @Test
+    fun fallbackAssetKeepsProvidersAndPrivacyUsable() = runBlocking {
+        val fallback = DemoRepository(initialJsonString = DemoRepository.FALLBACK_DEMO_JSON)
+
+        val providers = fallback.providers()
+        assertEquals(1, providers.size)
+        assertEquals("demo", providers.single().id)
+        assertEquals("demo-model", providers.single().models.single().id)
+        assertEquals(0.1, providers.single().models.single().inputPrice ?: 0.0, 0.0001)
+
+        val summary = fallback.maskingSummary(7)
+        assertEquals(2L, summary.total ?: 0L)
+        assertEquals("EMAIL", summary.kinds.single().kind)
+        assertEquals("{{EMAIL_1}}", summary.values.single().id)
+
+        assertEquals(1, fallback.maskingRecords(MaskingQuery(limit = 10)).items.size)
+        assertEquals("demo@example.test", fallback.maskingValue("{{EMAIL_1}}"))
+
+        val overview = fallback.overview(Period.TODAY)
+        assertEquals(0.42, overview.cost ?: 0.0, 0.0001)
+        assertEquals(1, overview.dailyTrends.size)
+        assertEquals(1.5, fallback.usage(Period.TODAY).credits ?: 0.0, 0.0001)
+    }
+
+    @Test
     fun demoMaskingSummaryRecordsAndValuesAreAvailable() = runBlocking {
         val summary = repo.maskingSummary(30)
         assertEquals(42L, summary.total ?: 0L)

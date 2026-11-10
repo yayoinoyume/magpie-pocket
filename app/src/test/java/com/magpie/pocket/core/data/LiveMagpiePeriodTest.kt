@@ -19,6 +19,7 @@ class LiveMagpiePeriodTest {
 
     private lateinit var server: MockWebServer
     private lateinit var repo: LiveMagpieRepository
+    private var historyFails = false
 
     private val usageJson = """
         {
@@ -39,7 +40,7 @@ class LiveMagpiePeriodTest {
           "series": [{"label": "2026-10-21", "calls": 9, "cost": 0.75}],
           "models": [{"provider": "workbuddy", "model": "m1", "calls": 2, "total": 700}],
           "agents": [{"id": "ag1", "name": "orchestrator", "calls": 5, "cost": 0.5, "errors": 1}],
-          "sessions": [{"id": "s1", "agent": "orchestrator", "calls": 2, "cost": 0.2, "credits": 1.0}],
+          "sessions": [{"id": "s1", "agent": "orchestrator", "calls": 2, "cost": 0.2, "credits": 1.0, "reasoning": 8, "ttft_ms": 700, "timed": 2, "decode_out": 120, "decode_ms": 1000}],
           "accounts": [{"id": "wb-01", "account": "wb-01", "name": "main", "provider": "workbuddy", "calls": 3, "cost": 0.4}],
           "callerKeys": [{"id": "ck1", "name": "IDE", "callerKeyName": "IDE", "calls": 4, "cost": 0.6, "unpriced": 2}],
           "providerKeys": [{"id": "pk1", "provider": "workbuddy", "providerKeyName": "workbuddy-key-01", "calls": 6, "cost": 0.7}]
@@ -60,6 +61,16 @@ class LiveMagpiePeriodTest {
         }]}
     """.trimIndent()
 
+    /** The history endpoint mixes counted days with bare labels and uncounted days. */
+    private val historyJson = """
+        {"days": [
+          {"day": "2026-10-20", "requests": 11},
+          {"day": "2026-10-21", "requests": 9},
+          "2026-10-22",
+          {"day": "2026-10-23"}
+        ]}
+    """.trimIndent()
+
     private val maskingSummaryJson = """
         {
           "n": 42,
@@ -68,11 +79,11 @@ class LiveMagpiePeriodTest {
           "blocked": 3,
           "warned": 12,
           "days": [{"day": "2026-10-21", "n": 18, "requests": 16}],
-          "kinds": [{"k": "EMAIL", "n": 18}],
+          "kinds": [{"name": "EMAIL", "n": 18}],
           "by": {"EMAIL": 18},
           "agents": [{"id": "orchestrator", "name": "orchestrator", "n": 21}],
           "providers": [{"id": "workbuddy", "name": "workbuddy", "n": 26}],
-          "values": [{"id": "<EMAIL_1>", "name": "<EMAIL_1>", "n": 6}]
+          "values": [{"p": "{{EMAIL_1}}", "kind": "EMAIL", "head": "ab", "len": 18, "n": 4}]
         }
     """.trimIndent()
 
@@ -92,6 +103,8 @@ class LiveMagpiePeriodTest {
         server.start()
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse = when {
+                request.path?.startsWith("/api/gateway/history") == true ->
+                    if (historyFails) MockResponse().setResponseCode(500) else json(historyJson)
                 request.path?.startsWith("/api/usage/quotas") == true -> json("[]")
                 request.path?.startsWith("/api/usage") == true -> json(usageJson)
                 request.path == "/api/providers" -> json(providersJson)
@@ -126,25 +139,35 @@ class LiveMagpiePeriodTest {
         for ((period, param) in expected) {
             repo.usage(period)
             assertEquals("/api/usage?period=" + param, server.takeRequest().path)
+
             assertEquals(period, repo.overview(period).period)
             assertEquals("/api/usage?period=" + param, server.takeRequest().path)
+            assertEquals("/api/gateway/history", server.takeRequest().path)
         }
     }
 
     @Test
-    fun onlyMultiDayPeriodsExposeDailyTrends() = runBlocking {
-        val today = repo.overview(Period.TODAY)
-        assertTrue(today.dailyTrends.isEmpty())
-        assertEquals(1, today.hourlyTrends.size)
+    fun overviewMapsHistoryDaysIntoDailyTrends() = runBlocking {
+        val overview = repo.overview(Period.TODAY)
 
-        val month = repo.overview(Period.THIRTY_DAYS)
-        assertEquals(1, month.dailyTrends.size)
-        assertEquals("2026-10-21", month.dailyTrends.single().dayLabel)
-        assertEquals(9L, month.dailyTrends.single().completedRequests)
-        assertEquals(1.25, month.cost ?: 0.0, 0.0001)
-        assertEquals(3L, month.unpriced ?: 0L)
-        assertEquals(4000L, month.decodeMs ?: 0L)
-        assertEquals(600L, month.decodeOut ?: 0L)
+        assertEquals(1, overview.hourlyTrends.size)
+        // Bare day labels and days without a count stay out instead of becoming zero.
+        assertEquals(listOf("2026-10-20", "2026-10-21"), overview.dailyTrends.map { it.dayLabel })
+        assertEquals(listOf(11L, 9L), overview.dailyTrends.map { it.completedRequests })
+        assertEquals(1.25, overview.cost ?: 0.0, 0.0001)
+        assertEquals(4000L, overview.decodeMs ?: 0L)
+    }
+
+    @Test
+    fun dailyTrendsStayEmptyWhenHistoryFails() = runBlocking {
+        historyFails = true
+
+        val overview = repo.overview(Period.THIRTY_DAYS)
+
+        assertTrue(overview.dailyTrends.isEmpty())
+        // The rest of the overview is still filled from usage.
+        assertEquals(12L, overview.completedRequests)
+        assertEquals(1.25, overview.cost ?: 0.0, 0.0001)
     }
 
     @Test
@@ -164,7 +187,14 @@ class LiveMagpiePeriodTest {
         assertEquals(1L, agent.errors ?: 0L)
 
         // A session row is labelled by its owning agent, an account row by its account name.
-        assertEquals("orchestrator", usage.sessions.single().label)
+        val session = usage.sessions.single()
+        assertEquals("orchestrator", session.label)
+        assertEquals(8L, session.reasoning ?: 0L)
+        assertEquals(700L, session.ttftMs ?: 0L)
+        assertEquals(2L, session.timed ?: 0L)
+        assertEquals(120L, session.decodeOut ?: 0L)
+        assertEquals(1000L, session.decodeMs ?: 0L)
+
         assertEquals("main", usage.accounts.single().label)
         assertEquals("workbuddy", usage.accounts.single().provider)
         assertEquals("IDE", usage.callerKeys.single().label)
@@ -197,11 +227,17 @@ class LiveMagpiePeriodTest {
         assertEquals(42L, summary.total ?: 0L)
         assertEquals(5L, summary.distinct ?: 0L)
         assertEquals("2026-10-21", summary.days.single().dayLabel)
+        // Summary kinds are named upstream; the domain carries the resolved kind label.
         assertEquals("EMAIL", summary.kinds.single().kind)
         assertEquals(18, summary.by["EMAIL"])
         assertEquals(21L, summary.agents.single().n ?: 0L)
         assertEquals(1, summary.providers.size)
-        assertEquals(6L, summary.values.single().n ?: 0L)
+
+        // A summary value row is keyed by its placeholder, which the reveal panel needs.
+        val value = summary.values.single()
+        assertEquals("{{EMAIL_1}}", value.id)
+        assertEquals("{{EMAIL_1}}", value.name)
+        assertEquals(4L, value.n ?: 0L)
 
         val page = repo.maskingRecords(MaskingQuery(limit = 20))
         assertEquals("/api/masking/records?limit=20", server.takeRequest().path)
@@ -214,7 +250,7 @@ class LiveMagpiePeriodTest {
         assertFalse(page.items.first().snippets.isEmpty())
         assertTrue(page.more)
 
-        assertEquals("demo@example.test", repo.maskingValue("<EMAIL_1>"))
-        assertEquals("/api/masking/value?p=%3CEMAIL_1%3E", server.takeRequest().path)
+        assertEquals("demo@example.test", repo.maskingValue("{{EMAIL_1}}"))
+        assertEquals("/api/masking/value?p=%7B%7BEMAIL_1%7D%7D", server.takeRequest().path)
     }
 }

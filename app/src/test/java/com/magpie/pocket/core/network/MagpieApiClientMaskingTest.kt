@@ -5,6 +5,7 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -65,10 +66,28 @@ class MagpieApiClientMaskingTest {
 
         val value = client.getMaskingValue(server.url("/").toString(), "<EMAIL 1>&x")
 
-        assertEquals("demo@example.test", value.value)
+        assertEquals("demo@example.test", value)
         val path = server.takeRequest().path ?: ""
         assertTrue(path.startsWith("/api/masking/value?p="))
         assertEquals("/api/masking/value?p=%3CEMAIL%201%3E%26x", path)
+    }
+
+    @Test
+    fun maskingValueReturnsNullOnBareJsonNull() = runBlocking {
+        server.enqueue(json("null"))
+
+        val value = client.getMaskingValue(server.url("/").toString(), "{{EMAIL_1}}")
+
+        assertNull(value)
+    }
+
+    @Test
+    fun maskingValueReturnsNullOnExplicitNullValue() = runBlocking {
+        server.enqueue(json("""{"value":null}"""))
+
+        val value = client.getMaskingValue(server.url("/").toString(), "{{EMAIL_1}}")
+
+        assertNull(value)
     }
 
     @Test

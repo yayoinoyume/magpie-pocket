@@ -259,7 +259,12 @@ data class UsageBreakdownItem(
     val output: Long? = null,
     val cacheRead: Long? = null,
     val cacheWrite: Long? = null,
-    val unpriced: Long? = null
+    val unpriced: Long? = null,
+    val reasoning: Long? = null,
+    val ttftMs: Long? = null,
+    val timed: Long? = null,
+    val decodeOut: Long? = null,
+    val decodeMs: Long? = null
 )
 
 @Serializable

@@ -23,7 +23,7 @@ class UpstreamExtensionParsingTest {
               "decode_out": 600,
               "series": [{"label": "2026-10-21", "calls": 9, "cost": 0.75}],
               "agents": [{"id": 7, "name": "orchestrator", "calls": 5, "cost": 0.5, "errors": 1, "input": 10, "output": 20, "cache_read": 30, "cache_write": 40}],
-              "sessions": [{"id": "s1", "agent": "orchestrator", "calls": 2, "cost": 0.2, "credits": 1.0, "input": 5, "output": 6, "errors": 0}],
+              "sessions": [{"id": "s1", "agent": "orchestrator", "calls": 2, "cost": 0.2, "credits": 1.0, "input": 5, "output": 6, "errors": 0, "reasoning": 7, "ttft_ms": 900, "timed": 4, "decode_out": 120, "decode_ms": 1000}],
               "accounts": [{"id": "a1", "account": "wb-01", "name": "main", "provider": "workbuddy", "calls": 3, "cost": 0.4, "credits": 2.0, "errors": 1}],
               "callerKeys": [{"id": "ck1", "callerKeyId": "ck1", "name": "IDE", "callerKeyName": "IDE", "calls": 4, "cost": 0.6, "credits": 0.0, "errors": 0, "unpriced": 2}],
               "providerKeys": [{"id": "pk1", "providerKeyId": "pk1", "provider": "workbuddy", "providerKeyName": "workbuddy-key-01", "calls": 6, "cost": 0.7, "credits": 0.0}]
@@ -44,7 +44,13 @@ class UpstreamExtensionParsingTest {
         assertEquals(1L, agent.errors ?: 0L)
         assertEquals(40L, agent.cacheWrite ?: 0L)
 
-        assertEquals("orchestrator", usage.sessions?.single()?.agent)
+        val session = usage.sessions?.single() ?: error("missing session row")
+        assertEquals("orchestrator", session.agent)
+        assertEquals(7L, session.reasoning ?: 0L)
+        assertEquals(900L, session.ttftMs ?: 0L)
+        assertEquals(4L, session.timed ?: 0L)
+        assertEquals(120L, session.decodeOut ?: 0L)
+        assertEquals(1000L, session.decodeMs ?: 0L)
         assertEquals(2.0, usage.accounts?.single()?.credits ?: 0.0, 0.0001)
         assertEquals("IDE", usage.callerKeys?.single()?.callerKeyName)
         assertEquals(2L, usage.callerKeys?.single()?.unpriced ?: 0L)
@@ -107,7 +113,7 @@ class UpstreamExtensionParsingTest {
     }
 
     @Test
-    fun maskingSummaryParsesDaysKindsAndBuckets() {
+    fun maskingSummaryParsesNamedKindsAndPlaceholderBuckets() {
         val summary = json.decodeFromString(UpstreamMaskingSummary.serializer(), 
             """
             {
@@ -117,11 +123,11 @@ class UpstreamExtensionParsingTest {
               "blocked": 3,
               "warned": 12,
               "days": [{"day": "2026-10-21", "n": 18, "requests": 16}],
-              "kinds": [{"k": "EMAIL", "n": 18}, {"k": "API_KEY", "n": 9}],
+              "kinds": [{"name": "EMAIL", "n": 18}, {"k": "API_KEY", "n": 9}],
               "by": {"EMAIL": 18, "API_KEY": 9},
               "agents": [{"id": "orchestrator", "name": "orchestrator", "n": 21}],
               "providers": [{"id": "workbuddy", "name": "workbuddy", "n": 26}],
-              "values": [{"id": "<EMAIL_1>", "name": "<EMAIL_1>", "n": 6}]
+              "values": [{"p": "{{EMAIL_1}}", "kind": "EMAIL", "head": "ab", "len": 18, "n": 4}]
             }
             """.trimIndent()
         )
@@ -131,11 +137,21 @@ class UpstreamExtensionParsingTest {
         assertEquals(12L, summary.warned ?: 0L)
         assertEquals("2026-10-21", summary.days?.single()?.day)
         assertEquals(16L, summary.days?.single()?.requests ?: 0L)
-        assertEquals(listOf("EMAIL", "API_KEY"), summary.kinds?.map { it.kind })
+        // The summary names the kind, records use "k"; both must resolve to the same value.
+        assertEquals(listOf("EMAIL", "API_KEY"), summary.kinds?.map { it.kind ?: it.name })
+        assertEquals("EMAIL", summary.kinds?.first()?.name)
+        assertNull(summary.kinds?.first()?.kind)
+        assertEquals("API_KEY", summary.kinds?.last()?.kind)
         assertEquals(18, summary.by?.get("EMAIL"))
         assertEquals(21L, summary.agents?.single()?.n ?: 0L)
         assertEquals("workbuddy", summary.providers?.single()?.name)
-        assertEquals("<EMAIL_1>", summary.values?.single()?.name)
+        val value = summary.values?.single() ?: error("missing value bucket")
+        assertEquals("{{EMAIL_1}}", value.placeholder)
+        assertEquals("EMAIL", value.kind)
+        assertEquals("ab", value.head)
+        assertEquals(18L, value.len ?: 0L)
+        assertEquals(4L, value.n ?: 0L)
+        assertNull(value.id)
     }
 
     @Test
@@ -161,15 +177,6 @@ class UpstreamExtensionParsingTest {
         assertEquals("702", (records[1].key as JsonPrimitive).content)
         assertEquals(true, records[1].blocked)
         assertEquals(true, resp.more)
-    }
-
-    @Test
-    fun maskingValueParsesAndKeepsNullWhenAbsent() {
-        val value = json.decodeFromString(UpstreamMaskingValue.serializer(), """{"value": "demo@example.test"}""")
-        assertEquals("demo@example.test", value.value)
-
-        val empty = json.decodeFromString(UpstreamMaskingValue.serializer(), """{}""")
-        assertNull(empty.value)
     }
 
     @Test
