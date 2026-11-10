@@ -11,7 +11,9 @@ import com.magpie.pocket.core.model.RequestKey
 import com.magpie.pocket.core.model.RequestSummary
 import com.magpie.pocket.core.model.SourceMeta
 import com.magpie.pocket.core.model.TraceSnapshot
+import com.magpie.pocket.core.model.TraceTotals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -58,6 +60,19 @@ class RoutingPresentationTest {
         val other = request("9", "g2", FinalState.IN_PROGRESS, "2026-10-22T12:00:09Z")
         val trace = snapshot(runningIds = listOf("9"), routes = listOf(other))
         assertNull(chooseLiveRoute(trace, "g1"))
+    }
+
+    @Test
+    fun startupFooterNeedsAnObservableTraceWithTotals() {
+        val totals = TraceTotals(completedRequests = 3, rerouteHandoffs = 1, finalErrors = 0)
+        // No trace at all: the footer has no evidence to print.
+        assertFalse(shouldShowStartupTotals(null))
+        // A trace that is not mine cannot be trusted to report this connection's counts.
+        assertFalse(shouldShowStartupTotals(emptySnapshot().copy(observable = false, totals = totals)))
+        // Observable but no totals on the wire: zeros would claim counts never sent.
+        assertFalse(shouldShowStartupTotals(emptySnapshot().copy(totals = null)))
+        // Observable with totals is the only case that renders the footer.
+        assertTrue(shouldShowStartupTotals(emptySnapshot().copy(totals = totals)))
     }
 
     @Test
@@ -238,6 +253,8 @@ class RoutingPresentationTest {
         attempts = attempts,
         meta = SourceMeta("c", DataMode.LIVE, startedAt, startedAt, coverage = Coverage.RECENT_ONLY)
     )
+
+    private fun emptySnapshot() = snapshot(emptyList(), emptyList())
 
     private fun snapshot(runningIds: List<String>, routes: List<RequestSummary>) = TraceSnapshot(
         epoch = "e",

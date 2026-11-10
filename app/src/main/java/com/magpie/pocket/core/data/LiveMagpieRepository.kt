@@ -202,11 +202,14 @@ class LiveMagpieRepository(
                         runningRouteIds = running,
                         recentRoutes = details.map { it.summary },
                         recentDetails = details,
-                        totals = TraceTotals(
-                            completedRequests = totals?.requests ?: 0L,
-                            rerouteHandoffs = totals?.rerouted ?: 0L,
-                            finalErrors = totals?.errors ?: 0L
-                        )
+                        // No totals on the wire means nothing to print, not a zero count.
+                        totals = totals?.let {
+                            TraceTotals(
+                                completedRequests = it.requests,
+                                rerouteHandoffs = it.rerouted,
+                                finalErrors = it.errors
+                            )
+                        }
                     )
                 )
 

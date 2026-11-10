@@ -98,6 +98,7 @@ import com.magpie.pocket.core.routing.RoutePhase
 import com.magpie.pocket.core.routing.RouteSettle
 import com.magpie.pocket.core.routing.attemptEvidence
 import com.magpie.pocket.core.routing.routePhase
+import com.magpie.pocket.core.routing.shouldShowStartupTotals
 import com.magpie.pocket.core.routing.timelineState
 import com.magpie.pocket.core.routing.visibleProviderIds
 import com.magpie.pocket.core.util.MetricCalculators
@@ -309,9 +310,9 @@ fun RoutingScreen(
             }
         }
 
-        // A trace that is not observable, or carries no totals, has no footer to show.
-        // Printing zeros would claim a count this connection never reported.
-        val traceTotals = trace?.takeIf { it.observable }?.totals
+        // One rule decides the footer: an unobservable trace, or one without totals,
+        // has nothing to print and must not show zeros.
+        val traceTotals = trace?.takeIf { shouldShowStartupTotals(it) }?.totals
         if (traceTotals != null) {
             item {
                 PageBlock {
