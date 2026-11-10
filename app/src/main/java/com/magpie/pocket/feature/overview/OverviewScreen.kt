@@ -115,12 +115,16 @@ fun OverviewScreen(
         cost.value == null -> "未提供计价"
         else -> "${cost.unpriced} 次未计价"
     }
+    // Errors outrank a healthy session; a connected session outranks the data stage, so
+    // the strip never says "同步中" for a connection that has already answered.
     val connectionLabel = when {
         !isOnline -> "离线"
-        connectionStatus.health != ConnectionHealth.CONNECTED ->
+        connectionStatus.health != ConnectionHealth.CONNECTED &&
+            connectionStatus.health != ConnectionHealth.CONNECTING ->
             connectionHealthLabel(connectionStatus.health)
-        isLoading && overview == null -> "同步中"
-        else -> "已连接"
+        connectionStatus.health == ConnectionHealth.CONNECTED -> "已连接"
+        isLoading -> "同步中"
+        else -> connectionHealthLabel(connectionStatus.health)
     }
     val hourlyPoints = overview?.hourlyTrends.orEmpty()
 

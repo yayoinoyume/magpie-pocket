@@ -44,6 +44,7 @@ import com.magpie.pocket.core.network.UpstreamHistoryDay
 import com.magpie.pocket.core.network.UpstreamMaskingBucket
 import com.magpie.pocket.core.network.UpstreamRoute
 import com.magpie.pocket.core.network.UpstreamSeriesPoint
+import com.magpie.pocket.core.network.UpstreamTraceResponse
 import com.magpie.pocket.core.network.UpstreamTry
 import com.magpie.pocket.core.network.UpstreamUsageAgent
 import com.magpie.pocket.core.network.UpstreamUsageBreakdown
@@ -68,7 +69,9 @@ class LiveMagpieRepository(
     /** The connection sheet already signed in on [apiClient]; never sign in twice for it. */
     verifiedSession: Boolean = false,
     /** Runs as soon as the session answers, before the capability and panel loads. */
-    private val onSessionReady: () -> Unit = {}
+    private val onSessionReady: () -> Unit = {},
+    /** Runs when the probe's trace snapshot is known, still before the group list lands. */
+    private val onTraceProbeReady: () -> Unit = {}
 ) : MagpieRepository {
 
     private val cachedRoutes = ConcurrentHashMap<String, UpstreamRoute>()
@@ -78,7 +81,13 @@ class LiveMagpieRepository(
     private var hasObservedTrace: Boolean = false
     private var sessionReady: Boolean = verifiedSession
 
+    /** Probe bodies reused by this refresh's data stage instead of a second read. */
+    private var probeGroups: UpstreamGroupsResponse? = null
+    private var traceSeed: UpstreamTraceResponse? = null
+
     override suspend fun probe(): Capabilities {
+        probeGroups = null
+        traceSeed = null
         val result = try {
             MagpieSession.connect(
                 client = apiClient,
@@ -88,6 +97,11 @@ class LiveMagpieRepository(
                 onStateReady = {
                     sessionReady = true
                     onSessionReady()
+                },
+                onTraceProbed = { trace ->
+                    // Store the snapshot before waking the loop so the loop can seed from it.
+                    traceSeed = trace
+                    if (trace?.mine == true) onTraceProbeReady()
                 }
             )
         } catch (e: AuthenticationRequiredException) {
@@ -96,6 +110,7 @@ class LiveMagpieRepository(
             throw e
         }
         sessionReady = true
+        probeGroups = result.groups
         return result.capabilities
     }
 
@@ -106,11 +121,11 @@ class LiveMagpieRepository(
 
     /**
      * `/api/groups` answers both the group list and the account rows, and the overview and
-     * the usage screen both read today's `/api/usage`. Callers that ask while one of those
-     * reads is still in flight share it instead of opening a second request.
+     * the usage screen both read today's `/api/usage`. The probe's group body is served to
+     * both callers for the same refresh; a read outside a probe shares in-flight work.
      */
     private suspend fun groupsResponse(): UpstreamGroupsResponse =
-        pendingRequests.share("groups") { apiClient.getGroups(baseUrl) }
+        probeGroups ?: pendingRequests.share("groups") { apiClient.getGroups(baseUrl) }
 
     private suspend fun usageResponse(period: Period): UpstreamUsageResponse {
         val param = periodParam(period)
@@ -196,11 +211,16 @@ class LiveMagpieRepository(
     override fun observeTrace(): Flow<TraceSnapshot> = flow {
         ensureSession()
         var currentSeq = 0L
+        // The probe already read the current snapshot. Emit it and continue from its
+        // sequence instead of opening a second `after=0` read. A loop that runs again
+        // after a failure keeps the old behaviour and re-reads from the start.
+        var pending = if (hasObservedTrace) null else traceSeed.also { traceSeed = null }
 
         while (true) {
             try {
                 val previousSeq = currentSeq
-                val resp = apiClient.getTraceSnapshot(baseUrl, currentSeq)
+                val resp = pending ?: apiClient.getTraceSnapshot(baseUrl, currentSeq)
+                pending = null
                 val epochChanged = resp.epoch != lastEpoch
                 val seqRolledBack = hasObservedTrace && resp.seq < lastSeq
                 val restarted = hasObservedTrace && (epochChanged || seqRolledBack)
@@ -826,34 +846,39 @@ private class PendingRequests {
 
     @Suppress("UNCHECKED_CAST")
     suspend fun <T : Any> share(key: String, load: suspend () -> T): T {
-        val (slot, isLeader) = synchronized(lock) {
-            val existing = inFlight[key]
-            if (existing != null) {
-                existing to false
-            } else {
-                CompletableDeferred<Any>().also { inFlight[key] = it } to true
+        while (true) {
+            val (slot, isLeader) = synchronized(lock) {
+                val existing = inFlight[key]
+                if (existing != null) {
+                    existing to false
+                } else {
+                    CompletableDeferred<Any>().also { inFlight[key] = it } to true
+                }
             }
-        }
 
-        if (!isLeader) {
+            if (isLeader) {
+                return try {
+                    val value = load()
+                    // Complete before releasing the slot: a caller that arrives in between
+                    // still awaits this answer instead of opening a second request.
+                    slot.complete(value)
+                    synchronized(lock) { if (inFlight[key] === slot) inFlight.remove(key) }
+                    value
+                } catch (e: Throwable) {
+                    slot.completeExceptionally(e)
+                    synchronized(lock) { if (inFlight[key] === slot) inFlight.remove(key) }
+                    throw e
+                }
+            }
+
             try {
                 return slot.await() as T
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
-                // The read this caller waited for failed; answer it privately.
+                // The shared read failed; re-register so this caller and later callers
+                // share one fresh read instead of each launching a private one.
             }
-        }
-
-        return try {
-            val value = load()
-            synchronized(lock) { if (inFlight[key] === slot) inFlight.remove(key) }
-            slot.complete(value)
-            value
-        } catch (e: Throwable) {
-            slot.completeExceptionally(e)
-            synchronized(lock) { if (inFlight[key] === slot) inFlight.remove(key) }
-            throw e
         }
     }
 }

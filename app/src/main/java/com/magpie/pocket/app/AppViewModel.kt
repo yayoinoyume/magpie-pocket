@@ -54,6 +54,7 @@ import com.magpie.pocket.core.security.PreferencesManager
 import com.magpie.pocket.core.util.MetricCalculators
 import com.magpie.pocket.core.util.RequestTimestamps
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -67,6 +68,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -74,6 +76,13 @@ import java.util.TimeZone
 
 interface ConnectionStateSource {
     fun getConnection(): ConnectionConfig
+
+    /**
+     * Reads the saved connection. The production source moves the Keystore read off the
+     * caller's thread; an in-memory test source may answer immediately.
+     */
+    suspend fun loadConnection(): ConnectionConfig = getConnection()
+
     fun saveConnection(config: ConnectionConfig)
     fun clearCredentials()
 }
@@ -89,6 +98,8 @@ interface DisplayPreferencesSource {
 
 class CredentialStoreConnectionSource(private val store: CredentialStore) : ConnectionStateSource {
     override fun getConnection(): ConnectionConfig = store.getConnection()
+    override suspend fun loadConnection(): ConnectionConfig =
+        withContext(Dispatchers.IO) { store.getConnection() }
     override fun saveConnection(config: ConnectionConfig) = store.saveConnection(config)
     override fun clearCredentials() = store.clearCredentials()
 }
@@ -102,6 +113,13 @@ class PreferencesManagerDisplaySource(private val manager: PreferencesManager) :
     override suspend fun updateKeepLiveConnectionInBackground(enabled: Boolean) =
         manager.updateKeepLiveConnectionInBackground(enabled)
 }
+
+/** First frame only: the saved connection is read off the main thread. */
+private val PENDING_CONNECTION = ConnectionConfig(
+    id = "pending-connection",
+    name = "正在读取连接",
+    mode = DataMode.LIVE
+)
 
 class AppViewModel(
     private val credentialStore: ConnectionStateSource,
@@ -125,8 +143,14 @@ class AppViewModel(
     private var validationPending = false
     private var notificationPermissionRequestClaimed = false
 
-    private val _connectionConfig = MutableStateFlow(credentialStore.getConnection())
+    /**
+     * Starts on a LIVE placeholder and is replaced once the Keystore read answers. A demo
+     * placeholder would flash demo data on a live connection.
+     */
+    private val _connectionConfig = MutableStateFlow(PENDING_CONNECTION)
     val connectionConfig: StateFlow<ConnectionConfig> = _connectionConfig.asStateFlow()
+    private var connectionLoaded = false
+    private var connectionLoadJob: Job? = null
 
     private val _displayPreferences = MutableStateFlow(DisplayPreferences())
     val displayPreferences: StateFlow<DisplayPreferences> = _displayPreferences.asStateFlow()
@@ -213,7 +237,8 @@ class AppViewModel(
     private val _connectionStatus = MutableStateFlow(ConnectionStatus(ConnectionHealth.CONNECTING))
     val connectionStatus: StateFlow<ConnectionStatus> = _connectionStatus.asStateFlow()
 
-    private val _isLoading = MutableStateFlow(false)
+    /** True until the first snapshot lands; the first frame is a load, not a demo. */
+    private val _isLoading = MutableStateFlow(true)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
     private val _capabilities = MutableStateFlow<Capabilities?>(null)
@@ -348,8 +373,16 @@ class AppViewModel(
             }
         }
 
-        // Initialize active repository
-        setupRepository(_connectionConfig.value)
+        // The saved connection is a Keystore read. Build the repository only after that
+        // disk work answers; until then the first screen stays on "同步中" instead of
+        // showing demo data or blocking the main thread.
+        connectionLoadJob = viewModelScope.launch {
+            val config = credentialStore.loadConnection()
+            if (connectionLoaded) return@launch
+            connectionLoaded = true
+            _connectionConfig.value = config
+            setupRepository(config)
+        }
     }
 
     /**
@@ -414,7 +447,10 @@ class AppViewModel(
                 webKey = config.webKey,
                 verifiedSession = preparedClient != null,
                 // A successful /api/state already is the session; panels may land later.
-                onSessionReady = { markConnected() }
+                onSessionReady = { markConnected() },
+                // A supported trace starts as soon as its probe answer exists, before the
+                // group list and every panel.
+                onTraceProbeReady = { startTraceFromProbe(generation) }
             )
         } else {
             demoRepo
@@ -428,6 +464,7 @@ class AppViewModel(
     }
 
     fun refreshAll() {
+        if (!connectionLoaded) return
         val generation = repoGeneration
         if (!runtimePermitted(generation)) return
         validationPending = false
@@ -501,7 +538,7 @@ class AppViewModel(
             // Overview is always "today"; the usage period must not relabel it. Both read
             // the same usage endpoint while the period is today, and the repository serves
             // that one read to both callers.
-            val overviewJob = if (cap.usage) {
+            val overviewJob = if (cap.usage != false) {
                 async { refreshStep { _overview.value = activeRepo.overview(Period.TODAY) } }
             } else null
             val groupsJob = if (cap.groups) {
@@ -510,13 +547,13 @@ class AppViewModel(
             val accountsJob = if (cap.groups) {
                 async { refreshStep { _accounts.value = activeRepo.accounts() } }
             } else null
-            val usageJob = if (cap.usage) {
+            val usageJob = if (cap.usage != false) {
                 async { refreshStep { _usage.value = activeRepo.usage(_selectedPeriod.value) } }
             } else null
-            val quotasJob = if (cap.quotas) {
+            val quotasJob = if (cap.quotas != false) {
                 async { refreshStep { _quotas.value = activeRepo.quotas() } }
             } else null
-            val ledgerJob = if (cap.ledger) {
+            val ledgerJob = if (cap.ledger != false) {
                 async { refreshStep { applyRequestsPage(generation, append = false) } }
             } else null
             RefreshSteps(
@@ -530,15 +567,14 @@ class AppViewModel(
         }
         if (generation != repoGeneration) return
 
-        // A 404 is the upstream saying the panel does not exist; only then is the
-        // capability dropped, so a server without quotas still shows everything else.
+        // A 200 proves a panel capability and a 404 denies it; any other failure leaves
+        // the previous answer alone, so an unknown panel is never claimed just because
+        // its request was scheduled.
         val supported = cap.copy(
-            usage = cap.usage &&
-                steps.usage != RefreshStep.Unsupported &&
-                steps.overview != RefreshStep.Unsupported,
+            usage = resolveUsageCapability(cap.usage, steps.usage, steps.overview),
             groups = cap.groups && steps.groups != RefreshStep.Unsupported,
-            quotas = cap.quotas && steps.quotas != RefreshStep.Unsupported,
-            ledger = cap.ledger && steps.requests != RefreshStep.Unsupported
+            quotas = resolveCapability(cap.quotas, steps.quotas),
+            ledger = resolveCapability(cap.ledger, steps.requests)
         )
         if (supported != cap) _capabilities.value = supported
 
@@ -570,6 +606,29 @@ class AppViewModel(
     } catch (e: Exception) {
         if (isAuthFailure(e)) throw e
         RefreshStep.Failed(e)
+    }
+
+    /** A loaded panel proves the capability; a 404 denies it; a failure keeps the answer. */
+    private fun resolveCapability(known: Boolean?, step: RefreshStep?): Boolean? = when (step) {
+        RefreshStep.Loaded -> true
+        RefreshStep.Unsupported -> false
+        else -> known
+    }
+
+    /** The overview and the usage screen share one endpoint, so both must answer. */
+    private fun resolveUsageCapability(
+        known: Boolean?,
+        usage: RefreshStep?,
+        overview: RefreshStep?
+    ): Boolean? = when {
+        usage == RefreshStep.Unsupported || overview == RefreshStep.Unsupported -> false
+        usage == RefreshStep.Loaded && overview == RefreshStep.Loaded -> true
+        else -> known
+    }
+
+    /** Records what a lazy load's first real request learned about its capability. */
+    private fun updateCapabilities(resolve: (Capabilities) -> Capabilities) {
+        _capabilities.value = _capabilities.value?.let(resolve)
     }
 
     private fun isAuthFailure(error: Throwable): Boolean =
@@ -628,6 +687,17 @@ class AppViewModel(
             error.message ?: "连接服务失败，请稍后重试。"
         )
         else -> ConnectionStatus(ConnectionHealth.OFFLINE, "连接服务失败，请稍后重试。")
+    }
+
+    /**
+     * Starts the trace loop from the probe's own snapshot, before the probe returns and
+     * before the panels. The repository already stored that snapshot, so the loop's first
+     * round emits it and continues after its sequence instead of repeating `after=0`.
+     */
+    private fun startTraceFromProbe(generation: Long) {
+        if (generation != repoGeneration || !runtimeMayRun(generation)) return
+        if (traceJob?.isActive == true) return
+        startObservingTrace(generation)
     }
 
     private fun ensureTraceLoop(generation: Long) {
@@ -727,6 +797,7 @@ class AppViewModel(
     /** Demo is local; LIVE networking requires foreground or an active opted-in service. */
     private fun runtimeMayRun(generation: Long): Boolean {
         if (generation != repoGeneration) return false
+        if (!connectionLoaded) return false
         if (_connectionConfig.value.mode == DataMode.DEMO) return true
         if (isAuthFailureState()) return false
         return runtimePermitted(generation)
@@ -757,6 +828,8 @@ class AppViewModel(
         val wasResumed = activityResumed
         lifecycleStarted = true
         activityResumed = true
+        // setupRepository refreshes once the saved connection arrives.
+        if (!connectionLoaded) return
         if (_connectionConfig.value.mode == DataMode.DEMO) return
         ensureRuntimeLoops()
         if (!wasResumed) requestRuntimeValidation()
@@ -853,6 +926,8 @@ class AppViewModel(
     }
 
     private fun reconcileKeepalive() {
+        // A placeholder connection must never start a foreground service.
+        if (!connectionLoaded) return
         if (!_displayPreferencesReady.value) {
             // Never start a foreground service from the default preference value.
             // Foreground LIVE networking remains available through activityResumed.
@@ -919,6 +994,7 @@ class AppViewModel(
 
     /** Foreground/network/service signals share one bounded, deduplicated recovery loop. */
     private fun requestRecovery() {
+        if (!connectionLoaded) return
         val generation = repoGeneration
         if (_connectionConfig.value.mode != DataMode.LIVE) return
         if (!runtimeMayRun(generation)) return
@@ -1332,11 +1408,13 @@ class AppViewModel(
             try {
                 val providers = activeRepo.providers()
                 if (generation != repoGeneration) return@launch
+                updateCapabilities { it.copy(providers = true) }
                 _providerCatalogState.value = ProviderCatalogState.Ready(providers)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: ResourceNotFoundException) {
                 if (generation != repoGeneration) return@launch
+                updateCapabilities { it.copy(providers = false) }
                 _providerCatalogState.value = ProviderCatalogState.Unsupported
             } catch (e: Exception) {
                 if (generation != repoGeneration) return@launch
@@ -1378,6 +1456,7 @@ class AppViewModel(
                     MaskingQuery(limit = PRIVACY_PAGE_SIZE, kind = kind)
                 )
                 if (generation != repoGeneration) return@launch
+                updateCapabilities { it.copy(masking = true) }
                 _privacyState.value = PrivacyState.Ready(
                     selectedDays = days,
                     summary = summary,
@@ -1389,6 +1468,7 @@ class AppViewModel(
                 throw e
             } catch (e: ResourceNotFoundException) {
                 if (generation != repoGeneration) return@launch
+                updateCapabilities { it.copy(masking = false) }
                 _privacyState.value = PrivacyState.Unsupported
             } catch (e: Exception) {
                 if (generation != repoGeneration) return@launch
@@ -1536,6 +1616,9 @@ class AppViewModel(
      */
     fun saveConnection(newConfig: ConnectionConfig, verifiedClient: MagpieApiClient? = null) {
         credentialStore.saveConnection(newConfig)
+        connectionLoadJob?.cancel()
+        connectionLoadJob = null
+        connectionLoaded = true
         _connectionConfig.value = newConfig
         setupRepository(newConfig, verifiedClient)
     }
@@ -1549,6 +1632,9 @@ class AppViewModel(
             name = "主网关",
             mode = DataMode.DEMO
         )
+        connectionLoadJob?.cancel()
+        connectionLoadJob = null
+        connectionLoaded = true
         _connectionConfig.value = demoConfig
         setupRepository(demoConfig)
     }

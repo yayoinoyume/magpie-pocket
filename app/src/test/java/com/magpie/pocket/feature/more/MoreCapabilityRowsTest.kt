@@ -25,7 +25,7 @@ class MoreCapabilityRowsTest {
 
     @Test
     fun unsupportedAndUnknownAreDifferentAnswers() {
-        val rows = capabilityRows(Capabilities(trace = false))
+        val rows = capabilityRows(Capabilities(trace = false, ledger = true))
 
         assertEquals(false, rows.first { it.first == "路由追踪" }.second)
         assertEquals(true, rows.first { it.first == "历史账本" }.second)

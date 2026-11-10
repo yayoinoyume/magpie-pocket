@@ -273,17 +273,22 @@ data class UsageBreakdownItem(
     val decodeMs: Long? = null
 )
 
+/**
+ * What the upstream allows. Trace, groups, history and request detail are answered by the
+ * probe or the route shape; the panel capabilities stay null until a real request answers
+ * 200/404, so the UI can print an em dash instead of borrowing a default.
+ */
 @Serializable
 data class Capabilities(
     val trace: Boolean = true,
     val history: Boolean = true,
     val requestDetail: Boolean = true,
-    val usage: Boolean = true,
-    val ledger: Boolean = true,
-    val quotas: Boolean = true,
+    val usage: Boolean? = null,
+    val ledger: Boolean? = null,
+    val quotas: Boolean? = null,
     val groups: Boolean = true,
-    val providers: Boolean = false,
-    val masking: Boolean = false,
+    val providers: Boolean? = null,
+    val masking: Boolean? = null,
     val statisticsTimeZone: String? = null,
     val verifiedDeploymentVersion: String? = null
 )
