@@ -287,6 +287,9 @@ fun MainAppRoot(viewModel: AppViewModel) {
                     runningRequest = runningRequest,
                     quotas = quotas,
                     isLoading = isLoading,
+                    isOnline = isOnline,
+                    connectionStatus = connectionStatus,
+                    isDemo = connectionConfig.mode == DataMode.DEMO,
                     onNavigateToRouting = { _ ->
                         viewModel.resetToLatest()
                         viewModel.selectTab(AppTab.ROUTING)
