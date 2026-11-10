@@ -118,8 +118,8 @@ fun UsageScreen(
     val rows = usageRows(usage, dimension, maskAccountNames)
     // A sort key no row carries cannot order anything: its chip stays disabled, and a
     // remembered selection falls back to a default sort that has data.
-    val sortOptions = UsageSort.values().filter { sort -> rows.any { sortMetric(it, sort) != null } }
     val fallbackSort = defaultSort(dimension, rows)
+    val sortOptions = availableUsageSorts(rows, fallbackSort)
     val requestedSort = UsageSort.values().firstOrNull { it.name == sortKey }
     val activeSort = when {
         requestedSort != null && requestedSort in sortOptions -> requestedSort
@@ -1082,20 +1082,6 @@ private enum class UsageDimension(val label: String) {
     PROVIDER_KEYS("供应商密钥")
 }
 
-private enum class UsageSort(val label: String) {
-    COST("费用"),
-    TOKENS("Token"),
-    CALLS("调用")
-}
-
-private data class UsageRow(
-    val name: String,
-    val calls: Long?,
-    val cost: Double?,
-    val tokens: Long?,
-    val errors: Long?
-)
-
 private data class QuotaRow(
     val view: AccountQuotaView,
     val quota: AccountQuota?
@@ -1200,12 +1186,6 @@ private fun sortRows(rows: List<UsageRow>, sort: UsageSort): List<UsageRow> =
         compareByDescending<UsageRow> { sortMetric(it, sort) ?: Double.NEGATIVE_INFINITY }
             .thenBy { it.name }
     )
-
-private fun sortMetric(row: UsageRow, sort: UsageSort): Double? = when (sort) {
-    UsageSort.COST -> row.cost
-    UsageSort.TOKENS -> row.tokens?.toDouble()
-    UsageSort.CALLS -> row.calls?.toDouble()
-}
 
 private fun sortValue(row: UsageRow, sort: UsageSort): String = when (sort) {
     UsageSort.COST -> MetricCalculators.formatCost(row.cost)

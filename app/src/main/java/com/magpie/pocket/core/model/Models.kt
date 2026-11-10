@@ -184,7 +184,8 @@ data class TraceSnapshot(
     val recentRoutes: List<RequestSummary> = emptyList(),
     /** Full details mapped from the same cached routes as [recentRoutes]. */
     val recentDetails: List<RequestDetail> = emptyList(),
-    val totals: TraceTotals = TraceTotals()
+    /** Null when the connection never reported totals; the routing footer then prints nothing. */
+    val totals: TraceTotals? = null
 )
 
 @Serializable

@@ -208,6 +208,14 @@ fun TraceSnapshot.detailFor(summary: RequestSummary): RequestDetail? =
             key.routeId == summary.key.routeId
     }
 
+/**
+ * The startup footer is a claim about this connection, so it renders only when the trace
+ * is observable and actually carries totals. Printing zeros for a connection that never
+ * reported them would claim counts that do not exist.
+ */
+fun shouldShowStartupTotals(trace: TraceSnapshot?): Boolean =
+    trace != null && trace.observable && trace.totals != null
+
 fun routePhase(
     request: RequestSummary?,
     trace: TraceSnapshot?,
