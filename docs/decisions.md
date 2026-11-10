@@ -85,6 +85,8 @@ The reusable visual specification is maintained in .agents/skills/magpie-pocket-
 页面不再各自计算同一口径，AppViewModel 直接暴露可渲染的派生值：
 
 - **改道次数**：RequestDerivations.rerouteCount(attempts, retried)。有 attempts 时取 max(0, attempts.size - 1)；账本没有 attempts，只回退上游 retried；两者都无则为 0。LIVE 的 RUNNING / REROUTED 筛选在本地对同一批账本行生效，ERROR 仍由账本 failed=1 服务端筛选。
+- **改道次数（列表徽标）**：RequestDerivations.rerouteBadgeCount(attempts, retried) 只在有 attempts 时返回可打印的数字；账本行只有 retried 时返回 null，徽标显示“有改道”，不把 1 当次数。详情页仍用 rerouteCount 的数字。
+- **尝试状态**：Attempt.timelineState(routeState)（core/routing）是请求详情与路由页共用的唯一映射；自身没有 http 状态与错误码的尝试跟随请求终态，请求未定论时留在 warning（琥珀），不判 FAILED。
 - **费用**：CostDisplay(value, unpriced, hasUnpriced)；cost = 0.0 且 unpriced > 0 时页面仍能显示“N 次未计价”，不再把未计价吞成零。
 - **额度**：VM 为每个账号只暴露 AccountQuotaView.tightestWindow（ratio 最大的窗口，含 alias 优先与偏好打码），并给出 QuotaAlert；页面圆环/账号行/提醒的接线在后续页面任务（本轮不改 MainActivity 与 Screen）。
 - **统计日**：statisticsDay 由 Capabilities.statisticsTimeZone（缺失时回退请求 SourceMeta）换算 rangeEnd，没有时区时取服务器字面日期。

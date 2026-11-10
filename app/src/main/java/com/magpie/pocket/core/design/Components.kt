@@ -333,26 +333,31 @@ fun AppChrome(
     }
 }
 
+/**
+ * [rerouteCount] is the exact handoff count, or null when the row only knows that a
+ * reroute happened. A number is printed only when the row proves it; a ledger row's
+ * bare retried flag stays the words "有改道" instead of the guessed number 1.
+ */
 @Composable
 fun StatusBadge(
     state: FinalState,
-    rerouteCount: Int = 0,
+    rerouteCount: Int? = 0,
     modifier: Modifier = Modifier
 ) {
     val colors = MagpieTheme.colors
+    val rerouteText = when {
+        rerouteCount == null -> " · 有改道"
+        rerouteCount > 0 -> " · 改道 " + rerouteCount + " 次"
+        else -> ""
+    }
 
     val (tintColor, label) = when (state) {
-        FinalState.SUCCEEDED -> {
-            val text = if (rerouteCount > 0) "成功 · 改道 $rerouteCount 次" else "成功"
-            Pair(colors.success, text)
-        }
-        FinalState.IN_PROGRESS -> {
-            Pair(colors.accent, "处理中")
-        }
-        FinalState.FAILED -> {
-            val text = if (rerouteCount > 0) "失败 · 改道 $rerouteCount 次" else "最终失败"
-            Pair(colors.error, text)
-        }
+        FinalState.SUCCEEDED -> Pair(colors.success, "成功" + rerouteText)
+        FinalState.IN_PROGRESS -> Pair(colors.accent, "处理中")
+        FinalState.FAILED -> Pair(
+            colors.error,
+            (if (rerouteText.isEmpty()) "最终失败" else "失败") + rerouteText
+        )
         FinalState.PENDING -> {
             Pair(colors.textSecondary, "排队中")
         }

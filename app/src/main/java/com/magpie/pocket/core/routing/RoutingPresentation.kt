@@ -1,5 +1,7 @@
 package com.magpie.pocket.core.routing
 
+import com.magpie.pocket.core.design.AttemptState
+import com.magpie.pocket.core.model.Attempt
 import com.magpie.pocket.core.model.FinalState
 import com.magpie.pocket.core.model.RequestDetail
 import com.magpie.pocket.core.model.RequestSummary
@@ -179,6 +181,22 @@ fun attemptEvidence(summary: RequestSummary?): Pair<String?, String?>? {
     return (attempt?.providerId ?: summary?.providerId)?.let { provider ->
         provider to (attempt?.accountId ?: summary?.accountId)
     }
+}
+
+/**
+ * Attempts record handoffs and response codes, not a state. A handed-on attempt is a
+ * reroute, a 2xx response succeeded and a recorded error stays failed. An attempt with no
+ * outcome of its own inherits a settled request outcome; while the request is unsettled it
+ * stays in the warning bucket, never red. The request sheet and the routing page read this
+ * one mapping, so one attempt can never be red on one page and amber on the other.
+ */
+fun Attempt.timelineState(routeState: FinalState?): AttemptState = when {
+    handedOn -> AttemptState.REROUTED
+    httpStatus != null && httpStatus in 200..299 -> AttemptState.SUCCEEDED
+    httpStatus != null || errorCode != null -> AttemptState.FAILED
+    routeState == FinalState.SUCCEEDED -> AttemptState.SUCCEEDED
+    routeState == FinalState.FAILED -> AttemptState.FAILED
+    else -> AttemptState.REROUTED
 }
 
 /** Routing evidence comes from the same trace cache as its summary, never a separate fetch. */
