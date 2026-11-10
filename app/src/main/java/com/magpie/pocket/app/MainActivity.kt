@@ -244,6 +244,7 @@ fun MainAppRoot(viewModel: AppViewModel) {
     var showPreferencesSheet by remember { mutableStateOf(false) }
     var showProviderSheet by remember { mutableStateOf(false) }
     var showPrivacySheet by remember { mutableStateOf(false) }
+    var usageInitialSection by remember { mutableStateOf<String?>(null) }
 
     val connectSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val gatewaySheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -302,7 +303,10 @@ fun MainAppRoot(viewModel: AppViewModel) {
                         viewModel.updateTheme(nextTheme)
                     },
                     onOpenGateway = { showGatewayDetailSheet = true },
-                    onOpenQuota = { viewModel.selectTab(AppTab.USAGE) },
+                    onOpenQuota = {
+                        usageInitialSection = "quota"
+                        viewModel.selectTab(AppTab.USAGE)
+                    },
                     onOpenRequest = { routeId ->
                         viewModel.focusRoute(routeId)
                         viewModel.selectTab(AppTab.ROUTING)
@@ -345,6 +349,8 @@ fun MainAppRoot(viewModel: AppViewModel) {
                     onPeriodChange = { viewModel.setPeriod(it) },
                     isLoading = isLoading,
                     contentPadding = screenPaddingValues,
+                    initialSection = usageInitialSection,
+                    onSectionConsumed = { usageInitialSection = null },
                     isDemo = connectionConfig.mode == DataMode.DEMO
                 )
             }
