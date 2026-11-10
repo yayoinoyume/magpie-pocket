@@ -186,9 +186,10 @@ class AppViewModelAuthTest {
         val page = viewModel.requestsPage.first { it != null }!!
         assertEquals(1, page.items.size)
         assertEquals("coding", page.items.single().groupId)
-        assertEquals(1, viewModel.groups.first().size)
-        assertEquals(2, viewModel.quotas.first().size)
-        assertEquals("account-a", viewModel.quotas.first().first().accountId)
+        assertEquals(1, viewModel.groups.first { it.isNotEmpty() }.size)
+        val quotas = viewModel.quotas.first { it.isNotEmpty() }
+        assertEquals(2, quotas.size)
+        assertEquals("account-a", quotas.first().accountId)
         assertTrue(viewModel.trace.first { it != null }!!.retainedRouteIds.contains("101"))
 
         assertTrue(paths.first() == "/_magpie/sign-in")

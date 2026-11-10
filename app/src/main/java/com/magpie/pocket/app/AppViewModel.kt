@@ -510,7 +510,13 @@ class AppViewModel(
     private suspend fun performRefresh(generation: Long) {
         if (!runtimeMayRun(generation)) return
         _isLoading.value = true
-        if (_connectionConfig.value.mode == DataMode.LIVE && !isAuthFailureState()) {
+        // A refresh that starts on an already verified session must not downgrade the
+        // header to "重连中". Only a failed attempt or a fresh connect shows CONNECTING.
+        if (
+            _connectionConfig.value.mode == DataMode.LIVE &&
+            !isAuthFailureState() &&
+            _connectionStatus.value.health != ConnectionHealth.CONNECTED
+        ) {
             _connectionStatus.value = ConnectionStatus(ConnectionHealth.CONNECTING)
         }
 
@@ -1076,6 +1082,9 @@ class AppViewModel(
         validationJob?.cancel()
         validationJob = viewModelScope.launch {
             try {
+                // The keepalive-promotion recovery lands here: a successful /api/state is
+                // the same evidence as a full refresh, so the session turns connected here
+                // instead of waiting for the end of a refresh that may never run.
                 activeRepo.probeLight()
                 if (
                     generation == repoGeneration &&
