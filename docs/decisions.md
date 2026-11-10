@@ -89,6 +89,7 @@ The reusable visual specification is maintained in .agents/skills/magpie-pocket-
 - **尝试状态**：Attempt.timelineState(routeState)（core/routing）是请求详情与路由页共用的唯一映射；自身没有 http 状态与错误码的尝试跟随请求终态，请求未定论时留在 warning（琥珀），不判 FAILED。
 - **费用**：CostDisplay(value, unpriced, hasUnpriced)；cost = 0.0 且 unpriced > 0 时页面仍能显示“N 次未计价”，不再把未计价吞成零。
 - **额度**：VM 为每个账号只暴露 AccountQuotaView.tightestWindow（ratio 最大的窗口，含 alias 优先与偏好打码），并给出 QuotaAlert；页面圆环/账号行/提醒的接线在后续页面任务（本轮不改 MainActivity 与 Screen）。
+- **账号明细来源**：路由页账号按 `/api/groups` 的 `memberInfo[].account` → `/api/usage` 的 accounts 维度 → `/api/usage/quotas` 的账号 合并，按 id 去重且 groups 胜出；usage/额度来源的可用性记为 UNKNOWN，usage 来源标 `fromUsage`。合并在 VM 的同一次刷新内复用已加载的面板数据，不新增请求；只有 usage 来源时 sheet 注明“仅显示近期有流量的账号”，没有任何来源时显示“网关未提供账号级明细”。
 - **统计日**：statisticsDay 由 Capabilities.statisticsTimeZone（缺失时回退请求 SourceMeta）换算 rangeEnd，没有时区时取服务器字面日期。
 - **趋势**：DailyTrendPoint 带日期、请求数与当日已计价费用（上游 series 的 cost）；UsageSnapshot.dailyTrends 保留所选周期的 series，概览 history 不可用时 VM 回退到该序列，两者都没有才为空列表，不补零。usageDecodeSpeed 与概览使用同一公式。
 - **路由聚焦**：VM 提供 focusRoute(routeId)，按 id 聚焦但仍保持自动跟随；runningRequest（单条）保留，runningRequests 最多三条按 startedAt 倒序。MainActivity 的接线在后续任务。

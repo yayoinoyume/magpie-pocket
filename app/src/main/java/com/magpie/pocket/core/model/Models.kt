@@ -119,7 +119,9 @@ data class Account(
     val providerId: String,
     val alias: String,
     val availability: String = "AVAILABLE", // AVAILABLE, BUSY, COOLDOWN, UNKNOWN
-    val cooldownUntil: String? = null
+    val cooldownUntil: String? = null,
+    /** The usage breakdown is the only source that named this account; its state is unknown. */
+    val fromUsage: Boolean = false
 )
 
 @Serializable
@@ -143,6 +145,8 @@ data class QuotaWindow(
 @Serializable
 data class AccountQuota(
     val accountId: String,
+    /** Null when the quota answer names the account without saying which provider owns it. */
+    val providerId: String? = null,
     val known: Boolean,
     val observedAt: String? = null,
     val windows: List<QuotaWindow> = emptyList()

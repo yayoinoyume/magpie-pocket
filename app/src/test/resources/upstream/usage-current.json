@@ -21,6 +21,16 @@
       "cache_write": 0
     }
   ],
+  "accounts": [
+    {
+      "id": "account-a",
+      "account": "account-a",
+      "name": "Account A",
+      "provider": "vendor",
+      "calls": 10,
+      "cost": 0.42
+    }
+  ],
   "series": [
     {
       "label": "09",
