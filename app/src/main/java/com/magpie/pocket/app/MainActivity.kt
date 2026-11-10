@@ -233,6 +233,7 @@ fun MainAppRoot(viewModel: AppViewModel) {
     val selectedPeriod by viewModel.selectedPeriod.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val statusFilter by viewModel.statusFilter.collectAsState()
+    val supportedRequestFilters by viewModel.supportedRequestFilters.collectAsState()
     val selectedDay by viewModel.selectedDay.collectAsState()
     val capabilities by viewModel.capabilities.collectAsState()
     val providerCatalogState by viewModel.providerCatalogState.collectAsState()
@@ -343,9 +344,9 @@ fun MainAppRoot(viewModel: AppViewModel) {
                     onSearchQueryChange = { viewModel.setSearchQuery(it) },
                     statusFilter = statusFilter,
                     onStatusFilterChange = { viewModel.setStatusFilter(it) },
+                    supportedFilters = supportedRequestFilters,
                     selectedDay = selectedDay,
                     onSelectDay = { viewModel.setSelectedDay(it) },
-                    onRefresh = { viewModel.loadRequests(append = false) },
                     onLoadMore = { viewModel.loadRequests(append = true) },
                     onRequestClick = { viewModel.selectRequest(it) },
                     accounts = accounts,
