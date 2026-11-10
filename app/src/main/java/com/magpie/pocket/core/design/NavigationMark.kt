@@ -48,6 +48,11 @@ fun NavigationMark(tab: AppTab, tint: Color, modifier: Modifier = Modifier) {
                 line(6f, 12f, 18f, 12f)
                 line(10f, 19f, 14f, 19f)
             }
+            AppTab.MORE -> {
+                // An outlined dot group reads as an entry point, not as another list or chart.
+                drawCircle(tint, 9.5f * s, point(12f, 12f), style = stroke)
+                for (x in listOf(8f, 12f, 16f)) drawCircle(tint, 1.35f * s, point(x, 12f))
+            }
         }
     }
 }

@@ -120,10 +120,11 @@ enum class AppTab(val label: String) {
     OVERVIEW("概览"),
     ROUTING("路由"),
     USAGE("用量"),
-    REQUESTS("请求")
+    REQUESTS("请求"),
+    MORE("更多")
 }
 
-/** One floating capsule, four equal slots, icon above an always-visible label. */
+/** One floating capsule, five equal slots, icon above an always-visible label. */
 @Composable
 fun FloatingBottomNav(
     selectedTab: AppTab,
@@ -196,7 +197,7 @@ fun FloatingBottomNav(
                         Text(
                             text = tab.label,
                             color = contentColor,
-                            fontSize = MagpieTypography.Navigation,
+                            fontSize = MagpieTypography.Caption,
                             lineHeight = 16.sp,
                             fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Medium,
                             maxLines = 1
