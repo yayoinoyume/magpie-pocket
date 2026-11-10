@@ -34,7 +34,7 @@ class DemoRepositoryTest {
         val cap = repo.probe()
         assertTrue(cap.trace)
         assertTrue(cap.history)
-        assertTrue(cap.usage)
+        assertEquals(true, cap.usage)
         assertEquals("Asia/Shanghai", cap.statisticsTimeZone)
     }
 

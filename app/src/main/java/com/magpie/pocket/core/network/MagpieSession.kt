@@ -1,6 +1,8 @@
 package com.magpie.pocket.core.network
 
 import com.magpie.pocket.core.model.Capabilities
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 
 /**
  * One place for the session and capability rules used by both the connection sheet and
@@ -9,12 +11,20 @@ import com.magpie.pocket.core.model.Capabilities
  */
 object MagpieSession {
 
+    /**
+     * [groups] and [trace] are the bodies the probe already paid for. The data stage reuses
+     * the group list instead of asking `/api/groups` again, and the trace loop starts from
+     * [trace]'s sequence instead of repeating `after=0`.
+     */
     data class ProbeResult(
         val capabilities: Capabilities,
         val state: UpstreamStateResponse,
-        val groupsSupported: Boolean,
-        val traceSupported: Boolean
-    )
+        val groups: UpstreamGroupsResponse? = null,
+        val trace: UpstreamTraceResponse? = null
+    ) {
+        val groupsSupported: Boolean get() = groups != null
+        val traceSupported: Boolean get() = trace?.mine == true
+    }
 
     /**
      * Establishes a Magpie session when a Web Key is configured. A blank key is allowed for
@@ -38,17 +48,19 @@ object MagpieSession {
      * client already holds a session that was verified moments earlier, so saving a
      * connection does not repeat the exchange on the same cookie jar.
      * [onStateReady] runs as soon as `/api/state` answers, before the remaining probes.
+     * [onTraceProbed] runs when the trace snapshot lands, still before the group list.
      */
     suspend fun connect(
         client: MagpieApiClient,
         baseUrl: String,
         webKey: String?,
         signInRequired: Boolean = true,
-        onStateReady: () -> Unit = {}
+        onStateReady: () -> Unit = {},
+        onTraceProbed: (UpstreamTraceResponse?) -> Unit = {}
     ): ProbeResult {
         if (signInRequired) initialize(client, baseUrl, webKey)
         return try {
-            probe(client, baseUrl, onStateReady)
+            probe(client, baseUrl, onStateReady, onTraceProbed)
         } catch (e: AuthenticationRequiredException) {
             if (webKey.isNullOrBlank()) {
                 throw AuthenticationRequiredException(
@@ -61,22 +73,28 @@ object MagpieSession {
 
     /**
      * `/api/state` is required and is what establishes the session, so [onStateReady] fires
-     * before anything else is asked for. Groups and the trace snapshot are still probed here
-     * because whole screens are gated on them. Usage, ledger, quotas, providers and masking
-     * are loaded by the data stage instead: claiming them optimistically keeps a slow panel
-     * endpoint out of the connection path, and a 404 there drops the capability.
+     * before anything else is asked for. Groups and the trace snapshot are probed because
+     * whole screens are gated on them; they are asked for together so a slow group list
+     * cannot delay the live trace. Usage, ledger, quotas, providers and masking are not
+     * guessed here: they stay unknown until their first real request answers 200 or 404.
      */
     suspend fun probe(
         client: MagpieApiClient,
         baseUrl: String,
-        onStateReady: () -> Unit = {}
+        onStateReady: () -> Unit = {},
+        onTraceProbed: (UpstreamTraceResponse?) -> Unit = {}
     ): ProbeResult {
         val state = client.getState(baseUrl)
         MagpieTiming.mark("probe-state")
         onStateReady()
 
-        val groups = optional(client) { it.getGroups(baseUrl) }
-        val trace = optional(client) { it.getTraceSnapshot(baseUrl, 0L) }
+        val (groups, trace) = coroutineScope {
+            val groupsAsync = async { optional(client) { it.getGroups(baseUrl) } }
+            val trace = optional(client) { it.getTraceSnapshot(baseUrl, 0L) }
+            // The trace answer seeds the live loop; hand it over before waiting for groups.
+            onTraceProbed(trace)
+            groupsAsync.await() to trace
+        }
 
         val capabilities = Capabilities(
             trace = trace?.mine == true,
@@ -84,11 +102,11 @@ object MagpieSession {
             // History and request-detail routes need an id/day, so they are not guessed.
             history = false,
             requestDetail = false,
-            usage = true,
-            ledger = true,
-            quotas = true,
-            providers = true,
-            masking = true,
+            usage = null,
+            ledger = null,
+            quotas = null,
+            providers = null,
+            masking = null,
             statisticsTimeZone = state.timezone ?: "Asia/Shanghai",
             verifiedDeploymentVersion = state.version ?: "Magpie"
         )
@@ -96,8 +114,8 @@ object MagpieSession {
         return ProbeResult(
             capabilities = capabilities,
             state = state,
-            groupsSupported = groups != null,
-            traceSupported = trace != null && trace.mine
+            groups = groups,
+            trace = trace
         )
     }
 

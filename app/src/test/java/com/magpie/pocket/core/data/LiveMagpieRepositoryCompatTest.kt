@@ -9,6 +9,8 @@ import com.magpie.pocket.core.util.MetricCalculators
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.take
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
@@ -173,6 +175,10 @@ class LiveMagpieRepositoryCompatTest {
             }
         }
         repo.probe()
+        // The probe's trace read is emitted first, then the loop continues after its seq.
+        val seeded = repo.observeTrace().first()
+        assertEquals(listOf("1"), seeded.recentRoutes.map { it.key.routeId })
+
         val first = repo.observeTrace().first()
         assertEquals(listOf("2"), first.recentRoutes.map { it.key.routeId })
 
@@ -202,10 +208,10 @@ class LiveMagpieRepositoryCompatTest {
                 if (request.path?.startsWith("/api/gateway/trace") == true) {
                     val n = requests.incrementAndGet()
                     return when (n) {
+                        // n=1 is the probe's snapshot and therefore the loop's seed.
                         1 -> json("""{"seq":10,"mine":true,"routes":[{"id":"old","time":"2026-10-22T09:00:00Z","group":{"id":"g1"},"done":true,"status":200}]}""")
-                        2 -> json("""{"seq":10,"mine":true,"routes":[{"id":"old","time":"2026-10-22T09:00:00Z","group":{"id":"g1"},"done":true,"status":200}]}""")
-                        3 -> json("""{"seq":11,"mine":true,"routes":[{"id":"new","time":"2026-10-22T10:00:00Z","group":{"id":"g1"},"done":false}]}""")
-                        4 -> json("""{"seq":2,"mine":true,"routes":[{"id":"restart","time":"2026-10-22T11:00:00Z","group":{"id":"g1"},"done":false}]}""")
+                        2 -> json("""{"seq":11,"mine":true,"routes":[{"id":"new","time":"2026-10-22T10:00:00Z","group":{"id":"g1"},"done":false}]}""")
+                        3 -> json("""{"seq":2,"mine":true,"routes":[{"id":"restart","time":"2026-10-22T11:00:00Z","group":{"id":"g1"},"done":false}]}""")
                         else -> {
                             val routes = (1..65).joinToString(",") { i ->
                                 """{"id":"$i","time":"2026-10-22T12:00:${(i % 60).toString().padStart(2, '0')}Z","group":{"id":"g1"},"done":true,"status":200}"""
@@ -219,36 +225,39 @@ class LiveMagpieRepositoryCompatTest {
         }
         repo.probe()
 
-        val first = repo.observeTrace().first()
+        // The probe's trace read is the seed: the loop emits it and then polls after its
+        // sequence, so the dispatcher's first response is consumed by the probe.
+        val snapshots = repo.observeTrace().take(4).toList()
+
+        val first = snapshots[0]
         assertEquals(listOf("old"), first.recentRoutes.map { it.key.routeId })
         assertFalse(first.restarted)
 
-        val second = repo.observeTrace().first()
+        val second = snapshots[1]
         assertEquals(setOf("old", "new"), second.recentRoutes.map { it.key.routeId }.toSet())
 
-        val restart = repo.observeTrace().first()
+        val restart = snapshots[2]
         assertTrue(restart.restarted)
         assertEquals(listOf("restart"), restart.recentRoutes.map { it.key.routeId })
 
-        val capped = repo.observeTrace().first()
+        val capped = snapshots[3]
         assertEquals(60, capped.recentRoutes.size)
         assertEquals(60, capped.recentDetails.size)
         assertEquals(60, capped.retainedRouteIds.size)
     }
 
     @Test
-    fun currentSessionProbeClaimsGroupsAndTraceAndDefersPanelsToTheDataStage() = runBlocking {
+    fun currentSessionProbeConfirmsGroupsAndTraceAndLeavesPanelsUnknown() = runBlocking {
         val result = MagpieSession.connect(MagpieApiClient(), server.url("/").toString(), null)
         // Probed here because whole screens are gated on them.
         assertTrue(result.capabilities.groups)
         assertTrue(result.capabilities.trace)
-        // Panel endpoints are claimed optimistically: the probe never asks for them, and a
-        // 404 during the data stage drops the capability (see AppViewModelAuthTest).
-        assertTrue(result.capabilities.usage)
-        assertTrue(result.capabilities.ledger)
-        assertTrue(result.capabilities.quotas)
-        assertTrue(result.capabilities.providers)
-        assertTrue(result.capabilities.masking)
+        // Panel endpoints are not guessed: a 200 or 404 during the data stage decides.
+        assertNull(result.capabilities.usage)
+        assertNull(result.capabilities.ledger)
+        assertNull(result.capabilities.quotas)
+        assertNull(result.capabilities.providers)
+        assertNull(result.capabilities.masking)
         assertFalse(result.capabilities.history)
         assertFalse(result.capabilities.requestDetail)
     }
@@ -268,9 +277,7 @@ class LiveMagpieRepositoryCompatTest {
         }
 
         repo.probe()
-        // The probe reads groups once for the capability; count only the data stage.
-        groupsReads.set(0)
-        // A refresh asks for both at the same time; that overlap is what makes them share.
+        // One refresh: the probe's groups body is reused by both data-stage callers.
         coroutineScope {
             val groups = async { repo.groups() }
             val accounts = async { repo.accounts() }
@@ -278,6 +285,28 @@ class LiveMagpieRepositoryCompatTest {
             assertTrue(accounts.await().isEmpty())
         }
         assertEquals(1, groupsReads.get())
+    }
+
+    @Test
+    fun probeTraceSnapshotSeedsTheLoopWithoutASecondInitialRead() = runBlocking {
+        val traceReads = AtomicInteger(0)
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when {
+                request.path == "/api/state" ->
+                    json("""{"version":"Magpie current","timezone":"Asia/Shanghai"}""")
+                request.path?.startsWith("/api/gateway/trace") == true -> {
+                    traceReads.incrementAndGet()
+                    json("""{"seq":7,"mine":true,"routes":[{"id":"old","time":"2026-10-22T09:00:00Z","group":{"id":"g1"},"done":true,"status":200}]}""")
+                }
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+
+        repo.probe()
+        val first = repo.observeTrace().first()
+
+        assertEquals(listOf("old"), first.recentRoutes.map { it.key.routeId })
+        assertEquals("probe trace is reused by the loop", 1, traceReads.get())
     }
 
     private fun fixture(name: String) = json(fixtureText(name))

@@ -25,6 +25,7 @@ import okhttp3.mockwebserver.RecordedRequest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -185,9 +186,10 @@ class AppViewModelAuthTest {
         val page = viewModel.requestsPage.first { it != null }!!
         assertEquals(1, page.items.size)
         assertEquals("coding", page.items.single().groupId)
-        assertEquals(1, viewModel.groups.first().size)
-        assertEquals(2, viewModel.quotas.first().size)
-        assertEquals("account-a", viewModel.quotas.first().first().accountId)
+        assertEquals(1, viewModel.groups.first { it.isNotEmpty() }.size)
+        val quotas = viewModel.quotas.first { it.isNotEmpty() }
+        assertEquals(2, quotas.size)
+        assertEquals("account-a", quotas.first().accountId)
         assertTrue(viewModel.trace.first { it != null }!!.retainedRouteIds.contains("101"))
 
         assertTrue(paths.first() == "/_magpie/sign-in")
@@ -358,6 +360,9 @@ class AppViewModelAuthTest {
             kotlinx.coroutines.withTimeout(5000) {
                 viewModel.connectionStatus.first { it.health == ConnectionHealth.CONNECTED }
             }
+            // The trace is seeded from the probe, so it does not wait for the blocked
+            // group list either.
+            kotlinx.coroutines.withTimeout(5000) { viewModel.trace.first { it != null } }
             assertTrue(viewModel.isOnline.value)
             // Groups is still blocked, so no panel has been requested yet.
             assertTrue(viewModel.groups.value.isEmpty())
@@ -392,7 +397,10 @@ class AppViewModelAuthTest {
         // The group list and the ledger land even though the quota panel is broken.
         kotlinx.coroutines.withTimeout(5000) { viewModel.groups.first { it.isNotEmpty() } }
         kotlinx.coroutines.withTimeout(5000) { viewModel.requestsPage.first { it != null } }
-        assertTrue(viewModel.capabilities.value?.usage == true)
+        val caps = kotlinx.coroutines.withTimeout(5000) {
+            viewModel.capabilities.first { it?.usage != null }
+        }!!
+        assertEquals(true, caps.usage)
         assertTrue(viewModel.quotas.value.isEmpty())
     }
 
@@ -417,11 +425,63 @@ class AppViewModelAuthTest {
         val caps = kotlinx.coroutines.withTimeout(5000) {
             viewModel.capabilities.first { it?.quotas == false }
         }!!
-        assertTrue(caps.usage)
+        assertEquals(true, caps.usage)
         assertTrue(caps.groups)
-        assertTrue(caps.ledger)
+        assertEquals(true, caps.ledger)
         assertEquals(ConnectionHealth.CONNECTED, viewModel.connectionStatus.value.health)
         assertEquals("coding", viewModel.groups.value.single().id)
+    }
+
+    @Test
+    fun panelCapabilitiesStayUnknownUntilTheirFirstRequestAnswers() = runBlocking {
+        val usageGate = CountDownLatch(1)
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                // Hold the usage panel open: the probe has answered, but no panel has
+                // proved its capability yet.
+                if (request.path == "/api/usage?period=today") {
+                    usageGate.await(5, TimeUnit.SECONDS)
+                }
+                return when {
+                    request.path == "/_magpie/sign-in" -> signIn()
+                    request.path == "/api/state" ->
+                        json("""{"version":"Magpie current","timezone":"Asia/Shanghai"}""")
+                    request.path == "/api/groups" -> fixture("groups-current.json")
+                    request.path?.startsWith("/api/gateway/trace") == true ->
+                        fixture("trace-current.json")
+                    request.path == "/api/usage/quotas" -> fixture("quotas-current.json")
+                    request.path?.startsWith("/api/usage/requests") == true ->
+                        fixture("ledger-current.json")
+                    request.path?.startsWith("/api/usage") == true ->
+                        fixture("usage-current.json")
+                    request.path?.startsWith("/api/gateway/history") == true ->
+                        json("""{"days":[]}""")
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+        val viewModel = newViewModel(AuthFakeCredentialStore(liveConfig("unknown-panels")))
+        try {
+            val probed = kotlinx.coroutines.withTimeout(5000) {
+                viewModel.capabilities.first { it != null }
+            }!!
+            assertNull(probed.usage)
+            assertNull(probed.ledger)
+            assertNull(probed.quotas)
+            assertNull(probed.providers)
+            assertNull(probed.masking)
+        } finally {
+            usageGate.countDown()
+        }
+
+        val resolved = kotlinx.coroutines.withTimeout(5000) {
+            viewModel.capabilities.first { it?.usage == true }
+        }!!
+        assertEquals(true, resolved.ledger)
+        assertEquals(true, resolved.quotas)
+        // Provider and masking are lazy loads; a refresh must not claim them.
+        assertNull(resolved.providers)
+        assertNull(resolved.masking)
     }
 
     @Test

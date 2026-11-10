@@ -105,7 +105,14 @@ fun OverviewScreen(
     val ttftMeanMs = overview?.let {
         MetricCalculators.calculateTtftMean(it.ttftSumMs, it.ttftSampleCount)
     }
-    val requestsValue = overview?.completedRequests?.toString() ?: "—"
+    // While the first snapshot is still loading, the data cells say so instead of
+    // pretending the gateway measured zero or that every value is missing.
+    val dataPending = isLoading && overview == null
+    val requestsValue = if (dataPending) {
+        "同步中"
+    } else {
+        overview?.completedRequests?.toString() ?: "—"
+    }
     val requestsNote = overview?.rangeEnd?.let(::cutoffLabel) ?: "—"
     val successNote = overview?.let { "${it.finalErrors} 次最终失败" } ?: "—"
     val ttftNote = overview?.ttftSampleCount?.let { "$it 个流式样本" } ?: "—"
@@ -115,12 +122,16 @@ fun OverviewScreen(
         cost.value == null -> "未提供计价"
         else -> "${cost.unpriced} 次未计价"
     }
+    // Errors outrank a healthy session; a connected session outranks the data stage, so
+    // the strip never says "同步中" for a connection that has already answered.
     val connectionLabel = when {
         !isOnline -> "离线"
-        connectionStatus.health != ConnectionHealth.CONNECTED ->
+        connectionStatus.health != ConnectionHealth.CONNECTED &&
+            connectionStatus.health != ConnectionHealth.CONNECTING ->
             connectionHealthLabel(connectionStatus.health)
-        isLoading && overview == null -> "同步中"
-        else -> "已连接"
+        connectionStatus.health == ConnectionHealth.CONNECTED -> "已连接"
+        isLoading -> "同步中"
+        else -> connectionHealthLabel(connectionStatus.health)
     }
     val hourlyPoints = overview?.hourlyTrends.orEmpty()
 
@@ -173,7 +184,7 @@ fun OverviewScreen(
                     )
                     StatCell(
                         label = "成功率",
-                        value = MetricCalculators.formatPercent(successRate),
+                        value = if (dataPending) "同步中" else MetricCalculators.formatPercent(successRate),
                         note = successNote,
                         modifier = Modifier.weight(1f)
                     )
@@ -184,13 +195,17 @@ fun OverviewScreen(
                 ) {
                     StatCell(
                         label = "首响均值",
-                        value = MetricCalculators.formatDurationMs(ttftMeanMs?.toLong()),
+                        value = if (dataPending) {
+                            "同步中"
+                        } else {
+                            MetricCalculators.formatDurationMs(ttftMeanMs?.toLong())
+                        },
                         note = ttftNote,
                         modifier = Modifier.weight(1f)
                     )
                     StatCell(
                         label = "今日费用",
-                        value = MetricCalculators.formatCost(cost.value),
+                        value = if (dataPending) "同步中" else MetricCalculators.formatCost(cost.value),
                         note = costNote,
                         modifier = Modifier.weight(1f)
                     )
@@ -252,7 +267,7 @@ fun OverviewScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "暂无趋势数据",
+                        text = if (dataPending) "同步中" else "暂无趋势数据",
                         style = MagpieTypography.BodyStyle,
                         color = colors.textTertiary
                     )
