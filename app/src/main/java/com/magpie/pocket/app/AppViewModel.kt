@@ -1170,12 +1170,15 @@ class AppViewModel(
         }
     }
 
-    /** Lazy privacy load: one summary plus the first record page for [days]. */
-    fun loadPrivacy(days: Int, force: Boolean = false) {
+    /**
+     * Lazy privacy load: one summary plus the first record page for [days]. [kind] keeps
+     * the active record filter across day switches; null means every kind.
+     */
+    fun loadPrivacy(days: Int, force: Boolean = false, kind: String? = null) {
         val current = _privacyState.value
         if (!force) {
-            if (current is PrivacyState.Ready && current.selectedDays == days) return
-            if (current is PrivacyState.Loading && current.selectedDays == days) return
+            if (current is PrivacyState.Ready && current.selectedDays == days && current.selectedKind == kind) return
+            if (current is PrivacyState.Loading && current.selectedDays == days && current.selectedKind == kind) return
         }
         if (_capabilities.value?.masking == false) {
             _privacyState.value = PrivacyState.Unsupported
@@ -1183,18 +1186,25 @@ class AppViewModel(
         }
         val generation = repoGeneration
         privacyJob?.cancel()
-        _privacyState.value = PrivacyState.Loading(days)
+        // A new query invalidates every original revealed for the previous result set.
+        revealJob?.cancel()
+        revealJob = null
+        _revealedMaskingValues.value = emptyMap()
+        _privacyState.value = PrivacyState.Loading(days, kind)
         privacyJob = viewModelScope.launch {
             try {
                 val summary = activeRepo.maskingSummary(days)
                 if (generation != repoGeneration) return@launch
-                val page = activeRepo.maskingRecords(MaskingQuery(limit = PRIVACY_PAGE_SIZE))
+                val page = activeRepo.maskingRecords(
+                    MaskingQuery(limit = PRIVACY_PAGE_SIZE, kind = kind)
+                )
                 if (generation != repoGeneration) return@launch
                 _privacyState.value = PrivacyState.Ready(
                     selectedDays = days,
                     summary = summary,
                     records = page.items,
-                    more = page.more
+                    more = page.more,
+                    selectedKind = kind
                 )
             } catch (e: CancellationException) {
                 throw e
@@ -1206,7 +1216,8 @@ class AppViewModel(
                 if (isAuthFailure(e)) handleFailure(e, generation)
                 _privacyState.value = PrivacyState.Error(
                     selectedDays = days,
-                    message = statusFor(e).message ?: "隐私掩码数据加载失败"
+                    message = statusFor(e).message ?: "隐私掩码数据加载失败",
+                    selectedKind = kind
                 )
             }
         }
@@ -1222,11 +1233,16 @@ class AppViewModel(
         privacyJob = viewModelScope.launch {
             try {
                 val page = activeRepo.maskingRecords(
-                    MaskingQuery(limit = PRIVACY_PAGE_SIZE, before = before)
+                    MaskingQuery(
+                        limit = PRIVACY_PAGE_SIZE,
+                        before = before,
+                        kind = current.selectedKind
+                    )
                 )
                 if (generation != repoGeneration) return@launch
                 val latest = _privacyState.value as? PrivacyState.Ready ?: return@launch
                 if (latest.selectedDays != current.selectedDays) return@launch
+                if (latest.selectedKind != current.selectedKind) return@launch
                 _privacyState.value = latest.copy(
                     records = latest.records + page.items,
                     more = page.more
@@ -1248,7 +1264,8 @@ class AppViewModel(
     fun revealMaskingValue(placeholder: String) {
         if (placeholder.isBlank()) return
         if (_revealedMaskingValues.value.containsKey(placeholder)) return
-        if (revealJob?.isActive == true) return
+        // Only one reveal is shown at a time; a newer request supersedes the older one.
+        revealJob?.cancel()
         val generation = repoGeneration
         revealJob = viewModelScope.launch {
             try {
@@ -1265,8 +1282,23 @@ class AppViewModel(
         }
     }
 
+    /** Drops every cached original; the sheet calls this when it closes. */
+    fun clearRevealedMaskingValues() {
+        revealJob?.cancel()
+        revealJob = null
+        _revealedMaskingValues.value = emptyMap()
+    }
+
+    /** Switches the record-kind filter and reloads from the first page. */
+    fun setPrivacyKind(kind: String?) {
+        val current = _privacyState.value
+        if (current.selectedKind == kind) return
+        val days = current.selectedDays ?: return
+        loadPrivacy(days, force = true, kind = kind)
+    }
+
     fun setPrivacyDays(days: Int) {
-        loadPrivacy(days, force = true)
+        loadPrivacy(days, force = true, kind = _privacyState.value.selectedKind)
     }
 
     private fun cancelPrivacyJobs() {
@@ -1375,4 +1407,4 @@ class AppViewModel(
     }
 }
 
-private const val PRIVACY_PAGE_SIZE = 30
+private const val PRIVACY_PAGE_SIZE = 40

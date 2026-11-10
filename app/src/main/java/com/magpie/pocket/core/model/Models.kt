@@ -351,11 +351,22 @@ data class ProviderCatalogItem(
     val models: List<ProviderModelInfo> = emptyList()
 )
 
-/** The upstream {k,n} counter, shared by summary kinds and one record's detected values. */
+/**
+ * One masking counter. Summary kinds use [kind]/[n]; record values additionally carry the
+ * reveal placeholder plus the shape and discovery fields the record list renders.
+ */
 @Serializable
 data class MaskingCount(
     val kind: String? = null,
-    val n: Long? = null
+    val n: Long? = null,
+    /** Placeholder accepted by the reveal endpoint, e.g. {{EMAIL_1}}. */
+    val placeholder: String? = null,
+    /** Leading characters kept visible in the masked shape. */
+    val head: String? = null,
+    /** Original length; everything after [head] becomes at most eight dots. */
+    val len: Long? = null,
+    /** Discovery path: rule|yours|word|model|known. */
+    val by: String? = null
 )
 
 @Serializable
@@ -365,11 +376,16 @@ data class MaskingDayPoint(
     val requests: Long? = null
 )
 
+/** A summary bucket: value rows identify themselves by [id] (a placeholder); agents/providers by [name]. */
 @Serializable
 data class MaskingBucket(
     val id: String? = null,
     val name: String? = null,
-    val n: Long? = null
+    val n: Long? = null,
+    /** Masking kind for summary value buckets. */
+    val kind: String? = null,
+    val head: String? = null,
+    val len: Long? = null
 )
 
 @Serializable
@@ -420,22 +436,34 @@ sealed interface ProviderCatalogState {
 sealed interface PrivacyState {
     val selectedDays: Int?
 
+    /** Active record-kind filter; null means every kind. */
+    val selectedKind: String?
+        get() = null
+
     data object Idle : PrivacyState {
         override val selectedDays: Int? = null
     }
 
-    data class Loading(override val selectedDays: Int) : PrivacyState
+    data class Loading(
+        override val selectedDays: Int,
+        override val selectedKind: String? = null
+    ) : PrivacyState
 
     data class Ready(
         override val selectedDays: Int,
         val summary: MaskingSummary,
         val records: List<MaskingRecord>,
-        val more: Boolean
+        val more: Boolean,
+        override val selectedKind: String? = null
     ) : PrivacyState
 
     data object Unsupported : PrivacyState {
         override val selectedDays: Int? = null
     }
 
-    data class Error(override val selectedDays: Int?, val message: String) : PrivacyState
+    data class Error(
+        override val selectedDays: Int?,
+        val message: String,
+        override val selectedKind: String? = null
+    ) : PrivacyState
 }
