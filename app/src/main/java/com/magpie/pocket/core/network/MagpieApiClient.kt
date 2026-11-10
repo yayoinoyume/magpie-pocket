@@ -59,7 +59,7 @@ class MagpieApiClient(
         .readTimeout(readTimeoutSeconds, TimeUnit.SECONDS)
         .followRedirects(false)
         .eventListenerFactory(
-            EventListener.Factory { call -> TimingEventListener(call.request.url.encodedPath) }
+            EventListener.Factory { call -> TimingEventListener(call.request().url.encodedPath) }
         )
         .build()
 
