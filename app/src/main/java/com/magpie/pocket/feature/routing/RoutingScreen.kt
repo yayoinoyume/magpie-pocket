@@ -1622,7 +1622,7 @@ private fun Attempt.toTimelineEntry(
     maskEnabled: Boolean,
     routeState: FinalState?
 ): AttemptEntry {
-    val provider = providerId?.displayProvider() ?: "未知供应商"
+    val provider = providerId?.displayProvider() ?: "—"
     val accountAlias = accountId?.let { id -> accounts.find { it.id == id }?.alias ?: id }
     val accountLabel = accountAlias?.let { MetricCalculators.maskAccountName(it, maskEnabled) }
     return AttemptEntry(

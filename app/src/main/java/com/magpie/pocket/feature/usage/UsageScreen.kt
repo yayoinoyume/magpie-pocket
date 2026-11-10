@@ -100,6 +100,7 @@ fun UsageScreen(
     isLoading: Boolean,
     contentPadding: PaddingValues,
     initialSection: String? = null,
+    onSectionConsumed: () -> Unit = {},
     modifier: Modifier = Modifier,
     isDemo: Boolean = false
 ) {
@@ -135,6 +136,7 @@ fun UsageScreen(
     LaunchedEffect(initialSection) {
         if (initialSection == "quota") {
             listState.animateScrollToItem(QuotaSectionItemIndex)
+            onSectionConsumed()
         }
     }
 
@@ -865,16 +867,16 @@ private fun QuotaRowView(row: QuotaRow, onClick: (() -> Unit)?) {
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false)
                     )
-                    val ratio = row.view.ratio
-                    if (ratio != null && ratio >= 0.85) {
-                        Spacer(modifier = Modifier.width(6.dp))
-                        QuotaWarningBadge()
-                    }
                 }
+                val quotaRatio = row.view.ratio
                 Text(
                     text = quotaStateText(row),
                     style = MagpieTypography.LabelStyle,
-                    color = colors.textSecondary,
+                    color = if (quotaRatio != null && quotaRatio >= 0.85) {
+                        colors.warning
+                    } else {
+                        colors.textSecondary
+                    },
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -1039,20 +1041,6 @@ private fun QuotaDetailSheet(
             }
         }
     }
-}
-
-@Composable
-private fun QuotaWarningBadge() {
-    val colors = MagpieTheme.colors
-    Text(
-        text = "额度偏低",
-        style = MagpieTypography.LabelStyle.copy(fontWeight = FontWeight.Medium),
-        color = colors.warning,
-        modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(colors.warningSurface)
-            .padding(horizontal = 6.dp, vertical = 2.dp)
-    )
 }
 
 @Composable
