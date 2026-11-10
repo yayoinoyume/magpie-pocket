@@ -19,7 +19,7 @@ v1.0.1 introduced a new signing certificate. Versions 1.0.0 and earlier require 
 
 ## 中文
 
-[Magpie](https://github.com/yetone/magpie) AI 网关的原生 Android 观测客户端。采用 Kotlin、Jetpack Compose 和轻透玻璃风格，提供概览、实时路由、用量与请求账本四个页面。首期聚焦只读观测；路由组由实际请求自动跟随，不需要手动选择。
+[Magpie](https://github.com/yetone/magpie) AI 网关的原生 Android 观测客户端。采用 Kotlin、Jetpack Compose 和轻透玻璃风格，提供概览、实时路由、用量、请求账本与更多五个页面。首期聚焦只读观测；路由组由实际请求自动跟随，不需要手动选择。
 
 ### 页面预览
 
@@ -58,6 +58,9 @@ v1.0.1 introduced a new signing certificate. Versions 1.0.0 and earlier require 
 - **实时路由**：自动跟随全局最新处理中请求及其实际路由组，显示实际供应商、账号、改道尝试、选路依据与上下文构成；历史查看保持固定，支持返回实时。
 - **用量**：今日 / 近 7 天、输入 / 输出 / 缓存 Token、加权缓存命中率、模型分布和账号额度窗口。
 - **请求账本**：搜索、状态筛选、请求明细与尝试时间线。RFC3339 时间按手机本地时区显示，支持纳秒、正负时区偏移和跨日。
+- **更多**：供应商目录（模型/价格/并发/密钥数量）、隐私掩码（摘要、日柱、类型排行、记录与按需揭示）、显示偏好与关于。
+- **费用与速度**：今日费用、未计价次数、解码速度（tok/s）、今日/7 天/30 天/全部四档周期。
+- **六维明细**：模型、智能体、会话、账号、调用方、供应商密钥。
 - **连接认证**：支持 Magpie Web Key / Cookie 会话，以及可选的 Cloudflare Access Service Token。需要两层认证时，两组凭据分别填写；CF Token 不能替代 Magpie Web Key。
 - **后台连接**：真实连接默认启用可关闭的常驻通知服务、30 秒轻量心跳与有上限的退避重连。返回前台或网络恢复时重新校验；演示模式不启动后台联网。
 - **显示偏好**：浅色 / 深色、三档材质、账号打码与减少动态效果；开关在浅色与深色的开/关状态都有明确的圆点和轨道。系统动画关闭、后台或离线时，路由动画停止。
@@ -96,7 +99,7 @@ cd magpie-pocket
 
 ## English
 
-**Magpie Pocket** is a native Android observability client for the [Magpie AI gateway](https://github.com/yetone/magpie), built with Kotlin and Jetpack Compose. It focuses on read-only monitoring with a restrained glass-inspired interface.
+**Magpie Pocket** is a native Android observability client for the [Magpie AI gateway](https://github.com/yetone/magpie), built with Kotlin and Jetpack Compose. It offers five pages — Overview, Routing, Usage, Requests and More — and focuses on read-only monitoring with a restrained glass-inspired interface.
 
 The screenshots and animation above are captured from the actual Android app using clearly labeled **Demo data**.
 
@@ -105,6 +108,9 @@ The screenshots and animation above are captured from the actual Android app usi
 - **Routing**: automatic group selection from the latest live request, trace-driven flow, actual provider/account changes, routing evidence and context breakdown. Inspect historical requests without losing the selection, then return to live following.
 - **Usage**: today / seven-day views, token categories, weighted cache hit rate and quota windows.
 - **Requests**: search, status filters and attempt details. Timestamps are parsed as instants and rendered in the device timezone, including explicit offsets and nanosecond timestamps.
+- **More**: provider catalog (models, prices, concurrency and key counts), privacy masking (summary, daily bars, type ranking, mask log and reveal on demand), display preferences and about.
+- **Cost and speed**: today's cost, unpriced call count, decode speed (tok/s), and the today / 7-day / 30-day / all-time periods.
+- **Six-dimension breakdown**: model, agent, session, account, caller and provider key.
 - **Access**: Magpie Web Key sessions and optional Cloudflare Access service-token headers, with encrypted credential storage.
 - **Accessibility**: account masking, light/dark themes and reduced motion. Routing motion also stops when system animations are disabled, the app is backgrounded or the connection is offline.
 

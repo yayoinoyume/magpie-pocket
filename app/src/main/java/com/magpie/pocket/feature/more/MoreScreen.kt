@@ -176,7 +176,7 @@ fun MoreScreen(
                     MoreRow(
                         icon = Icons.Filled.Description,
                         title = "开源许可",
-                        subtitle = "第三方开源组件"
+                        subtitle = "MIT · Lucide (ISC)"
                     )
                 }
             }
