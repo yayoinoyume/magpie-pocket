@@ -89,7 +89,7 @@ fun UsageScreen(
     var breakdownExpanded by rememberSaveable { mutableStateOf(false) }
 
     val dimension = UsageDimension.values().firstOrNull { it.name == dimensionKey } ?: UsageDimension.MODELS
-    val totalTokens = MetricCalculators.calculateTotalTokensOrNull(usage?.tokens)
+    val totalTokens = MetricCalculators.calculateTotalTokens(usage?.tokens)
     val cacheHitRate = MetricCalculators.calculateCacheHitRate(usage?.tokens)
     val credits = usage?.credits
     val dimensionData = breakdownFor(usage, dimension, preferences.maskAccountNames)
@@ -251,21 +251,19 @@ fun UsageScreen(
                     Spacer(modifier = Modifier.height(5.dp))
                     Row(verticalAlignment = Alignment.Bottom) {
                         Text(
-                            text = totalTokens?.let { MetricCalculators.formatCompactNumber(it) } ?: "—",
+                            text = if (usage == null) "—" else MetricCalculators.formatCompactNumber(totalTokens),
                             fontSize = MagpieTypography.InlineMetric,
                             lineHeight = 28.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = colors.textPrimary
                         )
-                        if (totalTokens != null) {
-                            Spacer(modifier = Modifier.width(5.dp))
-                            Text(
-                                "token",
-                                fontSize = 13.sp,
-                                color = colors.textSecondary,
-                                modifier = Modifier.padding(bottom = 4.dp)
-                            )
-                        }
+                        Spacer(modifier = Modifier.width(5.dp))
+                        Text(
+                            "token",
+                            fontSize = 13.sp,
+                            color = colors.textSecondary,
+                            modifier = Modifier.padding(bottom = 4.dp)
+                        )
                     }
                     Spacer(modifier = Modifier.height(14.dp))
                     TokenCompositionBar(usage)

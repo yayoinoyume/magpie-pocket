@@ -221,7 +221,6 @@ fun MainAppRoot(viewModel: AppViewModel) {
     val selectedGroupId by viewModel.selectedGroupId.collectAsState()
     val usage by viewModel.usage.collectAsState()
     val quotas by viewModel.quotas.collectAsState()
-    val quotaAlerts by viewModel.quotaAlerts.collectAsState()
     val requestsPage by viewModel.requestsPage.collectAsState()
     val runningRequest by viewModel.runningRequest.collectAsState()
     val selectedRequest by viewModel.selectedRequest.collectAsState()
@@ -286,13 +285,13 @@ fun MainAppRoot(viewModel: AppViewModel) {
                     overview = overview,
                     trace = trace,
                     runningRequest = runningRequest,
-                    quotaAlerts = quotaAlerts,
+                    quotas = quotas,
                     isLoading = isLoading,
                     isOnline = isOnline,
                     connectionStatus = connectionStatus,
                     isDemo = connectionConfig.mode == DataMode.DEMO,
-                    onNavigateToRouting = { routeId ->
-                        if (routeId != null) viewModel.focusRoute(routeId) else viewModel.resetToLatest()
+                    onNavigateToRouting = { _ ->
+                        viewModel.resetToLatest()
                         viewModel.selectTab(AppTab.ROUTING)
                     },
                     onNavigateToErrors = {

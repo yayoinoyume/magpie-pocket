@@ -370,7 +370,7 @@ fun RequestRow(
     onClick: () -> Unit
 ) {
     val colors = MagpieTheme.colors
-    val tokens = MetricCalculators.formatTotalTokens(summary.usage)
+    val totalTokens = MetricCalculators.calculateTotalTokens(summary.usage)
     val account = (accountAlias ?: summary.accountId)?.let { MetricCalculators.maskAccountName(it, maskAccount) }
     Column(
         modifier = Modifier
@@ -413,7 +413,7 @@ fun RequestRow(
                 text = listOf(
                     "首响 ${MetricCalculators.formatDurationMs(summary.ttftMs)}",
                     "耗时 ${MetricCalculators.formatDurationMs(summary.durationMs)}",
-                    tokens + " token"
+                    "${MetricCalculators.formatCompactNumber(totalTokens)} token"
                 ).joinToString("  ·  "),
                 fontSize = MagpieTypography.CaptionStyle.fontSize,
                 color = colors.textSecondary,
@@ -442,7 +442,7 @@ fun RequestDetailSheetContent(
 ) {
     val colors = MagpieTheme.colors
     val summary = detail.summary
-    val totalTokens = MetricCalculators.formatTotalTokens(summary.usage)
+    val totalTokens = MetricCalculators.calculateTotalTokens(summary.usage)
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -501,7 +501,7 @@ fun RequestDetailSheetContent(
         } ?: "—")
         DetailRow("首响", MetricCalculators.formatDurationMs(summary.ttftMs))
         DetailRow("总耗时", MetricCalculators.formatDurationMs(summary.durationMs))
-        DetailRow("Token", totalTokens)
+        DetailRow("Token", "${MetricCalculators.formatCompactNumber(totalTokens)}")
 
         if (detail.sanitizedError != null) {
             Spacer(modifier = Modifier.height(12.dp))

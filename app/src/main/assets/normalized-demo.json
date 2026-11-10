@@ -63,38 +63,31 @@
     "dailyTrends": [
       {
         "day": "2026-10-16",
-        "requests": 412,
-        "cost": 1.42
+        "requests": 412
       },
       {
         "day": "2026-10-17",
-        "requests": 388,
-        "cost": 1.31
+        "requests": 388
       },
       {
         "day": "2026-10-18",
-        "requests": 296,
-        "cost": 0.98
+        "requests": 296
       },
       {
         "day": "2026-10-19",
-        "requests": 502,
-        "cost": 1.77
+        "requests": 502
       },
       {
         "day": "2026-10-20",
-        "requests": 611,
-        "cost": 2.24
+        "requests": 611
       },
       {
         "day": "2026-10-21",
-        "requests": 588,
-        "cost": 2.05
+        "requests": 588
       },
       {
         "day": "2026-10-22",
-        "requests": 341,
-        "cost": 1.18
+        "requests": 341
       }
     ]
   },
@@ -132,15 +125,6 @@
     "credits": 48.5,
     "decodeMs": 92000,
     "decodeOut": 1180000,
-    "series": [
-      { "label": "2026-10-16", "calls": 412, "cost": 1.42 },
-      { "label": "2026-10-17", "calls": 388, "cost": 1.31 },
-      { "label": "2026-10-18", "calls": 296, "cost": 0.98 },
-      { "label": "2026-10-19", "calls": 502, "cost": 1.77 },
-      { "label": "2026-10-20", "calls": 611, "cost": 2.24 },
-      { "label": "2026-10-21", "calls": 588, "cost": 2.05 },
-      { "label": "2026-10-22", "calls": 341, "cost": 1.18 }
-    ],
     "agents": [
       {
         "id": "agent-orchestrator",

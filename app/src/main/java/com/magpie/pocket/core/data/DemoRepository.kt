@@ -35,7 +35,6 @@ import com.magpie.pocket.core.model.UsageModelItem
 import com.magpie.pocket.core.model.UsageSnapshot
 import com.magpie.pocket.core.network.AuthenticationRequiredException
 import com.magpie.pocket.core.network.ResourceNotFoundException
-import com.magpie.pocket.core.util.RequestDerivations
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow

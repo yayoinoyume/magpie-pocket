@@ -86,9 +86,9 @@ The reusable visual specification is maintained in .agents/skills/magpie-pocket-
 
 - **改道次数**：RequestDerivations.rerouteCount(attempts, retried)。有 attempts 时取 max(0, attempts.size - 1)；账本没有 attempts，只回退上游 retried；两者都无则为 0。LIVE 的 RUNNING / REROUTED 筛选在本地对同一批账本行生效，ERROR 仍由账本 failed=1 服务端筛选。
 - **费用**：CostDisplay(value, unpriced, hasUnpriced)；cost = 0.0 且 unpriced > 0 时页面仍能显示“N 次未计价”，不再把未计价吞成零。
-- **额度**：每个账号只暴露 AccountQuotaView.tightestWindow（ratio 最大的窗口，含 alias 优先与偏好打码），圆环与账号行共用；QuotaAlert 只给已进入预警区的窗口。
+- **额度**：VM 为每个账号只暴露 AccountQuotaView.tightestWindow（ratio 最大的窗口，含 alias 优先与偏好打码），并给出 QuotaAlert；页面圆环/账号行/提醒的接线在后续页面任务（本轮不改 MainActivity 与 Screen）。
 - **统计日**：statisticsDay 由 Capabilities.statisticsTimeZone（缺失时回退请求 SourceMeta）换算 rangeEnd，没有时区时取服务器字面日期。
 - **趋势**：DailyTrendPoint 带日期、请求数与当日已计价费用（上游 series 的 cost）；UsageSnapshot.dailyTrends 保留所选周期的 series，概览 history 不可用时 VM 回退到该序列，两者都没有才为空列表，不补零。usageDecodeSpeed 与概览使用同一公式。
-- **路由聚焦**：focusRoute(routeId) 按 id 聚焦但仍保持自动跟随；runningRequest（单条）保留，runningRequests 最多三条按 startedAt 倒序。
+- **路由聚焦**：VM 提供 focusRoute(routeId)，按 id 聚焦但仍保持自动跟随；runningRequest（单条）保留，runningRequests 最多三条按 startedAt 倒序。MainActivity 的接线在后续任务。
 - **覆盖率**：dataCoverage 取 overview / usage / 请求页中最差的 Coverage，并带 stale。
-- **缺失不等于零**：TokenUsage 四个字段与 RequestSummary.usage、QuotaWindow.used/limit 保留 null；下游 token 展示统一输出“—”。sameTimeYesterdayCompletedRequests 字段保留，但不再显示“较昨日”文案。
+- **缺失不等于零**：TokenUsage 四个字段与 RequestSummary.usage、QuotaWindow.used/limit 保留 null；下游统一用 MetricCalculators.formatTotalTokens 输出“—”（页面接线在后续任务）。sameTimeYesterdayCompletedRequests 字段保留，但不再有数据来源。

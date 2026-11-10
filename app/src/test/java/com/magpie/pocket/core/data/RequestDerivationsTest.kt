@@ -1,6 +1,7 @@
-package com.magpie.pocket.core.util
+package com.magpie.pocket.core.data
 
 import com.magpie.pocket.core.model.Attempt
+import com.magpie.pocket.core.util.MetricCalculators
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
