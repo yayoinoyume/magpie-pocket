@@ -374,7 +374,8 @@ class AppViewModel(
         _capabilities.value = cap
 
         if (cap.usage) {
-            val ov = activeRepo.overview(_selectedPeriod.value)
+            // Overview is always "today"; the usage period must not relabel it.
+            val ov = activeRepo.overview(Period.TODAY)
             if (generation != repoGeneration) return
             _overview.value = ov
         }
@@ -1116,7 +1117,8 @@ class AppViewModel(
         periodJob?.cancel()
         periodJob = viewModelScope.launch {
             try {
-                val overview = activeRepo.overview(period)
+                // Switching the usage period never changes the overview's own scope.
+                val overview = activeRepo.overview(Period.TODAY)
                 if (generation != repoGeneration) return@launch
                 _overview.value = overview
                 val usage = activeRepo.usage(period)
