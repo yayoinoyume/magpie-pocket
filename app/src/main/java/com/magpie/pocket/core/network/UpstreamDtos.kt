@@ -179,6 +179,33 @@ object QuotasResponseSerializer : KSerializer<UpstreamQuotasResponse> {
     }
 }
 
+/** The history endpoint listed days as bare strings and now sends {day,requests} objects. */
+object HistoryDaysSerializer : KSerializer<List<UpstreamHistoryDay>?> {
+    override val descriptor: SerialDescriptor =
+        buildClassSerialDescriptor("HistoryDays")
+
+    override fun deserialize(decoder: Decoder): List<UpstreamHistoryDay>? {
+        val input = decoder as? JsonDecoder ?: return null
+        val element = input.decodeJsonElement()
+        if (element !is kotlinx.serialization.json.JsonArray) return null
+        return element.mapNotNull { item ->
+            when (item) {
+                is JsonPrimitive -> UpstreamHistoryDay(day = item.contentOrNull ?: item.content)
+                is JsonObject -> input.json.decodeFromJsonElement(UpstreamHistoryDay.serializer(), item)
+                else -> null
+            }
+        }
+    }
+
+    override fun serialize(encoder: Encoder, value: List<UpstreamHistoryDay>?) {
+        if (value == null) return
+        encoder.encodeSerializableValue(
+            kotlinx.serialization.builtins.ListSerializer(UpstreamHistoryDay.serializer()),
+            value
+        )
+    }
+}
+
 @Serializable
 data class UpstreamTraceResponse(
     @SerialName("epoch") val epoch: String = "",
@@ -293,9 +320,16 @@ data class UpstreamRouteUsage(
 
 @Serializable
 data class UpstreamHistoryResponse(
-    @SerialName("days") val days: List<String>? = null,
+    @SerialName("days") @Serializable(with = HistoryDaysSerializer::class)
+    val days: List<UpstreamHistoryDay>? = null,
     @SerialName("routes") val routes: List<UpstreamRoute>? = null,
     @SerialName("cut") val cut: Boolean = false
+)
+
+@Serializable
+data class UpstreamHistoryDay(
+    @SerialName("day") @Serializable(with = FlexibleStringSerializer::class) val day: String? = null,
+    @SerialName("requests") val requests: Long? = null
 )
 
 @Serializable
@@ -314,7 +348,17 @@ data class UpstreamUsageResponse(
     @SerialName("series") val series: List<UpstreamSeriesPoint>? = null,
     @SerialName("hourly") val hourly: List<UpstreamHourlyBucket>? = null,
     @SerialName("range_start") val rangeStart: String? = null,
-    @SerialName("range_end") val rangeEnd: String? = null
+    @SerialName("range_end") val rangeEnd: String? = null,
+    @SerialName("cost") val cost: Double? = null,
+    @SerialName("unpriced") val unpriced: Long? = null,
+    @SerialName("credits") val credits: Double? = null,
+    @SerialName("decode_ms") val decodeMs: Long? = null,
+    @SerialName("decode_out") val decodeOut: Long? = null,
+    @SerialName("agents") val agents: List<UpstreamUsageAgent>? = null,
+    @SerialName("sessions") val sessions: List<UpstreamUsageBreakdown>? = null,
+    @SerialName("accounts") val accounts: List<UpstreamUsageBreakdown>? = null,
+    @SerialName("callerKeys") val callerKeys: List<UpstreamUsageBreakdown>? = null,
+    @SerialName("providerKeys") val providerKeys: List<UpstreamUsageBreakdown>? = null
 )
 
 @Serializable
@@ -334,7 +378,8 @@ data class UpstreamUsageModel(
 data class UpstreamSeriesPoint(
     @SerialName("label") val label: String? = null,
     @SerialName("time") val time: String? = null,
-    @SerialName("calls") val calls: Long = 0L
+    @SerialName("calls") val calls: Long = 0L,
+    @SerialName("cost") val cost: Double? = null
 )
 
 @Serializable
@@ -449,4 +494,144 @@ data class UpstreamStateResponse(
     @SerialName("version") val version: String? = null,
     @SerialName("timezone") val timezone: String? = null,
     @SerialName("read_only") val readOnly: Boolean = false
+)
+
+/** One agent row of the usage aggregate. */
+@Serializable
+data class UpstreamUsageAgent(
+    @SerialName("id") @Serializable(with = FlexibleStringSerializer::class) val id: String? = null,
+    @SerialName("name") val name: String? = null,
+    @SerialName("calls") val calls: Long? = null,
+    @SerialName("cost") val cost: Double? = null,
+    @SerialName("errors") val errors: Long? = null,
+    @SerialName("input") val input: Long? = null,
+    @SerialName("output") val output: Long? = null,
+    @SerialName("cache_read") val cacheRead: Long? = null,
+    @SerialName("cache_write") val cacheWrite: Long? = null
+)
+
+/** One breakdown row for sessions, accounts, caller keys and provider keys. */
+@Serializable
+data class UpstreamUsageBreakdown(
+    @SerialName("id") @Serializable(with = FlexibleStringSerializer::class) val id: String? = null,
+    @SerialName("agent") val agent: String? = null,
+    @SerialName("account") val account: String? = null,
+    @SerialName("name") val name: String? = null,
+    @SerialName("provider") val provider: String? = null,
+    @SerialName("calls") val calls: Long? = null,
+    @SerialName("cost") val cost: Double? = null,
+    @SerialName("credits") val credits: Double? = null,
+    @SerialName("errors") val errors: Long? = null,
+    @SerialName("input") val input: Long? = null,
+    @SerialName("output") val output: Long? = null,
+    @SerialName("callerKeyId") @Serializable(with = FlexibleStringSerializer::class)
+    val callerKeyId: String? = null,
+    @SerialName("callerKeyName") val callerKeyName: String? = null,
+    @SerialName("providerKeyId") @Serializable(with = FlexibleStringSerializer::class)
+    val providerKeyId: String? = null,
+    @SerialName("providerKeyName") val providerKeyName: String? = null,
+    @SerialName("unpriced") val unpriced: Long? = null
+)
+
+@Serializable
+data class UpstreamProvidersResponse(
+    @SerialName("providers") val providers: List<UpstreamProvider>? = null
+)
+
+@Serializable
+data class UpstreamProvider(
+    @SerialName("id") @Serializable(with = FlexibleStringSerializer::class) val id: String,
+    @SerialName("name") val name: String? = null,
+    @SerialName("host") val host: String? = null,
+    @SerialName("ready") val ready: Boolean? = null,
+    @SerialName("off") val off: Boolean? = null,
+    @SerialName("speaks") @Serializable(with = FlexibleStringListSerializer::class)
+    val speaks: List<String>? = null,
+    @SerialName("maxConcurrency") val maxConcurrency: Int? = null,
+    @SerialName("keyList") val keyList: List<UpstreamProviderKey>? = null,
+    @SerialName("models") val models: List<UpstreamProviderModel>? = null
+)
+
+@Serializable
+data class UpstreamProviderKey(
+    @SerialName("name") val name: String? = null
+)
+
+@Serializable
+data class UpstreamProviderModel(
+    @SerialName("id") @Serializable(with = FlexibleStringSerializer::class) val id: String,
+    @SerialName("name") val name: String? = null,
+    @SerialName("on") val on: Boolean? = null,
+    @SerialName("context") val context: Long? = null,
+    @SerialName("output") val output: Long? = null,
+    @SerialName("images") val images: Boolean? = null,
+    @SerialName("efforts") @Serializable(with = FlexibleStringListSerializer::class)
+    val efforts: List<String>? = null,
+    @SerialName("list") val list: UpstreamModelPricing? = null
+)
+
+@Serializable
+data class UpstreamModelPricing(
+    @SerialName("input") val input: Double? = null,
+    @SerialName("output") val output: Double? = null
+)
+
+@Serializable
+data class UpstreamMaskingSummary(
+    @SerialName("n") val n: Long? = null,
+    @SerialName("distinct") val distinct: Long? = null,
+    @SerialName("requests") val requests: Long? = null,
+    @SerialName("blocked") val blocked: Long? = null,
+    @SerialName("warned") val warned: Long? = null,
+    @SerialName("days") val days: List<UpstreamMaskingDay>? = null,
+    @SerialName("kinds") val kinds: List<UpstreamMaskingCount>? = null,
+    @SerialName("by") val by: Map<String, Int>? = null,
+    @SerialName("agents") val agents: List<UpstreamMaskingBucket>? = null,
+    @SerialName("providers") val providers: List<UpstreamMaskingBucket>? = null,
+    @SerialName("values") val values: List<UpstreamMaskingBucket>? = null
+)
+
+@Serializable
+data class UpstreamMaskingDay(
+    @SerialName("day") val day: String? = null,
+    @SerialName("n") val n: Long? = null,
+    @SerialName("requests") val requests: Long? = null
+)
+
+@Serializable
+data class UpstreamMaskingCount(
+    @SerialName("k") val kind: String? = null,
+    @SerialName("n") val n: Long? = null
+)
+
+@Serializable
+data class UpstreamMaskingBucket(
+    @SerialName("id") val id: String? = null,
+    @SerialName("name") val name: String? = null,
+    @SerialName("n") val n: Long? = null
+)
+
+@Serializable
+data class UpstreamMaskingRecords(
+    @SerialName("records") val records: List<UpstreamMaskingRecord>? = null,
+    @SerialName("more") val more: Boolean? = null
+)
+
+@Serializable
+data class UpstreamMaskingRecord(
+    /** A string on some builds and a number on others, so the raw element is kept. */
+    @SerialName("key") val key: JsonElement? = null,
+    @SerialName("values") val values: List<UpstreamMaskingCount>? = null,
+    @SerialName("blocked") val blocked: Boolean? = null,
+    @SerialName("t") val t: String? = null,
+    @SerialName("what") val what: String? = null,
+    @SerialName("agent") val agent: String? = null,
+    @SerialName("provider") val provider: String? = null,
+    @SerialName("model") val model: String? = null,
+    @SerialName("snips") val snips: Map<String, String>? = null
+)
+
+@Serializable
+data class UpstreamMaskingValue(
+    @SerialName("value") val value: String? = null
 )

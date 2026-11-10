@@ -19,7 +19,9 @@
     "quotas": true,
     "groups": true,
     "statisticsTimeZone": "Asia/Shanghai",
-    "verifiedDeploymentVersion": null
+    "verifiedDeploymentVersion": null,
+    "providers": true,
+    "masking": true
   },
   "trace": {
     "epoch": "demo-epoch-1",
@@ -46,18 +48,52 @@
     "period": "TODAY",
     "rangeStart": "2026-10-21T16:00:00Z",
     "rangeEnd": "2026-10-22T01:41:12Z",
-    "coverage": "COMPLETE",
+    "coverage": "PARTIAL",
     "completedRequests": 1728,
     "finalErrors": 4,
     "successRateExpected": 0.9976851851851852,
     "ttftSumMs": 1800000,
     "ttftSampleCount": 1000,
     "ttftMeanMsExpected": 1800,
-    "sameTimeYesterdayCompletedRequests": null
+    "sameTimeYesterdayCompletedRequests": null,
+    "cost": 12.84,
+    "unpriced": 17,
+    "decodeMs": 92000,
+    "decodeOut": 1180000,
+    "dailyTrends": [
+      {
+        "day": "2026-10-16",
+        "requests": 412
+      },
+      {
+        "day": "2026-10-17",
+        "requests": 388
+      },
+      {
+        "day": "2026-10-18",
+        "requests": 296
+      },
+      {
+        "day": "2026-10-19",
+        "requests": 502
+      },
+      {
+        "day": "2026-10-20",
+        "requests": 611
+      },
+      {
+        "day": "2026-10-21",
+        "requests": 588
+      },
+      {
+        "day": "2026-10-22",
+        "requests": 341
+      }
+    ]
   },
   "usage": {
     "period": "TODAY",
-    "coverage": "COMPLETE",
+    "coverage": "PARTIAL",
     "tokens": {
       "inputUncached": 500000,
       "output": 800000,
@@ -82,6 +118,134 @@
         "providerId": "other",
         "modelId": "other",
         "totalTokens": 1500000
+      }
+    ],
+    "cost": 12.84,
+    "unpriced": 17,
+    "credits": 48.5,
+    "decodeMs": 92000,
+    "decodeOut": 1180000,
+    "agents": [
+      {
+        "id": "agent-orchestrator",
+        "name": "orchestrator",
+        "calls": 612,
+        "cost": 4.12,
+        "errors": 1,
+        "input": 420000,
+        "output": 180000,
+        "cache_read": 6300000,
+        "cache_write": 90000
+      },
+      {
+        "id": "agent-ide",
+        "name": "ide-cli",
+        "calls": 540,
+        "cost": 3.55,
+        "errors": 2,
+        "input": 360000,
+        "output": 210000,
+        "cache_read": 5100000,
+        "cache_write": 80000
+      },
+      {
+        "id": "agent-batch",
+        "name": "batch-job",
+        "calls": 380,
+        "cost": 3.02,
+        "errors": 1,
+        "input": 240000,
+        "output": 140000,
+        "cache_read": 2900000,
+        "cache_write": 60000
+      }
+    ],
+    "sessions": [
+      {
+        "id": "sess-701",
+        "agent": "orchestrator",
+        "calls": 18,
+        "cost": 0.62,
+        "credits": 2.5,
+        "input": 21000,
+        "output": 9000,
+        "errors": 0
+      },
+      {
+        "id": "sess-702",
+        "agent": "ide-cli",
+        "calls": 12,
+        "cost": 0.41,
+        "credits": 1.5,
+        "input": 15000,
+        "output": 7000,
+        "errors": 1
+      }
+    ],
+    "accounts": [
+      {
+        "id": "wb-01",
+        "account": "wb-01",
+        "name": "workbuddy 主账号",
+        "provider": "workbuddy",
+        "calls": 640,
+        "cost": 5.9,
+        "credits": 12.0,
+        "errors": 1
+      },
+      {
+        "id": "wba-03",
+        "account": "wba-03",
+        "name": "workbuddy 备账号",
+        "provider": "workbuddy",
+        "calls": 410,
+        "cost": 3.7,
+        "credits": 8.0,
+        "errors": 2
+      }
+    ],
+    "callerKeys": [
+      {
+        "id": "ck-ide",
+        "callerKeyId": "ck-ide",
+        "name": "IDE 编辑器",
+        "callerKeyName": "IDE 编辑器",
+        "calls": 520,
+        "cost": 4.2,
+        "credits": 0.0,
+        "errors": 0,
+        "unpriced": 3
+      },
+      {
+        "id": "ck-ci",
+        "callerKeyId": "ck-ci",
+        "name": "CI 流水线",
+        "callerKeyName": "CI 流水线",
+        "calls": 180,
+        "cost": 1.4,
+        "credits": 0.0,
+        "errors": 1,
+        "unpriced": 14
+      }
+    ],
+    "providerKeys": [
+      {
+        "id": "pk-wb-01",
+        "providerKeyId": "pk-wb-01",
+        "provider": "workbuddy",
+        "providerKeyName": "workbuddy-key-01",
+        "calls": 610,
+        "cost": 5.4,
+        "credits": 0.0
+      },
+      {
+        "id": "pk-moon-01",
+        "providerKeyId": "pk-moon-01",
+        "provider": "moonshot",
+        "providerKeyName": "moonshot-key-01",
+        "calls": 220,
+        "cost": 2.1,
+        "credits": 0.0
       }
     ]
   },
@@ -534,5 +698,248 @@
       "handoffs": 2,
       "finalErrors": 1
     }
-  ]
+  ],
+  "providers": [
+    {
+      "id": "workbuddy",
+      "name": "WorkBuddy",
+      "host": "api.workbuddy.example",
+      "ready": true,
+      "off": false,
+      "speaks": [
+        "openai-chat",
+        "anthropic-messages"
+      ],
+      "maxConcurrency": 8,
+      "keyList": [
+        {
+          "name": "workbuddy-key-01"
+        },
+        {
+          "name": "workbuddy-key-02"
+        }
+      ],
+      "models": [
+        {
+          "id": "deepseek-v4.1-flash",
+          "name": "DeepSeek V4.1 Flash",
+          "on": true,
+          "context": 128000,
+          "output": 8192,
+          "images": false,
+          "efforts": [
+            "low",
+            "high"
+          ],
+          "list": {
+            "input": 0.14,
+            "output": 0.28
+          }
+        },
+        {
+          "id": "deepseek-v4.1",
+          "name": "DeepSeek V4.1",
+          "on": true,
+          "context": 256000,
+          "output": 16384,
+          "images": false,
+          "efforts": [],
+          "list": {
+            "input": 0.55,
+            "output": 2.2
+          }
+        }
+      ]
+    },
+    {
+      "id": "moonshot",
+      "name": "Moonshot",
+      "host": "api.moonshot.example",
+      "ready": false,
+      "off": false,
+      "speaks": [
+        "openai-chat"
+      ],
+      "maxConcurrency": null,
+      "keyList": [
+        {
+          "name": "moonshot-key-01"
+        }
+      ],
+      "models": [
+        {
+          "id": "kimi-k2.5",
+          "name": "Kimi K2.5",
+          "on": null,
+          "context": null,
+          "output": null,
+          "images": true,
+          "efforts": [],
+          "list": {
+            "input": null,
+            "output": null
+          }
+        }
+      ]
+    }
+  ],
+  "masking": {
+    "summary": {
+      "n": 42,
+      "distinct": 5,
+      "requests": 37,
+      "blocked": 3,
+      "warned": 12,
+      "days": [
+        {
+          "day": "2026-10-20",
+          "n": 12,
+          "requests": 11
+        },
+        {
+          "day": "2026-10-21",
+          "n": 18,
+          "requests": 16
+        },
+        {
+          "day": "2026-10-22",
+          "n": 12,
+          "requests": 10
+        }
+      ],
+      "kinds": [
+        {
+          "k": "EMAIL",
+          "n": 18
+        },
+        {
+          "k": "API_KEY",
+          "n": 9
+        },
+        {
+          "k": "PHONE",
+          "n": 8
+        },
+        {
+          "k": "ID_CARD",
+          "n": 4
+        },
+        {
+          "k": "BANK_CARD",
+          "n": 3
+        }
+      ],
+      "by": {
+        "EMAIL": 18,
+        "API_KEY": 9,
+        "PHONE": 8,
+        "ID_CARD": 4,
+        "BANK_CARD": 3
+      },
+      "agents": [
+        {
+          "id": "orchestrator",
+          "name": "orchestrator",
+          "n": 21
+        },
+        {
+          "id": "ide-cli",
+          "name": "ide-cli",
+          "n": 14
+        },
+        {
+          "id": "batch-job",
+          "name": "batch-job",
+          "n": 7
+        }
+      ],
+      "providers": [
+        {
+          "id": "workbuddy",
+          "name": "workbuddy",
+          "n": 26
+        },
+        {
+          "id": "moonshot",
+          "name": "moonshot",
+          "n": 16
+        }
+      ],
+      "values": [
+        {
+          "id": "<EMAIL_1>",
+          "name": "<EMAIL_1>",
+          "n": 6
+        },
+        {
+          "id": "<API_KEY_1>",
+          "name": "<API_KEY_1>",
+          "n": 4
+        }
+      ]
+    },
+    "records": [
+      {
+        "key": "701",
+        "values": [
+          {
+            "k": "EMAIL",
+            "n": 1
+          }
+        ],
+        "blocked": false,
+        "t": "2026-10-22T01:12:00Z",
+        "what": "对话正文",
+        "agent": "orchestrator",
+        "provider": "workbuddy",
+        "model": "deepseek-v4.1-flash",
+        "snips": {
+          "EMAIL_1": "<EMAIL_1>"
+        }
+      },
+      {
+        "key": 702,
+        "values": [
+          {
+            "k": "API_KEY",
+            "n": 2
+          }
+        ],
+        "blocked": true,
+        "t": "2026-10-22T00:58:00Z",
+        "what": "代码片段",
+        "agent": "ide-cli",
+        "provider": "workbuddy",
+        "model": "deepseek-v4.1",
+        "snips": {
+          "API_KEY_1": "<API_KEY_1>"
+        }
+      },
+      {
+        "key": "703",
+        "values": [
+          {
+            "k": "PHONE",
+            "n": 1
+          },
+          {
+            "k": "ID_CARD",
+            "n": 1
+          }
+        ],
+        "blocked": null,
+        "t": "2026-10-21T22:31:00Z",
+        "what": "对话正文",
+        "agent": "batch-job",
+        "provider": "moonshot",
+        "model": "kimi-k2.5",
+        "snips": null
+      }
+    ],
+    "values": {
+      "<EMAIL_1>": "demo.user@example.test",
+      "<API_KEY_1>": "sk-demo-000000000000",
+      "<PHONE_1>": "13800000000"
+    }
+  }
 }

@@ -143,6 +143,33 @@ object MetricCalculators {
     }
 
     /**
+     * Decode throughput: decodeOut tokens over decodeMs milliseconds.
+     * A missing output or a non-positive duration cannot produce a rate.
+     */
+    fun decodeTokensPerSecond(decodeOut: Long?, decodeMs: Long?): Double? {
+        if (decodeOut == null || decodeMs == null || decodeMs <= 0L) return null
+        return decodeOut.toDouble() / (decodeMs.toDouble() / 1000.0)
+    }
+
+    /**
+     * Spend formatting. Sub-cent amounts keep four decimals so a real charge never
+     * renders as a fake zero, and an unknown amount is a dash rather than 0.
+     */
+    fun formatCost(cost: Double?): String {
+        if (cost == null) return "—"
+        if (cost != 0.0 && kotlin.math.abs(cost) < 0.01) {
+            return String.format(Locale.US, "%.4f", cost)
+        }
+        return String.format(Locale.US, "%.2f", cost)
+    }
+
+    /** Credits are a separate upstream unit from spend and are never merged into cost. */
+    fun formatCredits(credits: Double?): String {
+        if (credits == null) return "—"
+        return String.format(Locale.US, "%.2f", credits)
+    }
+
+    /**
      * Format percentage (e.g. 99.8%).
      */
     fun formatPercent(rate: Double?): String {

@@ -12,6 +12,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import java.io.IOException
+import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
 open class MagpieApiException(message: String, val statusCode: Int? = null, cause: Throwable? = null) :
@@ -159,6 +160,33 @@ class MagpieApiClient(
         return executeGet(baseUrl, "/api/usage/quotas", quotasClient)
     }
 
+    suspend fun getProviders(baseUrl: String): UpstreamProvidersResponse =
+        executeGet(baseUrl, "/api/providers")
+
+    suspend fun getMaskingSummary(baseUrl: String, days: Int): UpstreamMaskingSummary =
+        executeGet(baseUrl, "/api/masking/summary?days=$days")
+
+    suspend fun getMaskingRecords(
+        baseUrl: String,
+        limit: Int = 50,
+        before: String? = null,
+        kind: String? = null,
+        by: String? = null,
+        agent: String? = null,
+        provider: String? = null
+    ): UpstreamMaskingRecords {
+        val builder = StringBuilder("/api/masking/records?limit=$limit")
+        appendQueryParam(builder, "before", before)
+        appendQueryParam(builder, "kind", kind)
+        appendQueryParam(builder, "by", by)
+        appendQueryParam(builder, "agent", agent)
+        appendQueryParam(builder, "provider", provider)
+        return executeGet(baseUrl, builder.toString())
+    }
+
+    suspend fun getMaskingValue(baseUrl: String, placeholder: String): UpstreamMaskingValue =
+        executeGet(baseUrl, "/api/masking/value?p=${encodeQueryValue(placeholder)}")
+
     private suspend inline fun <reified T> executeGet(
         baseUrl: String,
         pathWithQuery: String,
@@ -260,6 +288,15 @@ class MagpieApiClient(
             return first.scheme == second.scheme &&
                 first.host == second.host &&
                 first.port == second.port
+        }
+
+        /** Query values are percent-encoded so placeholders and filters survive intact. */
+        private fun encodeQueryValue(value: String): String =
+            URLEncoder.encode(value, "UTF-8").replace("+", "%20")
+
+        private fun appendQueryParam(builder: StringBuilder, name: String, value: String?) {
+            if (value.isNullOrBlank()) return
+            builder.append("&").append(name).append("=").append(encodeQueryValue(value))
         }
 
         fun normalizeBaseUrl(url: String): String {

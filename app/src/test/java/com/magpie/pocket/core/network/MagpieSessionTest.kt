@@ -53,6 +53,9 @@ class MagpieSessionTest {
         server.enqueue(json("""{"calls":0,"series":[]}"""))
         server.enqueue(json("""{"total":0,"rows":[]}"""))
         server.enqueue(json("[]"))
+        // providers and masking probes are optional; 404 keeps the capability false.
+        server.enqueue(MockResponse().setResponseCode(404))
+        server.enqueue(MockResponse().setResponseCode(404))
 
         val result = MagpieSession.connect(client, server.url("/").toString(), "dummy-web-key")
 
@@ -82,6 +85,9 @@ class MagpieSessionTest {
         server.enqueue(json("""{"calls":0,"series":[]}"""))
         server.enqueue(json("""{"total":0,"rows":[]}"""))
         server.enqueue(json("[]"))
+        // providers and masking probes are optional; 404 keeps the capability false.
+        server.enqueue(MockResponse().setResponseCode(404))
+        server.enqueue(MockResponse().setResponseCode(404))
 
         val result = MagpieSession.connect(MagpieApiClient(), server.url("/").toString(), null)
 
@@ -143,7 +149,7 @@ class MagpieSessionTest {
     @Test
     fun optionalEndpointsMayDegradeOnlyOn404() = runBlocking {
         server.enqueue(json(stateJson()))
-        repeat(5) { server.enqueue(MockResponse().setResponseCode(404)) }
+        repeat(7) { server.enqueue(MockResponse().setResponseCode(404)) }
 
         val result = MagpieSession.probe(MagpieApiClient(), server.url("/").toString())
 

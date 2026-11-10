@@ -6,11 +6,20 @@ import com.magpie.pocket.core.model.AccountQuota
 import com.magpie.pocket.core.model.Capabilities
 import com.magpie.pocket.core.model.ContextBreakdown
 import com.magpie.pocket.core.model.Coverage
+import com.magpie.pocket.core.model.DailyTrendPoint
 import com.magpie.pocket.core.model.DataMode
 import com.magpie.pocket.core.model.FinalState
 import com.magpie.pocket.core.model.HourlyTrendPoint
+import com.magpie.pocket.core.model.MaskingBucket
+import com.magpie.pocket.core.model.MaskingCount
+import com.magpie.pocket.core.model.MaskingDayPoint
+import com.magpie.pocket.core.model.MaskingRecord
+import com.magpie.pocket.core.model.MaskingRecordsPage
+import com.magpie.pocket.core.model.MaskingSummary
 import com.magpie.pocket.core.model.OverviewSnapshot
 import com.magpie.pocket.core.model.Period
+import com.magpie.pocket.core.model.ProviderCatalogItem
+import com.magpie.pocket.core.model.ProviderModelInfo
 import com.magpie.pocket.core.model.QuotaWindow
 import com.magpie.pocket.core.model.RequestDetail
 import com.magpie.pocket.core.model.RequestKey
@@ -21,6 +30,7 @@ import com.magpie.pocket.core.model.SourceMeta
 import com.magpie.pocket.core.model.TokenUsage
 import com.magpie.pocket.core.model.TraceSnapshot
 import com.magpie.pocket.core.model.TraceTotals
+import com.magpie.pocket.core.model.UsageBreakdownItem
 import com.magpie.pocket.core.model.UsageModelItem
 import com.magpie.pocket.core.model.UsageSnapshot
 import com.magpie.pocket.core.network.AuthenticationRequiredException
@@ -28,6 +38,7 @@ import com.magpie.pocket.core.network.ResourceNotFoundException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import org.json.JSONArray
 import org.json.JSONObject
 
 class DemoRepository(private val context: Context? = null, initialJsonString: String? = null) : MagpieRepository {
@@ -57,6 +68,8 @@ class DemoRepository(private val context: Context? = null, initialJsonString: St
             ledger = cap.optBoolean("ledger", true),
             quotas = cap.optBoolean("quotas", true),
             groups = cap.optBoolean("groups", true),
+            providers = cap.optBoolean("providers", true),
+            masking = cap.optBoolean("masking", true),
             statisticsTimeZone = cap.optString("statisticsTimeZone", "Asia/Shanghai"),
             verifiedDeploymentVersion = "Magpie 2.4-preview"
         )
@@ -96,13 +109,19 @@ class DemoRepository(private val context: Context? = null, initialJsonString: St
             period = period,
             rangeStart = ov.optString("rangeStart", "2026-10-21T16:00:00Z"),
             rangeEnd = ov.optString("rangeEnd", "2026-10-22T01:41:12Z"),
-            coverage = Coverage.COMPLETE,
+            // One sample window feeds all four periods, so the coverage is never complete.
+            coverage = Coverage.PARTIAL,
             completedRequests = ov.optLong("completedRequests", 1728L),
             finalErrors = ov.optLong("finalErrors", 4L),
             ttftSumMs = ov.optLong("ttftSumMs", 1800000L),
             ttftSampleCount = ov.optLong("ttftSampleCount", 1000L),
             sameTimeYesterdayCompletedRequests = null,
-            hourlyTrends = hourly
+            hourlyTrends = hourly,
+            cost = ov.optNullableDouble("cost"),
+            unpriced = ov.optNullableLong("unpriced"),
+            decodeMs = ov.optNullableLong("decodeMs"),
+            decodeOut = ov.optNullableLong("decodeOut"),
+            dailyTrends = ov.optJSONArray("dailyTrends").toDailyTrends()
         )
     }
 
@@ -212,7 +231,8 @@ class DemoRepository(private val context: Context? = null, initialJsonString: St
 
         return UsageSnapshot(
             period = period,
-            coverage = Coverage.COMPLETE,
+            // Demo data is one sample window for every period.
+            coverage = Coverage.PARTIAL,
             tokens = TokenUsage(
                 inputUncached = tok.optLong("inputUncached", 500000L),
                 output = tok.optLong("output", 800000L),
@@ -220,7 +240,17 @@ class DemoRepository(private val context: Context? = null, initialJsonString: St
                 cacheWrite = tok.optLong("cacheWrite", 261600L),
                 reasoningIncludedInOutput = tok.optLong("reasoningIncludedInOutput", 100000L)
             ),
-            models = modelList
+            models = modelList,
+            cost = us.optNullableDouble("cost"),
+            unpriced = us.optNullableLong("unpriced"),
+            credits = us.optNullableDouble("credits"),
+            decodeMs = us.optNullableLong("decodeMs"),
+            decodeOut = us.optNullableLong("decodeOut"),
+            agents = us.optJSONArray("agents").toBreakdownItems(),
+            sessions = us.optJSONArray("sessions").toBreakdownItems(),
+            accounts = us.optJSONArray("accounts").toBreakdownItems(),
+            callerKeys = us.optJSONArray("callerKeys").toBreakdownItems(),
+            providerKeys = us.optJSONArray("providerKeys").toBreakdownItems()
         )
     }
 
@@ -261,6 +291,254 @@ class DemoRepository(private val context: Context? = null, initialJsonString: St
             )
         }
         return list
+    }
+
+    override suspend fun providers(): List<ProviderCatalogItem> {
+        val root = JSONObject(jsonContent)
+        val arr = root.optJSONArray("providers") ?: return emptyList()
+        val list = mutableListOf<ProviderCatalogItem>()
+        for (i in 0 until arr.length()) {
+            val item = arr.optJSONObject(i) ?: continue
+            val id = item.optString("id", "")
+            val models = mutableListOf<ProviderModelInfo>()
+            val modelArr = item.optJSONArray("models")
+            if (modelArr != null) {
+                for (j in 0 until modelArr.length()) {
+                    val m = modelArr.optJSONObject(j) ?: continue
+                    val pricing = m.optJSONObject("list")
+                    models.add(
+                        ProviderModelInfo(
+                            id = m.optString("id", ""),
+                            name = m.optString("name", null),
+                            enabled = m.optNullableBoolean("on"),
+                            context = m.optNullableLong("context"),
+                            output = m.optNullableLong("output"),
+                            images = m.optNullableBoolean("images"),
+                            efforts = m.optJSONArray("efforts").toStringList(),
+                            inputPrice = pricing?.optNullableDouble("input"),
+                            outputPrice = pricing?.optNullableDouble("output")
+                        )
+                    )
+                }
+            }
+            list.add(
+                ProviderCatalogItem(
+                    id = id,
+                    name = item.optString("name", id),
+                    host = item.optString("host", null),
+                    ready = item.optNullableBoolean("ready"),
+                    off = item.optNullableBoolean("off"),
+                    speaks = item.optJSONArray("speaks").toStringList(),
+                    maxConcurrency = item.optNullableInt("maxConcurrency"),
+                    keyNames = item.optJSONArray("keyList").toNames(),
+                    models = models
+                )
+            )
+        }
+        return list
+    }
+
+    /** The demo window is fixed, so every requested day count shows the same sample summary. */
+    override suspend fun maskingSummary(days: Int): MaskingSummary {
+        val root = JSONObject(jsonContent)
+        val summary = root.optJSONObject("masking")?.optJSONObject("summary") ?: return MaskingSummary()
+        return MaskingSummary(
+            total = summary.optNullableLong("n"),
+            distinct = summary.optNullableLong("distinct"),
+            requests = summary.optNullableLong("requests"),
+            blocked = summary.optNullableLong("blocked"),
+            warned = summary.optNullableLong("warned"),
+            days = summary.optJSONArray("days").toMaskingDays(),
+            kinds = summary.optJSONArray("kinds").toMaskingCounts(),
+            by = summary.optJSONObject("by")?.toIntMap() ?: emptyMap(),
+            agents = summary.optJSONArray("agents").toMaskingBuckets(),
+            providers = summary.optJSONArray("providers").toMaskingBuckets(),
+            values = summary.optJSONArray("values").toMaskingBuckets()
+        )
+    }
+
+    override suspend fun maskingRecords(query: MaskingQuery): MaskingRecordsPage {
+        val root = JSONObject(jsonContent)
+        val arr = root.optJSONObject("masking")?.optJSONArray("records") ?: return MaskingRecordsPage()
+        val all = mutableListOf<MaskingRecord>()
+        for (i in 0 until arr.length()) {
+            val r = arr.optJSONObject(i) ?: continue
+            val record = MaskingRecord(
+                key = r.optString("key", null),
+                values = r.optJSONArray("values").toMaskingCounts(),
+                blocked = r.optNullableBoolean("blocked"),
+                observedAt = r.optString("t", null),
+                what = r.optString("what", null),
+                agent = r.optString("agent", null),
+                provider = r.optString("provider", null),
+                model = r.optString("model", null),
+                snippets = r.optJSONObject("snips")?.toStringMap() ?: emptyMap()
+            )
+            if (!query.kind.isNullOrBlank() && record.values.none { it.kind == query.kind }) continue
+            if (!query.agent.isNullOrBlank() && record.agent != query.agent) continue
+            if (!query.provider.isNullOrBlank() && record.provider != query.provider) continue
+            all.add(record)
+        }
+
+        val before = query.before
+        val startIndex = if (before.isNullOrBlank()) {
+            0
+        } else {
+            val found = all.indexOfFirst { it.key == before }
+            if (found < 0) 0 else found + 1
+        }
+        val page = all.drop(startIndex).take(query.limit)
+        return MaskingRecordsPage(
+            items = page,
+            more = startIndex + page.size < all.size
+        )
+    }
+
+    override suspend fun maskingValue(placeholder: String): String? {
+        val root = JSONObject(jsonContent)
+        val values = root.optJSONObject("masking")?.optJSONObject("values") ?: return null
+        if (!values.has(placeholder) || values.isNull(placeholder)) return null
+        return values.optString(placeholder, null)
+    }
+
+    private fun JSONObject.optNullableDouble(key: String): Double? {
+        if (!has(key) || isNull(key)) return null
+        val value = optDouble(key)
+        return if (value.isNaN()) null else value
+    }
+
+    private fun JSONObject.optNullableLong(key: String): Long? =
+        if (!has(key) || isNull(key)) null else optLong(key)
+
+    private fun JSONObject.optNullableInt(key: String): Int? =
+        if (!has(key) || isNull(key)) null else optInt(key)
+
+    private fun JSONObject.optNullableBoolean(key: String): Boolean? =
+        if (!has(key) || isNull(key)) null else optBoolean(key)
+
+    private fun JSONArray?.toStringList(): List<String> {
+        if (this == null) return emptyList()
+        val list = mutableListOf<String>()
+        for (i in 0 until length()) {
+            val item = opt(i)
+            if (item == null || item == JSONObject.NULL) continue
+            list.add(item.toString())
+        }
+        return list
+    }
+
+    private fun JSONArray?.toNames(): List<String> {
+        if (this == null) return emptyList()
+        val list = mutableListOf<String>()
+        for (i in 0 until length()) {
+            val name = optJSONObject(i)?.optString("name", null) ?: continue
+            list.add(name)
+        }
+        return list
+    }
+
+    private fun JSONArray?.toDailyTrends(): List<DailyTrendPoint> {
+        if (this == null) return emptyList()
+        val list = mutableListOf<DailyTrendPoint>()
+        for (i in 0 until length()) {
+            val item = optJSONObject(i) ?: continue
+            list.add(
+                DailyTrendPoint(
+                    dayLabel = item.optString("day", ""),
+                    completedRequests = item.optLong("requests")
+                )
+            )
+        }
+        return list
+    }
+
+    private fun JSONArray?.toBreakdownItems(): List<UsageBreakdownItem> {
+        if (this == null) return emptyList()
+        val list = mutableListOf<UsageBreakdownItem>()
+        for (i in 0 until length()) {
+            val item = optJSONObject(i) ?: continue
+            list.add(
+                UsageBreakdownItem(
+                    id = item.optString("id", null),
+                    label = item.optString("label", item.optString("name", null)),
+                    provider = item.optString("provider", null),
+                    calls = item.optNullableLong("calls"),
+                    cost = item.optNullableDouble("cost"),
+                    credits = item.optNullableDouble("credits"),
+                    errors = item.optNullableLong("errors"),
+                    input = item.optNullableLong("input"),
+                    output = item.optNullableLong("output"),
+                    cacheRead = item.optNullableLong("cacheRead"),
+                    cacheWrite = item.optNullableLong("cacheWrite"),
+                    unpriced = item.optNullableLong("unpriced")
+                )
+            )
+        }
+        return list
+    }
+
+    private fun JSONArray?.toMaskingCounts(): List<MaskingCount> {
+        if (this == null) return emptyList()
+        val list = mutableListOf<MaskingCount>()
+        for (i in 0 until length()) {
+            val item = optJSONObject(i) ?: continue
+            list.add(MaskingCount(kind = item.optString("k", null), n = item.optNullableLong("n")))
+        }
+        return list
+    }
+
+    private fun JSONArray?.toMaskingDays(): List<MaskingDayPoint> {
+        if (this == null) return emptyList()
+        val list = mutableListOf<MaskingDayPoint>()
+        for (i in 0 until length()) {
+            val item = optJSONObject(i) ?: continue
+            list.add(
+                MaskingDayPoint(
+                    dayLabel = item.optString("day", ""),
+                    n = item.optNullableLong("n"),
+                    requests = item.optNullableLong("requests")
+                )
+            )
+        }
+        return list
+    }
+
+    private fun JSONArray?.toMaskingBuckets(): List<MaskingBucket> {
+        if (this == null) return emptyList()
+        val list = mutableListOf<MaskingBucket>()
+        for (i in 0 until length()) {
+            val item = optJSONObject(i) ?: continue
+            list.add(
+                MaskingBucket(
+                    id = item.optString("id", null),
+                    name = item.optString("name", null),
+                    n = item.optNullableLong("n")
+                )
+            )
+        }
+        return list
+    }
+
+    private fun JSONObject.toIntMap(): Map<String, Int> {
+        val map = mutableMapOf<String, Int>()
+        val keys = keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            if (isNull(key)) continue
+            map[key] = optInt(key)
+        }
+        return map
+    }
+
+    private fun JSONObject.toStringMap(): Map<String, String> {
+        val map = mutableMapOf<String, String>()
+        val keys = keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            if (isNull(key)) continue
+            map[key] = optString(key)
+        }
+        return map
     }
 
     override suspend fun requests(query: RequestQuery): RequestPage {

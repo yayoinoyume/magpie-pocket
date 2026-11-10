@@ -19,7 +19,7 @@ enum class FinalState {
 
 @Serializable
 enum class Period {
-    TODAY, SEVEN_DAYS
+    TODAY, SEVEN_DAYS, THIRTY_DAYS, ALL
 }
 
 @Serializable
@@ -193,6 +193,12 @@ data class HourlyTrendPoint(
 )
 
 @Serializable
+data class DailyTrendPoint(
+    val dayLabel: String,
+    val completedRequests: Long
+)
+
+@Serializable
 data class OverviewSnapshot(
     val period: Period = Period.TODAY,
     val rangeStart: String? = null,
@@ -203,7 +209,14 @@ data class OverviewSnapshot(
     val ttftSumMs: Long? = null,
     val ttftSampleCount: Long? = null,
     val sameTimeYesterdayCompletedRequests: Long? = null,
-    val hourlyTrends: List<HourlyTrendPoint> = emptyList()
+    val hourlyTrends: List<HourlyTrendPoint> = emptyList(),
+    /** Upstream spend for the period; null when the server reports no priced amount. */
+    val cost: Double? = null,
+    /** Calls the upstream could not price, never a guessed zero. */
+    val unpriced: Long? = null,
+    val decodeMs: Long? = null,
+    val decodeOut: Long? = null,
+    val dailyTrends: List<DailyTrendPoint> = emptyList()
 )
 
 @Serializable
@@ -218,7 +231,35 @@ data class UsageSnapshot(
     val period: Period = Period.TODAY,
     val coverage: Coverage = Coverage.COMPLETE,
     val tokens: TokenUsage = TokenUsage(),
-    val models: List<UsageModelItem> = emptyList()
+    val models: List<UsageModelItem> = emptyList(),
+    val cost: Double? = null,
+    val unpriced: Long? = null,
+    val credits: Double? = null,
+    /** Upstream decode timing for the period; both stay null when it did not measure them. */
+    val decodeMs: Long? = null,
+    val decodeOut: Long? = null,
+    val agents: List<UsageBreakdownItem> = emptyList(),
+    val sessions: List<UsageBreakdownItem> = emptyList(),
+    val accounts: List<UsageBreakdownItem> = emptyList(),
+    val callerKeys: List<UsageBreakdownItem> = emptyList(),
+    val providerKeys: List<UsageBreakdownItem> = emptyList()
+)
+
+/** One row of a usage breakdown dimension (agent, session, account, caller key, provider key). */
+@Serializable
+data class UsageBreakdownItem(
+    val id: String? = null,
+    val label: String? = null,
+    val provider: String? = null,
+    val calls: Long? = null,
+    val cost: Double? = null,
+    val credits: Double? = null,
+    val errors: Long? = null,
+    val input: Long? = null,
+    val output: Long? = null,
+    val cacheRead: Long? = null,
+    val cacheWrite: Long? = null,
+    val unpriced: Long? = null
 )
 
 @Serializable
@@ -230,6 +271,8 @@ data class Capabilities(
     val ledger: Boolean = true,
     val quotas: Boolean = true,
     val groups: Boolean = true,
+    val providers: Boolean = false,
+    val masking: Boolean = false,
     val statisticsTimeZone: String? = null,
     val verifiedDeploymentVersion: String? = null
 )
@@ -276,3 +319,118 @@ data class DisplayPreferences(
     /** LIVE only: keep the encrypted session and trace alive while backgrounded. */
     val keepLiveConnectionInBackground: Boolean = true
 )
+
+@Serializable
+data class ProviderModelInfo(
+    val id: String,
+    val name: String? = null,
+    val enabled: Boolean? = null,
+    val context: Long? = null,
+    val output: Long? = null,
+    val images: Boolean? = null,
+    val efforts: List<String> = emptyList(),
+    val inputPrice: Double? = null,
+    val outputPrice: Double? = null
+)
+
+@Serializable
+data class ProviderCatalogItem(
+    val id: String,
+    val name: String,
+    val host: String? = null,
+    val ready: Boolean? = null,
+    val off: Boolean? = null,
+    val speaks: List<String> = emptyList(),
+    val maxConcurrency: Int? = null,
+    val keyNames: List<String> = emptyList(),
+    val models: List<ProviderModelInfo> = emptyList()
+)
+
+/** The upstream {k,n} counter, shared by summary kinds and one record's detected values. */
+@Serializable
+data class MaskingCount(
+    val kind: String? = null,
+    val n: Long? = null
+)
+
+@Serializable
+data class MaskingDayPoint(
+    val dayLabel: String,
+    val n: Long? = null,
+    val requests: Long? = null
+)
+
+@Serializable
+data class MaskingBucket(
+    val id: String? = null,
+    val name: String? = null,
+    val n: Long? = null
+)
+
+@Serializable
+data class MaskingSummary(
+    val total: Long? = null,
+    val distinct: Long? = null,
+    val requests: Long? = null,
+    val blocked: Long? = null,
+    val warned: Long? = null,
+    val days: List<MaskingDayPoint> = emptyList(),
+    val kinds: List<MaskingCount> = emptyList(),
+    val by: Map<String, Int> = emptyMap(),
+    val agents: List<MaskingBucket> = emptyList(),
+    val providers: List<MaskingBucket> = emptyList(),
+    val values: List<MaskingBucket> = emptyList()
+)
+
+@Serializable
+data class MaskingRecord(
+    /** Upstream record key; its JSON type is not fixed, so it is normalized to text. */
+    val key: String? = null,
+    val values: List<MaskingCount> = emptyList(),
+    val blocked: Boolean? = null,
+    val observedAt: String? = null,
+    val what: String? = null,
+    val agent: String? = null,
+    val provider: String? = null,
+    val model: String? = null,
+    val snippets: Map<String, String> = emptyMap()
+)
+
+@Serializable
+data class MaskingRecordsPage(
+    val items: List<MaskingRecord> = emptyList(),
+    val more: Boolean = false
+)
+
+/** Lazy provider catalog load; never part of the periodic refresh snapshot. */
+sealed interface ProviderCatalogState {
+    data object Idle : ProviderCatalogState
+    data object Loading : ProviderCatalogState
+    data class Ready(val providers: List<ProviderCatalogItem>) : ProviderCatalogState
+    data object Unsupported : ProviderCatalogState
+    data class Error(val message: String) : ProviderCatalogState
+}
+
+/** Lazy privacy (masking) load; never part of the periodic refresh snapshot. */
+sealed interface PrivacyState {
+    val selectedDays: Int?
+
+    data object Idle : PrivacyState {
+        override val selectedDays: Int? = null
+    }
+
+    data class Loading(override val selectedDays: Int) : PrivacyState
+
+    data class Ready(
+        override val selectedDays: Int,
+        val summary: MaskingSummary,
+        val records: List<MaskingRecord>,
+        val more: Boolean
+    ) : PrivacyState
+
+    data object Unsupported : PrivacyState {
+        override val selectedDays: Int? = null
+    }
+
+    data class Error(override val selectedDays: Int?, val message: String) : PrivacyState
+}

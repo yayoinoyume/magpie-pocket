@@ -7,11 +7,20 @@ import com.magpie.pocket.core.model.Capabilities
 import com.magpie.pocket.core.model.ContextBreakdown
 import com.magpie.pocket.core.model.ContextPart
 import com.magpie.pocket.core.model.Coverage
+import com.magpie.pocket.core.model.DailyTrendPoint
 import com.magpie.pocket.core.model.DataMode
 import com.magpie.pocket.core.model.FinalState
 import com.magpie.pocket.core.model.HourlyTrendPoint
+import com.magpie.pocket.core.model.MaskingBucket
+import com.magpie.pocket.core.model.MaskingCount
+import com.magpie.pocket.core.model.MaskingDayPoint
+import com.magpie.pocket.core.model.MaskingRecord
+import com.magpie.pocket.core.model.MaskingRecordsPage
+import com.magpie.pocket.core.model.MaskingSummary
 import com.magpie.pocket.core.model.OverviewSnapshot
 import com.magpie.pocket.core.model.Period
+import com.magpie.pocket.core.model.ProviderCatalogItem
+import com.magpie.pocket.core.model.ProviderModelInfo
 import com.magpie.pocket.core.model.QuotaWindow
 import com.magpie.pocket.core.model.RequestDetail
 import com.magpie.pocket.core.model.RequestKey
@@ -22,18 +31,24 @@ import com.magpie.pocket.core.model.SourceMeta
 import com.magpie.pocket.core.model.TokenUsage
 import com.magpie.pocket.core.model.TraceSnapshot
 import com.magpie.pocket.core.model.TraceTotals
+import com.magpie.pocket.core.model.UsageBreakdownItem
 import com.magpie.pocket.core.model.UsageModelItem
 import com.magpie.pocket.core.model.UsageSnapshot
 import com.magpie.pocket.core.network.MagpieApiClient
 import com.magpie.pocket.core.network.MagpieApiException
 import com.magpie.pocket.core.network.MagpieSession
 import com.magpie.pocket.core.network.ResourceNotFoundException
+import com.magpie.pocket.core.network.UpstreamMaskingBucket
 import com.magpie.pocket.core.network.UpstreamRoute
 import com.magpie.pocket.core.network.UpstreamTry
+import com.magpie.pocket.core.network.UpstreamUsageAgent
+import com.magpie.pocket.core.network.UpstreamUsageBreakdown
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import com.magpie.pocket.core.util.RequestTimestamps
 import java.util.concurrent.ConcurrentHashMap
 
@@ -68,8 +83,7 @@ class LiveMagpieRepository(
     }
 
     override suspend fun overview(period: Period): OverviewSnapshot {
-        val periodParam = if (period == Period.TODAY) "today" else "7d"
-        val resp = apiClient.getUsage(baseUrl, periodParam)
+        val resp = apiClient.getUsage(baseUrl, periodParam(period))
 
         val hourlyList = resp.series?.map {
             HourlyTrendPoint(it.label ?: it.time ?: "", it.calls)
@@ -87,9 +101,25 @@ class LiveMagpieRepository(
             ttftSumMs = resp.ttftMs,
             ttftSampleCount = resp.timed,
             sameTimeYesterdayCompletedRequests = null,
-            hourlyTrends = hourlyList
+            hourlyTrends = hourlyList,
+            cost = resp.cost,
+            unpriced = resp.unpriced,
+            decodeMs = resp.decodeMs,
+            decodeOut = resp.decodeOut,
+            dailyTrends = dailyTrends(period, hourlyList)
         )
     }
+
+    /**
+     * The usage series is one bucket list whose labels are hours for today and days for
+     * longer windows, so only a multi-day window is relabelled as a daily trend.
+     */
+    private fun dailyTrends(period: Period, buckets: List<HourlyTrendPoint>): List<DailyTrendPoint> =
+        if (period == Period.TODAY) {
+            emptyList()
+        } else {
+            buckets.map { DailyTrendPoint(dayLabel = it.hourLabel, completedRequests = it.completedRequests) }
+        }
 
     override fun observeTrace(): Flow<TraceSnapshot> = flow {
         ensureSession()
@@ -227,8 +257,7 @@ class LiveMagpieRepository(
     }
 
     override suspend fun usage(period: Period): UsageSnapshot {
-        val periodParam = if (period == Period.TODAY) "today" else "7d"
-        val resp = apiClient.getUsage(baseUrl, periodParam)
+        val resp = apiClient.getUsage(baseUrl, periodParam(period))
 
         val models = resp.models?.map {
             UsageModelItem(
@@ -250,9 +279,56 @@ class LiveMagpieRepository(
                 cacheRead = resp.cacheRead,
                 cacheWrite = resp.cacheWrite
             ),
-            models = models
+            models = models,
+            cost = resp.cost,
+            unpriced = resp.unpriced,
+            credits = resp.credits,
+            decodeMs = resp.decodeMs,
+            decodeOut = resp.decodeOut,
+            agents = resp.agents?.map { it.toBreakdownItem() } ?: emptyList(),
+            sessions = resp.sessions?.map { it.toBreakdownItem() } ?: emptyList(),
+            accounts = resp.accounts?.map { it.toBreakdownItem() } ?: emptyList(),
+            callerKeys = resp.callerKeys?.map { it.toBreakdownItem() } ?: emptyList(),
+            providerKeys = resp.providerKeys?.map { it.toBreakdownItem() } ?: emptyList()
         )
     }
+
+    /** Unknown period mapping would silently reuse today, so every tier is explicit. */
+    private fun periodParam(period: Period): String = when (period) {
+        Period.TODAY -> "today"
+        Period.SEVEN_DAYS -> "7d"
+        Period.THIRTY_DAYS -> "30d"
+        Period.ALL -> "all"
+    }
+
+    private fun UpstreamUsageAgent.toBreakdownItem(): UsageBreakdownItem = UsageBreakdownItem(
+        id = id,
+        label = name ?: id,
+        calls = calls,
+        cost = cost,
+        errors = errors,
+        input = input,
+        output = output,
+        cacheRead = cacheRead,
+        cacheWrite = cacheWrite
+    )
+
+    /**
+     * Session rows name their owning agent, account rows name their provider, and key rows
+     * carry a display name next to the id; the label keeps that priority order.
+     */
+    private fun UpstreamUsageBreakdown.toBreakdownItem(): UsageBreakdownItem = UsageBreakdownItem(
+        id = id ?: callerKeyId ?: providerKeyId,
+        label = name ?: callerKeyName ?: providerKeyName ?: account ?: agent ?: provider ?: id,
+        provider = provider,
+        calls = calls,
+        cost = cost,
+        credits = credits,
+        errors = errors,
+        input = input,
+        output = output,
+        unpriced = unpriced
+    )
 
     override suspend fun quotas(): List<AccountQuota> {
         val resp = apiClient.getQuotas(baseUrl)
@@ -283,6 +359,88 @@ class LiveMagpieRepository(
             )
         } ?: emptyList()
     }
+
+    override suspend fun providers(): List<ProviderCatalogItem> {
+        val resp = apiClient.getProviders(baseUrl)
+        return resp.providers?.map { p ->
+            ProviderCatalogItem(
+                id = p.id,
+                name = p.name ?: p.id,
+                host = p.host,
+                ready = p.ready,
+                off = p.off,
+                speaks = p.speaks ?: emptyList(),
+                maxConcurrency = p.maxConcurrency,
+                keyNames = p.keyList.orEmpty().mapNotNull { it.name },
+                models = p.models.orEmpty().map { m ->
+                    ProviderModelInfo(
+                        id = m.id,
+                        name = m.name,
+                        enabled = m.on,
+                        context = m.context,
+                        output = m.output,
+                        images = m.images,
+                        efforts = m.efforts ?: emptyList(),
+                        inputPrice = m.list?.input,
+                        outputPrice = m.list?.output
+                    )
+                }
+            )
+        } ?: emptyList()
+    }
+
+    override suspend fun maskingSummary(days: Int): MaskingSummary {
+        val resp = apiClient.getMaskingSummary(baseUrl, days)
+        return MaskingSummary(
+            total = resp.n,
+            distinct = resp.distinct,
+            requests = resp.requests,
+            blocked = resp.blocked,
+            warned = resp.warned,
+            days = resp.days.orEmpty().mapNotNull { d ->
+                val day = d.day ?: return@mapNotNull null
+                MaskingDayPoint(dayLabel = day, n = d.n, requests = d.requests)
+            },
+            kinds = resp.kinds.orEmpty().map { MaskingCount(kind = it.kind, n = it.n) },
+            by = resp.by ?: emptyMap(),
+            agents = resp.agents.orEmpty().map { it.toBucket() },
+            providers = resp.providers.orEmpty().map { it.toBucket() },
+            values = resp.values.orEmpty().map { it.toBucket() }
+        )
+    }
+
+    override suspend fun maskingRecords(query: MaskingQuery): MaskingRecordsPage {
+        val resp = apiClient.getMaskingRecords(
+            baseUrl = baseUrl,
+            limit = query.limit,
+            before = query.before,
+            kind = query.kind,
+            by = query.by,
+            agent = query.agent,
+            provider = query.provider
+        )
+        val items = resp.records.orEmpty().map { r ->
+            MaskingRecord(
+                // The key arrives as text or as a number; keep its text form only.
+                key = (r.key as? JsonPrimitive)?.contentOrNull,
+                values = r.values.orEmpty().map { MaskingCount(kind = it.kind, n = it.n) },
+                blocked = r.blocked,
+                observedAt = r.t,
+                what = r.what,
+                agent = r.agent,
+                provider = r.provider,
+                model = r.model,
+                snippets = r.snips ?: emptyMap()
+            )
+        }
+        return MaskingRecordsPage(items = items, more = resp.more == true)
+    }
+
+    override suspend fun maskingValue(placeholder: String): String? =
+        apiClient.getMaskingValue(baseUrl, placeholder).value
+
+    private fun UpstreamMaskingBucket.toBucket(): MaskingBucket =
+        MaskingBucket(id = id, name = name, n = n)
 
     override suspend fun requests(query: RequestQuery): RequestPage {
         val isFailed = query.statusFilter == "ERROR"

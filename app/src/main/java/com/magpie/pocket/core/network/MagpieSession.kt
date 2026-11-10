@@ -9,6 +9,9 @@ import com.magpie.pocket.core.model.Capabilities
  */
 object MagpieSession {
 
+    /** Probe window for the privacy summary; the endpoint requires a day count. */
+    private const val MASKING_PROBE_DAYS = 7
+
     data class ProbeResult(
         val capabilities: Capabilities,
         val state: UpstreamStateResponse,
@@ -63,6 +66,8 @@ object MagpieSession {
         val usage = optional(client) { it.getUsage(baseUrl) }
         val ledger = optional(client) { it.getLedgerRequests(baseUrl, limit = 1) }
         val quotas = optional(client) { it.getQuotas(baseUrl) }
+        val providers = optional(client) { it.getProviders(baseUrl) }
+        val masking = optional(client) { it.getMaskingSummary(baseUrl, MASKING_PROBE_DAYS) }
 
         val capabilities = Capabilities(
             trace = trace?.mine == true,
@@ -74,6 +79,8 @@ object MagpieSession {
             usage = usage != null,
             ledger = ledger != null,
             quotas = quotas != null,
+            providers = providers != null,
+            masking = masking != null,
             statisticsTimeZone = state.timezone ?: "Asia/Shanghai",
             verifiedDeploymentVersion = state.version ?: "Magpie"
         )

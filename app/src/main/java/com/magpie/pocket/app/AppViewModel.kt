@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.magpie.pocket.core.data.DemoRepository
 import com.magpie.pocket.core.data.LiveMagpieRepository
 import com.magpie.pocket.core.data.MagpieRepository
+import com.magpie.pocket.core.data.MaskingQuery
 import com.magpie.pocket.core.data.RequestQuery
 import com.magpie.pocket.core.design.AppTab
 import com.magpie.pocket.core.model.Account
@@ -18,6 +19,8 @@ import com.magpie.pocket.core.model.DisplayPreferences
 import com.magpie.pocket.core.model.GlassTier
 import com.magpie.pocket.core.model.OverviewSnapshot
 import com.magpie.pocket.core.model.Period
+import com.magpie.pocket.core.model.PrivacyState
+import com.magpie.pocket.core.model.ProviderCatalogState
 import com.magpie.pocket.core.model.RequestDetail
 import com.magpie.pocket.core.model.RequestPage
 import com.magpie.pocket.core.model.RequestSummary
@@ -36,6 +39,7 @@ import com.magpie.pocket.core.network.MagpieApiClient
 import com.magpie.pocket.core.network.MagpieApiException
 import com.magpie.pocket.core.network.NetworkUnavailableException
 import com.magpie.pocket.core.network.PermissionDeniedException
+import com.magpie.pocket.core.network.ResourceNotFoundException
 import com.magpie.pocket.core.network.UnexpectedResponseException
 import com.magpie.pocket.core.security.CredentialStore
 import com.magpie.pocket.core.security.CredentialStorageException
@@ -196,6 +200,17 @@ class AppViewModel(
     private val _capabilities = MutableStateFlow<Capabilities?>(null)
     val capabilities: StateFlow<Capabilities?> = _capabilities.asStateFlow()
 
+    private val _providerCatalogState =
+        MutableStateFlow<ProviderCatalogState>(ProviderCatalogState.Idle)
+    val providerCatalogState: StateFlow<ProviderCatalogState> = _providerCatalogState.asStateFlow()
+
+    private val _privacyState = MutableStateFlow<PrivacyState>(PrivacyState.Idle)
+    val privacyState: StateFlow<PrivacyState> = _privacyState.asStateFlow()
+
+    /** Revealed masking values keyed by placeholder; only ever filled by an explicit reveal. */
+    private val _revealedMaskingValues = MutableStateFlow<Map<String, String>>(emptyMap())
+    val revealedMaskingValues: StateFlow<Map<String, String>> = _revealedMaskingValues.asStateFlow()
+
     private var activeRepo: MagpieRepository = demoRepo
     private var repoGeneration: Long = 0L
     private var activeLiveClient: MagpieApiClient? = null
@@ -204,6 +219,9 @@ class AppViewModel(
     private var detailJob: Job? = null
     private var requestJob: Job? = null
     private var periodJob: Job? = null
+    private var providerJob: Job? = null
+    private var privacyJob: Job? = null
+    private var revealJob: Job? = null
     private var heartbeatJob: Job? = null
     private var retryJob: Job? = null
     private var validationJob: Job? = null
@@ -243,6 +261,12 @@ class AppViewModel(
         // Never let a previous connection's in-memory Magpie session leak into a new one.
         activeLiveClient?.cookieJar?.clear()
         activeLiveClient = null
+
+        // Lazy provider/privacy views belong to the connection that is being replaced.
+        cancelPrivacyJobs()
+        _providerCatalogState.value = ProviderCatalogState.Idle
+        _privacyState.value = PrivacyState.Idle
+        _revealedMaskingValues.value = emptyMap()
 
         _trace.value = null
         _overview.value = null
@@ -1104,6 +1128,148 @@ class AppViewModel(
         }
     }
 
+    /**
+     * Lazy provider catalog load. It never participates in the periodic refresh; a broker
+     * endpoint failure only marks this view as failed instead of flipping the connection.
+     */
+    fun loadProviders(force: Boolean = false) {
+        val current = _providerCatalogState.value
+        if (!force && (current is ProviderCatalogState.Ready || current is ProviderCatalogState.Loading)) {
+            return
+        }
+        if (_capabilities.value?.providers == false) {
+            _providerCatalogState.value = ProviderCatalogState.Unsupported
+            return
+        }
+        val generation = repoGeneration
+        providerJob?.cancel()
+        _providerCatalogState.value = ProviderCatalogState.Loading
+        providerJob = viewModelScope.launch {
+            try {
+                val providers = activeRepo.providers()
+                if (generation != repoGeneration) return@launch
+                _providerCatalogState.value = ProviderCatalogState.Ready(providers)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: ResourceNotFoundException) {
+                if (generation != repoGeneration) return@launch
+                _providerCatalogState.value = ProviderCatalogState.Unsupported
+            } catch (e: Exception) {
+                if (generation != repoGeneration) return@launch
+                // Auth failures keep the sticky connection status; other failures stay local.
+                if (isAuthFailure(e)) handleFailure(e, generation)
+                _providerCatalogState.value = ProviderCatalogState.Error(
+                    statusFor(e).message ?: "供应商目录加载失败"
+                )
+            }
+        }
+    }
+
+    /** Lazy privacy load: one summary plus the first record page for [days]. */
+    fun loadPrivacy(days: Int, force: Boolean = false) {
+        val current = _privacyState.value
+        if (!force) {
+            if (current is PrivacyState.Ready && current.selectedDays == days) return
+            if (current is PrivacyState.Loading && current.selectedDays == days) return
+        }
+        if (_capabilities.value?.masking == false) {
+            _privacyState.value = PrivacyState.Unsupported
+            return
+        }
+        val generation = repoGeneration
+        privacyJob?.cancel()
+        _privacyState.value = PrivacyState.Loading(days)
+        privacyJob = viewModelScope.launch {
+            try {
+                val summary = activeRepo.maskingSummary(days)
+                if (generation != repoGeneration) return@launch
+                val page = activeRepo.maskingRecords(MaskingQuery(limit = PRIVACY_PAGE_SIZE))
+                if (generation != repoGeneration) return@launch
+                _privacyState.value = PrivacyState.Ready(
+                    selectedDays = days,
+                    summary = summary,
+                    records = page.items,
+                    more = page.more
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: ResourceNotFoundException) {
+                if (generation != repoGeneration) return@launch
+                _privacyState.value = PrivacyState.Unsupported
+            } catch (e: Exception) {
+                if (generation != repoGeneration) return@launch
+                if (isAuthFailure(e)) handleFailure(e, generation)
+                _privacyState.value = PrivacyState.Error(
+                    selectedDays = days,
+                    message = statusFor(e).message ?: "隐私掩码数据加载失败"
+                )
+            }
+        }
+    }
+
+    /** Appends the next masking-records page using the last record key as its cursor. */
+    fun loadMoreMaskingRecords() {
+        val current = _privacyState.value as? PrivacyState.Ready ?: return
+        if (!current.more || current.records.isEmpty()) return
+        if (privacyJob?.isActive == true) return
+        val before = current.records.last().key ?: return
+        val generation = repoGeneration
+        privacyJob = viewModelScope.launch {
+            try {
+                val page = activeRepo.maskingRecords(
+                    MaskingQuery(limit = PRIVACY_PAGE_SIZE, before = before)
+                )
+                if (generation != repoGeneration) return@launch
+                val latest = _privacyState.value as? PrivacyState.Ready ?: return@launch
+                if (latest.selectedDays != current.selectedDays) return@launch
+                _privacyState.value = latest.copy(
+                    records = latest.records + page.items,
+                    more = page.more
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (generation != repoGeneration) return@launch
+                // Keep the already loaded page; a failed append never clears evidence.
+                if (isAuthFailure(e)) handleFailure(e, generation)
+            }
+        }
+    }
+
+    /** Reveals one masked placeholder; the value is cached so repeat reads stay local. */
+    fun revealMaskingValue(placeholder: String) {
+        if (placeholder.isBlank()) return
+        if (_revealedMaskingValues.value.containsKey(placeholder)) return
+        if (revealJob?.isActive == true) return
+        val generation = repoGeneration
+        revealJob = viewModelScope.launch {
+            try {
+                val value = activeRepo.maskingValue(placeholder) ?: return@launch
+                if (generation != repoGeneration) return@launch
+                _revealedMaskingValues.value =
+                    _revealedMaskingValues.value + (placeholder to value)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (generation != repoGeneration) return@launch
+                if (isAuthFailure(e)) handleFailure(e, generation)
+            }
+        }
+    }
+
+    fun setPrivacyDays(days: Int) {
+        loadPrivacy(days, force = true)
+    }
+
+    private fun cancelPrivacyJobs() {
+        providerJob?.cancel()
+        providerJob = null
+        privacyJob?.cancel()
+        privacyJob = null
+        revealJob?.cancel()
+        revealJob = null
+    }
+
     fun setSearchQuery(query: String) {
         _searchQuery.value = query
         loadRequests(append = false)
@@ -1195,7 +1361,10 @@ class AppViewModel(
 
     override fun onCleared() {
         cancelAllNetworkJobs()
+        cancelPrivacyJobs()
         keepaliveController.stop()
         super.onCleared()
     }
 }
+
+private const val PRIVACY_PAGE_SIZE = 30
