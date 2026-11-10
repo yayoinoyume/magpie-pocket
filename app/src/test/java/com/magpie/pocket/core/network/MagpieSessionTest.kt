@@ -147,6 +147,23 @@ class MagpieSessionTest {
     }
 
     @Test
+    fun probeAsksOnlyForStateGroupsAndTrace() = runBlocking {
+        server.enqueue(json(stateJson()))
+        server.enqueue(json("""{"groups":[]}"""))
+        server.enqueue(json("""{"epoch":"e1","seq":1,"mine":true}"""))
+
+        MagpieSession.probe(MagpieApiClient(), server.url("/").toString())
+
+        // Usage, quotas, providers and masking belong to the data stage, so a slow panel
+        // endpoint can no longer delay the session.
+        val paths = List(server.requestCount) { server.takeRequest().path }
+        assertEquals(
+            listOf("/api/state", "/api/groups", "/api/gateway/trace?after=0"),
+            paths
+        )
+    }
+
+    @Test
     fun optionalEndpointsMayDegradeOnlyOn404() = runBlocking {
         server.enqueue(json(stateJson()))
         repeat(7) { server.enqueue(MockResponse().setResponseCode(404)) }

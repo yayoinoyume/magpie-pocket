@@ -44,6 +44,7 @@ import com.magpie.pocket.core.network.AuthenticationRequiredException
 import com.magpie.pocket.core.network.CloudflareAccessRequiredException
 import com.magpie.pocket.core.network.MagpieApiClient
 import com.magpie.pocket.core.network.MagpieApiException
+import com.magpie.pocket.core.network.MagpieTiming
 import com.magpie.pocket.core.network.NetworkUnavailableException
 import com.magpie.pocket.core.network.PermissionDeniedException
 import com.magpie.pocket.core.network.ResourceNotFoundException
@@ -54,6 +55,8 @@ import com.magpie.pocket.core.util.MetricCalculators
 import com.magpie.pocket.core.util.RequestTimestamps
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -349,7 +352,11 @@ class AppViewModel(
         setupRepository(_connectionConfig.value)
     }
 
-    private fun setupRepository(config: ConnectionConfig) {
+    /**
+     * [preparedClient] is the client the connection sheet already signed in on; it replaces
+     * a freshly built one, so saving a verified connection never repeats the sign-in.
+     */
+    private fun setupRepository(config: ConnectionConfig, preparedClient: MagpieApiClient? = null) {
         repoGeneration += 1
         val generation = repoGeneration
         cancelAllNetworkJobs()
@@ -398,13 +405,16 @@ class AppViewModel(
         )
 
         activeRepo = if (config.mode == DataMode.LIVE && !config.baseUrl.isNullOrBlank()) {
-            val client = clientFactory(config)
+            val client = preparedClient ?: clientFactory(config)
             activeLiveClient = client
             LiveMagpieRepository(
                 baseUrl = config.baseUrl,
                 connectionId = config.id,
                 apiClient = client,
-                webKey = config.webKey
+                webKey = config.webKey,
+                verifiedSession = preparedClient != null,
+                // A successful /api/state already is the session; panels may land later.
+                onSessionReady = { markConnected() }
             )
         } else {
             demoRepo
@@ -453,8 +463,12 @@ class AppViewModel(
     }
 
     /**
-     * Loads one complete snapshot. Callers own retry/backoff; this method never
-     * swallows failures or starts a second recovery owner.
+     * Loads one complete snapshot. The probe owns the session: a successful `/api/state`
+     * already marks the connection CONNECTED, and the trace starts right after it, so the
+     * header and the live feed never wait for every panel. The panels then load in parallel
+     * and a failing endpoint is reported only once the rest of the snapshot has landed.
+     * Callers own retry/backoff; this method never swallows failures or starts a second
+     * recovery owner.
      */
     private suspend fun performRefresh(generation: Long) {
         if (!runtimeMayRun(generation)) return
@@ -469,42 +483,6 @@ class AppViewModel(
         if (generation != repoGeneration) return
         _capabilities.value = cap
 
-        if (cap.usage) {
-            // Overview is always "today"; the usage period must not relabel it.
-            val ov = activeRepo.overview(Period.TODAY)
-            if (generation != repoGeneration) return
-            _overview.value = ov
-        }
-
-        if (cap.groups) {
-            val grps = activeRepo.groups()
-            if (generation != repoGeneration) return
-            _groups.value = grps
-            val accs = activeRepo.accounts()
-            if (generation != repoGeneration) return
-            _accounts.value = accs
-        }
-
-        if (cap.usage) {
-            val us = activeRepo.usage(_selectedPeriod.value)
-            if (generation != repoGeneration) return
-            _usage.value = us
-        }
-
-        if (cap.quotas) {
-            val qts = activeRepo.quotas()
-            if (generation != repoGeneration) return
-            _quotas.value = qts
-        }
-
-        if (cap.ledger) loadRequests(generation = generation)
-
-        if (generation != repoGeneration) return
-        if (isAuthFailureState()) return
-        if (!runtimeMayRun(generation)) return
-        markConnected()
-        lastValidatedAtMs = System.currentTimeMillis()
-        validationPending = false
         if (cap.trace) {
             ensureTraceLoop(generation)
         } else {
@@ -517,7 +495,81 @@ class AppViewModel(
             )
         }
         ensureHeartbeatLoop(generation)
+
+        val firstOverview = _overview.value == null
+        val steps = coroutineScope {
+            // Overview is always "today"; the usage period must not relabel it. Both read
+            // the same usage endpoint while the period is today, and the repository serves
+            // that one read to both callers.
+            val overviewJob = if (cap.usage) {
+                async { refreshStep { _overview.value = activeRepo.overview(Period.TODAY) } }
+            } else null
+            val groupsJob = if (cap.groups) {
+                async { refreshStep { _groups.value = activeRepo.groups() } }
+            } else null
+            val accountsJob = if (cap.groups) {
+                async { refreshStep { _accounts.value = activeRepo.accounts() } }
+            } else null
+            val usageJob = if (cap.usage) {
+                async { refreshStep { _usage.value = activeRepo.usage(_selectedPeriod.value) } }
+            } else null
+            val quotasJob = if (cap.quotas) {
+                async { refreshStep { _quotas.value = activeRepo.quotas() } }
+            } else null
+            val ledgerJob = if (cap.ledger) {
+                async { refreshStep { applyRequestsPage(generation, append = false) } }
+            } else null
+            RefreshSteps(
+                overview = overviewJob?.await(),
+                groups = groupsJob?.await(),
+                accounts = accountsJob?.await(),
+                usage = usageJob?.await(),
+                quotas = quotasJob?.await(),
+                requests = ledgerJob?.await()
+            )
+        }
+        if (generation != repoGeneration) return
+
+        // A 404 is the upstream saying the panel does not exist; only then is the
+        // capability dropped, so a server without quotas still shows everything else.
+        val supported = cap.copy(
+            usage = cap.usage &&
+                steps.usage != RefreshStep.Unsupported &&
+                steps.overview != RefreshStep.Unsupported,
+            groups = cap.groups && steps.groups != RefreshStep.Unsupported,
+            quotas = cap.quotas && steps.quotas != RefreshStep.Unsupported,
+            ledger = cap.ledger && steps.requests != RefreshStep.Unsupported
+        )
+        if (supported != cap) _capabilities.value = supported
+
+        if (firstOverview && steps.overview == RefreshStep.Loaded) {
+            MagpieTiming.mark("first-overview")
+        }
+        steps.firstFailure()?.let { throw it }
+
+        if (isAuthFailureState()) return
+        if (!runtimeMayRun(generation)) return
+        markConnected()
+        lastValidatedAtMs = System.currentTimeMillis()
+        validationPending = false
         reconcileKeepalive()
+    }
+
+    /**
+     * Runs one panel load without letting it cancel its siblings. Any failure other than a
+     * 404 is returned instead of thrown so the remaining panels still land; the caller
+     * rethrows the first one afterwards, which keeps the existing retry and status rules.
+     */
+    private suspend fun refreshStep(block: suspend () -> Unit): RefreshStep = try {
+        block()
+        RefreshStep.Loaded
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: ResourceNotFoundException) {
+        RefreshStep.Unsupported
+    } catch (e: Exception) {
+        if (isAuthFailure(e)) throw e
+        RefreshStep.Failed(e)
     }
 
     private fun isAuthFailure(error: Throwable): Boolean =
@@ -665,6 +717,9 @@ class AppViewModel(
     private fun markConnected() {
         if (isAuthFailureState()) return
         if (!runtimeMayRun(repoGeneration)) return
+        if (_connectionStatus.value.health != ConnectionHealth.CONNECTED) {
+            MagpieTiming.mark("connected")
+        }
         _isOnline.value = true
         _connectionStatus.value = ConnectionStatus(ConnectionHealth.CONNECTED)
     }
@@ -985,7 +1040,9 @@ class AppViewModel(
             requestJob = null
             _requestsPage.value = null
         }
+        val firstSnapshot = _trace.value == null
         _trace.value = tr
+        if (firstSnapshot) MagpieTiming.mark("first-trace")
         _isOnline.value = true
         _connectionStatus.value = ConnectionStatus(ConnectionHealth.CONNECTED)
         lastValidatedAtMs = System.currentTimeMillis()
@@ -1063,30 +1120,8 @@ class AppViewModel(
     private fun loadRequests(generation: Long, append: Boolean = false) {
         requestJob?.cancel()
         requestJob = viewModelScope.launch {
-            val currentOffset = if (append) {
-                val loaded = _requestsPage.value
-                loaded?.nextOffset ?: loaded?.let { it.offset + it.items.size } ?: 0
-            } else {
-                0
-            }
-            val query = RequestQuery(
-                offset = currentOffset,
-                limit = 50,
-                query = _searchQuery.value,
-                statusFilter = _statusFilter.value,
-                day = _selectedDay.value
-            )
-
             try {
-                val page = activeRepo.requests(query)
-                if (generation != repoGeneration) return@launch
-                if (append && _requestsPage.value != null) {
-                    val combined = (_requestsPage.value?.items ?: emptyList()) + page.items
-                    _requestsPage.value = page.copy(items = combined)
-                } else {
-                    _requestsPage.value = page
-                    reconcileRoutingSelection(page.items)
-                }
+                applyRequestsPage(generation, append)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -1095,6 +1130,38 @@ class AppViewModel(
             }
         }
     }
+
+    /** Reads one ledger page; [performRefresh] loads it beside the other panels. */
+    private suspend fun applyRequestsPage(generation: Long, append: Boolean) {
+        val currentOffset = if (append) {
+            val loaded = _requestsPage.value
+            loaded?.nextOffset ?: loaded?.let { it.offset + it.items.size } ?: 0
+        } else {
+            0
+        }
+        val query = requestQuery(currentOffset)
+
+        val page = activeRepo.requests(query)
+        if (generation != repoGeneration) return
+        // The refresh cannot be cancelled by a newer list load, so a filter the user
+        // changed while this read was in flight keeps ownership of the visible page.
+        if (query != requestQuery(currentOffset)) return
+        if (append && _requestsPage.value != null) {
+            val combined = (_requestsPage.value?.items ?: emptyList()) + page.items
+            _requestsPage.value = page.copy(items = combined)
+        } else {
+            _requestsPage.value = page
+            reconcileRoutingSelection(page.items)
+        }
+    }
+
+    private fun requestQuery(offset: Int) = RequestQuery(
+        offset = offset,
+        limit = 50,
+        query = _searchQuery.value,
+        statusFilter = _statusFilter.value,
+        day = _selectedDay.value
+    )
 
     fun selectRequest(request: RequestSummary) {
         selectionGeneration += 1
@@ -1463,10 +1530,14 @@ class AppViewModel(
         if (_routeSettle.value?.token == token) _routeSettle.value = null
     }
 
-    fun saveConnection(newConfig: ConnectionConfig) {
+    /**
+     * Saves a connection. [verifiedClient] is the client the connection sheet already signed
+     * in on, so the first refresh reuses that session instead of a second exchange.
+     */
+    fun saveConnection(newConfig: ConnectionConfig, verifiedClient: MagpieApiClient? = null) {
         credentialStore.saveConnection(newConfig)
         _connectionConfig.value = newConfig
-        setupRepository(newConfig)
+        setupRepository(newConfig, verifiedClient)
     }
 
     fun disconnect() {
@@ -1567,6 +1638,33 @@ class AppViewModel(
         keepaliveController.stop()
         super.onCleared()
     }
+}
+
+/** One parallel refresh step: loaded, genuinely absent (404), or failed for another reason. */
+private sealed interface RefreshStep {
+    object Loaded : RefreshStep
+    object Unsupported : RefreshStep
+    class Failed(val error: Throwable) : RefreshStep
+}
+
+/**
+ * Outcomes of one refresh's panel loads. A null entry means the capability was not claimed,
+ * so that endpoint was never asked for.
+ */
+private class RefreshSteps(
+    val overview: RefreshStep? = null,
+    val groups: RefreshStep? = null,
+    val accounts: RefreshStep? = null,
+    val usage: RefreshStep? = null,
+    val quotas: RefreshStep? = null,
+    val requests: RefreshStep? = null
+) {
+    /** The first real failure; the caller rethrows it after every panel has been applied. */
+    fun firstFailure(): Throwable? =
+        listOfNotNull(overview, groups, accounts, usage, quotas, requests)
+            .filterIsInstance<RefreshStep.Failed>()
+            .firstOrNull()
+            ?.error
 }
 
 private const val PRIVACY_PAGE_SIZE = 40

@@ -11,12 +11,16 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.EventListener
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
 import java.io.IOException
+import java.net.InetSocketAddress
+import java.net.Proxy
 import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 
@@ -42,25 +46,21 @@ class MagpieApiClient(
         coerceInputValues = true
     }
 
-    private val standardClient = OkHttpClient.Builder()
-        .cookieJar(cookieJar)
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(20, TimeUnit.SECONDS)
-        .followRedirects(false)
-        .build()
+    private val standardClient = httpClient(readTimeoutSeconds = 20)
 
-    private val quotasClient = OkHttpClient.Builder()
-        .cookieJar(cookieJar)
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(25, TimeUnit.SECONDS)
-        .followRedirects(false)
-        .build()
+    private val quotasClient = httpClient(readTimeoutSeconds = 25)
 
-    private val longPollClient = OkHttpClient.Builder()
+    private val longPollClient = httpClient(readTimeoutSeconds = 45)
+
+    /** One builder for every request class; the listener times each call by path. */
+    private fun httpClient(readTimeoutSeconds: Long): OkHttpClient = OkHttpClient.Builder()
         .cookieJar(cookieJar)
         .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(45, TimeUnit.SECONDS)
+        .readTimeout(readTimeoutSeconds, TimeUnit.SECONDS)
         .followRedirects(false)
+        .eventListenerFactory(
+            EventListener.Factory { call -> TimingEventListener(call.request.url.encodedPath) }
+        )
         .build()
 
     suspend fun signIn(baseUrl: String, webKey: String): Boolean = withContext(Dispatchers.IO) {
@@ -329,5 +329,50 @@ class MagpieApiClient(
             val httpUrl = url.toHttpUrlOrNull() ?: return null
             return httpUrl.queryParameter("k")
         }
+    }
+}
+
+/**
+ * Reports one line per HTTP call: the path, the end-to-end duration and whether OkHttp had
+ * to open a connection. A call that never reaches `connectStart` reused the pool, which is
+ * the only way to tell a warm session from one that pays for DNS, TCP and TLS again.
+ */
+private class TimingEventListener(private val path: String) : EventListener() {
+
+    private var startedAtNs = 0L
+    private var connectStartedAtNs = 0L
+    private var connectMs = 0L
+    private var openedConnection = false
+
+    override fun callStart(call: Call) {
+        startedAtNs = System.nanoTime()
+    }
+
+    override fun connectStart(call: Call, inetSocketAddress: InetSocketAddress, proxy: Proxy) {
+        connectStartedAtNs = System.nanoTime()
+    }
+
+    override fun connectEnd(
+        call: Call,
+        inetSocketAddress: InetSocketAddress,
+        proxy: Proxy,
+        protocol: Protocol?
+    ) {
+        openedConnection = true
+        connectMs = (System.nanoTime() - connectStartedAtNs) / 1_000_000L
+    }
+
+    override fun callEnd(call: Call) {
+        report("ok")
+    }
+
+    override fun callFailed(call: Call, ioe: IOException) {
+        report("failed=${ioe.javaClass.simpleName}")
+    }
+
+    private fun report(outcome: String) {
+        val elapsedMs = (System.nanoTime() - startedAtNs) / 1_000_000L
+        val connection = if (openedConnection) "connect=${connectMs}ms" else "connection=reused"
+        MagpieTiming.log("http $path ${elapsedMs}ms $connection $outcome")
     }
 }

@@ -9,9 +9,6 @@ import com.magpie.pocket.core.model.Capabilities
  */
 object MagpieSession {
 
-    /** Probe window for the privacy summary; the endpoint requires a day count. */
-    private const val MASKING_PROBE_DAYS = 7
-
     data class ProbeResult(
         val capabilities: Capabilities,
         val state: UpstreamStateResponse,
@@ -36,15 +33,22 @@ object MagpieSession {
         }
     }
 
-    /** Sign in (if needed) and verify the protected management API. */
+    /**
+     * Signs in and verifies the protected management API. [signInRequired] is false when the
+     * client already holds a session that was verified moments earlier, so saving a
+     * connection does not repeat the exchange on the same cookie jar.
+     * [onStateReady] runs as soon as `/api/state` answers, before the remaining probes.
+     */
     suspend fun connect(
         client: MagpieApiClient,
         baseUrl: String,
-        webKey: String?
+        webKey: String?,
+        signInRequired: Boolean = true,
+        onStateReady: () -> Unit = {}
     ): ProbeResult {
-        initialize(client, baseUrl, webKey)
+        if (signInRequired) initialize(client, baseUrl, webKey)
         return try {
-            probe(client, baseUrl)
+            probe(client, baseUrl, onStateReady)
         } catch (e: AuthenticationRequiredException) {
             if (webKey.isNullOrBlank()) {
                 throw AuthenticationRequiredException(
@@ -56,31 +60,35 @@ object MagpieSession {
     }
 
     /**
-     * `/api/state` is required. Optional endpoints may only degrade on a genuine 404
-     * (unsupported route); auth, transport and parsing failures always propagate.
+     * `/api/state` is required and is what establishes the session, so [onStateReady] fires
+     * before anything else is asked for. Groups and the trace snapshot are still probed here
+     * because whole screens are gated on them. Usage, ledger, quotas, providers and masking
+     * are loaded by the data stage instead: claiming them optimistically keeps a slow panel
+     * endpoint out of the connection path, and a 404 there drops the capability.
      */
-    suspend fun probe(client: MagpieApiClient, baseUrl: String): ProbeResult {
+    suspend fun probe(
+        client: MagpieApiClient,
+        baseUrl: String,
+        onStateReady: () -> Unit = {}
+    ): ProbeResult {
         val state = client.getState(baseUrl)
+        MagpieTiming.mark("probe-state")
+        onStateReady()
+
         val groups = optional(client) { it.getGroups(baseUrl) }
         val trace = optional(client) { it.getTraceSnapshot(baseUrl, 0L) }
-        val usage = optional(client) { it.getUsage(baseUrl) }
-        val ledger = optional(client) { it.getLedgerRequests(baseUrl, limit = 1) }
-        val quotas = optional(client) { it.getQuotas(baseUrl) }
-        val providers = optional(client) { it.getProviders(baseUrl) }
-        val masking = optional(client) { it.getMaskingSummary(baseUrl, MASKING_PROBE_DAYS) }
 
         val capabilities = Capabilities(
             trace = trace?.mine == true,
             groups = groups != null,
-            // Only endpoints this probe actually reached are claimed. History and
-            // request-detail routes need an id/day, so they are not guessed here.
+            // History and request-detail routes need an id/day, so they are not guessed.
             history = false,
             requestDetail = false,
-            usage = usage != null,
-            ledger = ledger != null,
-            quotas = quotas != null,
-            providers = providers != null,
-            masking = masking != null,
+            usage = true,
+            ledger = true,
+            quotas = true,
+            providers = true,
+            masking = true,
             statisticsTimeZone = state.timezone ?: "Asia/Shanghai",
             verifiedDeploymentVersion = state.version ?: "Magpie"
         )
