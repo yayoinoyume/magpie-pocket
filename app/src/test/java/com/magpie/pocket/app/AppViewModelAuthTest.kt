@@ -76,7 +76,8 @@ class AppViewModelAuthTest {
         val viewModel = newViewModel(store)
         viewModel.disconnect()
         assertEquals(DataMode.DEMO, viewModel.connectionConfig.value.mode)
-        assertTrue(viewModel.errorMessage.value.orEmpty().contains("清除本应用数据"))
+        // The wipe was attempted; its failure must not keep the live session alive.
+        assertEquals(1, store.clearAttempts)
     }
 
     @Test
@@ -438,6 +439,7 @@ private class AuthFakeCredentialStore(initial: ConnectionConfig) : ConnectionSta
     private var config = initial
     var failSave = false
     var failClear = false
+    var clearAttempts = 0
 
     override fun getConnection(): ConnectionConfig = config
 
@@ -447,6 +449,7 @@ private class AuthFakeCredentialStore(initial: ConnectionConfig) : ConnectionSta
     }
 
     override fun clearCredentials() {
+        clearAttempts += 1
         if (failClear) throw com.magpie.pocket.core.security.CredentialStorageException()
         config = ConnectionConfig(id = "demo-main", name = "主网关", mode = DataMode.DEMO)
     }

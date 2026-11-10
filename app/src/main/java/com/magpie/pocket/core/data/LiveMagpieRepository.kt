@@ -40,6 +40,7 @@ import com.magpie.pocket.core.network.MagpieSession
 import com.magpie.pocket.core.network.ResourceNotFoundException
 import com.magpie.pocket.core.network.UpstreamMaskingBucket
 import com.magpie.pocket.core.network.UpstreamRoute
+import com.magpie.pocket.core.network.UpstreamSeriesPoint
 import com.magpie.pocket.core.network.UpstreamTry
 import com.magpie.pocket.core.network.UpstreamUsageAgent
 import com.magpie.pocket.core.network.UpstreamUsageBreakdown
@@ -49,6 +50,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import com.magpie.pocket.core.util.RequestDerivations
 import com.magpie.pocket.core.util.RequestTimestamps
 import java.util.concurrent.ConcurrentHashMap
 
@@ -106,16 +108,19 @@ class LiveMagpieRepository(
             unpriced = resp.unpriced,
             decodeMs = resp.decodeMs,
             decodeOut = resp.decodeOut,
-            dailyTrends = historyDailyTrends()
+            dailyTrends = historyDailyTrends(resp.series)
         )
     }
 
     /**
      * The gateway history is the only endpoint that reports per-day request counts.
      * A missing or failing history must not fail the overview, so it degrades to an
-     * empty trend list instead of an invented one.
+     * empty trend list instead of an invented one. Daily spend is merged from the usage
+     * series when it carries the same day label; a day without a price keeps a null cost.
      */
-    private suspend fun historyDailyTrends(): List<DailyTrendPoint> {
+    private suspend fun historyDailyTrends(
+        series: List<UpstreamSeriesPoint>?
+    ): List<DailyTrendPoint> {
         val history = try {
             apiClient.getHistory(baseUrl)
         } catch (e: CancellationException) {
@@ -123,11 +128,18 @@ class LiveMagpieRepository(
         } catch (e: Exception) {
             return emptyList()
         }
+        val costByDay = series.orEmpty()
+            .mapNotNull { point -> (point.label ?: point.time)?.let { it to point.cost } }
+            .toMap()
         return history.days.orEmpty().mapNotNull { day ->
             // A day without a reported count stays unknown rather than becoming 0.
             val label = day.day ?: return@mapNotNull null
             val requests = day.requests ?: return@mapNotNull null
-            DailyTrendPoint(dayLabel = label, completedRequests = requests)
+            DailyTrendPoint(
+                dayLabel = label,
+                completedRequests = requests,
+                cost = costByDay[label]
+            )
         }
     }
 
@@ -359,8 +371,8 @@ class LiveMagpieRepository(
                 QuotaWindow(
                     id = w.name ?: w.id ?: "window",
                     unit = w.unit ?: "",
-                    used = w.amount?.toLong() ?: 0L,
-                    limit = w.limit?.toLong() ?: 0L,
+                    used = w.amount?.toLong(),
+                    limit = w.limit?.toLong(),
                     resetsAt = w.resetsAt ?: w.resets,
                     usedPercent = w.used,
                     amount = w.amount,
@@ -502,7 +514,8 @@ class LiveMagpieRepository(
                 else -> FinalState.FAILED
             }
 
-            val rerouteCount = if (rec.retried) 1 else 0
+            // The ledger has no attempts; the upstream retried flag is the only evidence.
+            val rerouteCount = RequestDerivations.rerouteCount(emptyList(), rec.retried)
             val groupFromReq = rec.req?.takeIf { it.startsWith("group/") }
                 ?.removePrefix("group/")
             val requested = rec.req?.takeUnless { it.startsWith("group/") }
@@ -526,7 +539,7 @@ class LiveMagpieRepository(
                 rerouteCount = rerouteCount,
                 ttftMs = rec.ttftMs,
                 durationMs = rec.ms ?: rec.elapsedMs,
-                usage = TokenUsage(
+                usage = RequestDerivations.tokenUsage(
                     inputUncached = rec.inputUncached,
                     output = rec.output,
                     cacheRead = rec.cacheRead,
@@ -544,11 +557,21 @@ class LiveMagpieRepository(
             )
         } ?: emptyList()
 
+        // ERROR is applied by the ledger (`failed=1`); RUNNING and REROUTED are applied
+        // here so LIVE answers them from the same rows instead of only working in DEMO.
+        val filtered = when (query.statusFilter) {
+            "RUNNING" -> summaries.filter { it.finalState == FinalState.IN_PROGRESS }
+            "REROUTED" -> summaries.filter { it.rerouteCount > 0 }
+            else -> summaries
+        }
+        // More pages exist only while upstream rows remain; filtered rows may be fewer.
         val hasMore = (query.offset + summaries.size) < resp.total
 
         return RequestPage(
-            items = summaries,
+            items = filtered,
             offset = query.offset,
+            // The next page continues after every upstream row this page consumed.
+            nextOffset = query.offset + summaries.size,
             total = resp.total,
             hasMore = hasMore,
             source = "gateway",
@@ -611,12 +634,13 @@ class LiveMagpieRepository(
         val usage = if (routeUsages.isEmpty()) {
             null
         } else {
-            TokenUsage(
-                inputUncached = routeUsages.sumOf { it.input ?: 0L },
-                output = routeUsages.sumOf { it.output ?: 0L },
-                cacheRead = routeUsages.sumOf { it.cacheRead ?: 0L },
-                cacheWrite = routeUsages.sumOf { it.cacheWrite ?: 0L },
-                reasoningIncludedInOutput = routeUsages.sumOf { it.reasoning ?: 0L }
+            // A category no attempt reported stays null instead of becoming a real zero.
+            RequestDerivations.tokenUsage(
+                inputUncached = sumOrNull(routeUsages.map { it.input }),
+                output = sumOrNull(routeUsages.map { it.output }),
+                cacheRead = sumOrNull(routeUsages.map { it.cacheRead }),
+                cacheWrite = sumOrNull(routeUsages.map { it.cacheWrite }),
+                reasoningIncludedInOutput = sumOrNull(routeUsages.map { it.reasoning })
             )
         }
         val lastTry = tries?.lastOrNull()
@@ -642,7 +666,7 @@ class LiveMagpieRepository(
                 status != null -> FinalState.FAILED
                 else -> FinalState.UNCONFIRMED
             },
-            rerouteCount = (attempts.size - 1).coerceAtLeast(0),
+            rerouteCount = RequestDerivations.rerouteCount(attempts),
             ttftMs = ttft,
             durationMs = ms ?: elapsed,
             usage = usage,
@@ -677,6 +701,12 @@ class LiveMagpieRepository(
             sanitizedError = error?.let { sanitizeError(it) },
             sourceMeta = summary.meta
         )
+    }
+
+    /** Sum only the categories the upstream actually reported. */
+    private fun sumOrNull(values: List<Long?>): Long? {
+        val present = values.filterNotNull()
+        return if (present.isEmpty()) null else present.sum()
     }
 
     private fun sanitizeError(raw: String): String {

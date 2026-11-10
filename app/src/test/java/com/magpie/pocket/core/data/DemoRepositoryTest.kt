@@ -76,7 +76,7 @@ class DemoRepositoryTest {
         val daily = wba03!!.windows.first()
         assertEquals(301L, daily.used)
         assertEquals(350L, daily.limit)
-        assertTrue(MetricCalculators.isQuotaWarning(daily.used, daily.limit))
+        assertTrue(MetricCalculators.isQuotaWarning(daily))
     }
 
     @Test

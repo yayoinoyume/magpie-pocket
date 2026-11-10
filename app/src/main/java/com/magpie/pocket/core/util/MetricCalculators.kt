@@ -21,6 +21,26 @@ object MetricCalculators {
     }
 
     /**
+     * Total tokens, or null when the usage reports no token category at all. Missing
+     * categories must stay missing instead of being shown as a real zero.
+     */
+    fun calculateTotalTokensOrNull(usage: TokenUsage?): Long? {
+        if (usage == null) return null
+        val categories = listOf(
+            usage.inputUncached,
+            usage.output,
+            usage.cacheRead,
+            usage.cacheWrite
+        )
+        if (categories.all { it == null }) return null
+        return calculateTotalTokens(usage)
+    }
+
+    /** Downstream token formatting: a missing usage is an em dash, never "0". */
+    fun formatTotalTokens(usage: TokenUsage?): String =
+        calculateTotalTokensOrNull(usage)?.let { formatCompactNumber(it) } ?: "—"
+
+    /**
      * Cache hit rate: cacheRead / (inputUncached + cacheRead + cacheWrite).
      * If denominator is 0, returns null (cannot divide by zero).
      */
@@ -100,8 +120,10 @@ object MetricCalculators {
     fun calculateQuotaUsedRatio(window: QuotaWindow): Double? {
         if (!window.known || window.unlimited) return null
         window.usedPercent?.let { return (it / 100.0).coerceAtLeast(0.0) }
-        if (window.limit > 0L) return window.used.toDouble() / window.limit.toDouble()
-        return null
+        val limit = window.limit ?: return null
+        if (limit <= 0L) return null
+        val used = window.used ?: return null
+        return used.toDouble() / limit.toDouble()
     }
 
     /**

@@ -63,31 +63,38 @@
     "dailyTrends": [
       {
         "day": "2026-10-16",
-        "requests": 412
+        "requests": 412,
+        "cost": 1.42
       },
       {
         "day": "2026-10-17",
-        "requests": 388
+        "requests": 388,
+        "cost": 1.31
       },
       {
         "day": "2026-10-18",
-        "requests": 296
+        "requests": 296,
+        "cost": 0.98
       },
       {
         "day": "2026-10-19",
-        "requests": 502
+        "requests": 502,
+        "cost": 1.77
       },
       {
         "day": "2026-10-20",
-        "requests": 611
+        "requests": 611,
+        "cost": 2.24
       },
       {
         "day": "2026-10-21",
-        "requests": 588
+        "requests": 588,
+        "cost": 2.05
       },
       {
         "day": "2026-10-22",
-        "requests": 341
+        "requests": 341,
+        "cost": 1.18
       }
     ]
   },

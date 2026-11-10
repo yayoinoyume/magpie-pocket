@@ -58,7 +58,7 @@ import com.magpie.pocket.core.design.DataPanel
 import com.magpie.pocket.core.design.MagpieDimensions
 import com.magpie.pocket.core.design.MagpieTheme
 import com.magpie.pocket.core.design.MagpieTypography
-import com.magpie.pocket.core.model.AccountQuota
+import com.magpie.pocket.core.model.QuotaAlert
 import com.magpie.pocket.core.model.ConnectionHealth
 import com.magpie.pocket.core.model.ConnectionStatus
 import com.magpie.pocket.core.model.OverviewSnapshot
@@ -86,7 +86,7 @@ fun OverviewScreen(
     overview: OverviewSnapshot?,
     trace: TraceSnapshot?,
     runningRequest: RequestSummary?,
-    quotas: List<AccountQuota>,
+    quotaAlerts: List<QuotaAlert>,
     isLoading: Boolean,
     isOnline: Boolean,
     connectionStatus: ConnectionStatus,
@@ -116,13 +116,10 @@ fun OverviewScreen(
     val ttftMeanMs = overview?.let { MetricCalculators.calculateTtftMean(it.ttftSumMs, it.ttftSampleCount) }
     val decodeRate = overview?.let { MetricCalculators.decodeTokensPerSecond(it.decodeOut, it.decodeMs) }
     val pricedCost = overview?.cost
-    val alertQuota = quotas.firstOrNull { quota ->
-        quota.windows.any { MetricCalculators.isQuotaWarning(it) }
-    }
-    val yesterday = overview?.sameTimeYesterdayCompletedRequests
-    val delta = if (yesterday != null && yesterday > 0L && overview != null) {
-        (overview.completedRequests - yesterday).toDouble() / yesterday.toDouble()
-    } else null
+    // The view model already picked the tightest window and masked the account label.
+    val quotaAlert = quotaAlerts.firstOrNull()
+    // sameTimeYesterdayCompletedRequests stays in the model but no repository supplies
+    // it, so the overview shows no "vs yesterday" line instead of a fake comparison.
 
     val hourlyPoints = overview?.hourlyTrends.orEmpty()
     val dailyPoints = overview?.dailyTrends.orEmpty()
@@ -268,19 +265,6 @@ fun OverviewScreen(
                             Spacer(modifier = Modifier.width(8.dp))
                             DemoBadge(modifier = Modifier.padding(bottom = 5.dp))
                         }
-                    }
-                    if (delta != null) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        StatusPill(
-                            label = "${if (delta >= 0) "↑" else "↓"} ${MetricCalculators.formatPercent(kotlin.math.abs(delta))} 较昨日同期",
-                            color = colors.success,
-                            surface = colors.successSurface
-                        )
-                    } else {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text("昨日同期数据不可用", fontSize = 11.sp, color = colors.textSecondary,
-                        lineHeight = 16.sp
-                        )
                     }
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(
@@ -485,14 +469,13 @@ fun OverviewScreen(
             }
         }
 
-        if (alertQuota != null) {
+        if (quotaAlert != null) {
             item { SectionLabel("需要留意", "额度") }
             item {
-                val window = alertQuota.windows.first { MetricCalculators.isQuotaWarning(it) }
                 PlainRow(
                     icon = Icons.Filled.HourglassBottom,
-                    title = MetricCalculators.maskAccountName(alertQuota.accountId, true),
-                    subtitle = "额度已用 ${MetricCalculators.formatPercent(MetricCalculators.calculateQuotaUsedRatio(window))}，建议关注可用状态",
+                    title = quotaAlert.accountLabel,
+                    subtitle = "额度已用 ${MetricCalculators.formatPercent(quotaAlert.ratio)}，建议关注可用状态",
                     onClick = onNavigateToQuotas
                 )
             }

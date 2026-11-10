@@ -221,6 +221,7 @@ fun MainAppRoot(viewModel: AppViewModel) {
     val selectedGroupId by viewModel.selectedGroupId.collectAsState()
     val usage by viewModel.usage.collectAsState()
     val quotas by viewModel.quotas.collectAsState()
+    val quotaAlerts by viewModel.quotaAlerts.collectAsState()
     val requestsPage by viewModel.requestsPage.collectAsState()
     val runningRequest by viewModel.runningRequest.collectAsState()
     val selectedRequest by viewModel.selectedRequest.collectAsState()
@@ -285,7 +286,7 @@ fun MainAppRoot(viewModel: AppViewModel) {
                     overview = overview,
                     trace = trace,
                     runningRequest = runningRequest,
-                    quotas = quotas,
+                    quotaAlerts = quotaAlerts,
                     isLoading = isLoading,
                     isOnline = isOnline,
                     connectionStatus = connectionStatus,

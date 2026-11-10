@@ -35,6 +35,7 @@ import com.magpie.pocket.core.model.UsageModelItem
 import com.magpie.pocket.core.model.UsageSnapshot
 import com.magpie.pocket.core.network.AuthenticationRequiredException
 import com.magpie.pocket.core.network.ResourceNotFoundException
+import com.magpie.pocket.core.util.RequestDerivations
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -234,11 +235,11 @@ class DemoRepository(private val context: Context? = null, initialJsonString: St
             // Demo data is one sample window for every period.
             coverage = Coverage.PARTIAL,
             tokens = TokenUsage(
-                inputUncached = tok.optLong("inputUncached", 500000L),
-                output = tok.optLong("output", 800000L),
-                cacheRead = tok.optLong("cacheRead", 23038400L),
-                cacheWrite = tok.optLong("cacheWrite", 261600L),
-                reasoningIncludedInOutput = tok.optLong("reasoningIncludedInOutput", 100000L)
+                inputUncached = tok.optNullableLong("inputUncached"),
+                output = tok.optNullableLong("output"),
+                cacheRead = tok.optNullableLong("cacheRead"),
+                cacheWrite = tok.optNullableLong("cacheWrite"),
+                reasoningIncludedInOutput = tok.optNullableLong("reasoningIncludedInOutput")
             ),
             models = modelList,
             cost = us.optNullableDouble("cost"),
@@ -269,8 +270,8 @@ class DemoRepository(private val context: Context? = null, initialJsonString: St
                         QuotaWindow(
                             id = w.optString("id"),
                             unit = w.optString("unit"),
-                            used = w.optLong("used"),
-                            limit = w.optLong("limit"),
+                            used = w.optNullableLong("used"),
+                            limit = w.optNullableLong("limit"),
                             resetsAt = w.optString("resetsAt", null),
                             usedPercent = if (w.has("used") && !w.has("limit")) w.optDouble("used") else null,
                             amount = if (w.has("amount")) w.optDouble("amount") else null,
@@ -445,7 +446,8 @@ class DemoRepository(private val context: Context? = null, initialJsonString: St
             list.add(
                 DailyTrendPoint(
                     dayLabel = item.optString("day", ""),
-                    completedRequests = item.optLong("requests")
+                    completedRequests = item.optLong("requests"),
+                    cost = item.optNullableDouble("cost")
                 )
             )
         }
@@ -554,7 +556,12 @@ class DemoRepository(private val context: Context? = null, initialJsonString: St
         }
 
         val root = JSONObject(jsonContent)
-        val arr = root.optJSONArray("requests") ?: return RequestPage(emptyList(), 0, 0, false)
+        val arr = root.optJSONArray("requests") ?: return RequestPage(
+            items = emptyList(),
+            offset = 0,
+            total = 0,
+            hasMore = false
+        )
         val allRequests = mutableListOf<RequestSummary>()
 
         for (i in 0 until arr.length()) {
@@ -563,15 +570,15 @@ class DemoRepository(private val context: Context? = null, initialJsonString: St
             val usageObj = r.optJSONObject("usage")
             val metaObj = r.optJSONObject("meta") ?: JSONObject()
 
-            val tokenUsage = if (usageObj != null) {
-                TokenUsage(
-                    inputUncached = usageObj.optLong("inputUncached"),
-                    output = usageObj.optLong("output"),
-                    cacheRead = usageObj.optLong("cacheRead"),
-                    cacheWrite = usageObj.optLong("cacheWrite"),
-                    reasoningIncludedInOutput = usageObj.optLong("reasoningIncludedInOutput")
+            val tokenUsage = usageObj?.let {
+                RequestDerivations.tokenUsage(
+                    inputUncached = it.optNullableLong("inputUncached"),
+                    output = it.optNullableLong("output"),
+                    cacheRead = it.optNullableLong("cacheRead"),
+                    cacheWrite = it.optNullableLong("cacheWrite"),
+                    reasoningIncludedInOutput = it.optNullableLong("reasoningIncludedInOutput")
                 )
-            } else null
+            }
 
             val meta = SourceMeta(
                 connectionId = metaObj.optString("connectionId", "demo-main"),

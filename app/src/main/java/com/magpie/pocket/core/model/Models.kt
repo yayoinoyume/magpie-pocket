@@ -126,8 +126,9 @@ data class Account(
 data class QuotaWindow(
     val id: String,
     val unit: String,
-    val used: Long,
-    val limit: Long,
+    /** Legacy absolute counts; null when the upstream only reported a percentage. */
+    val used: Long? = null,
+    val limit: Long? = null,
     val resetsAt: String? = null,
     /** Upstream's used share, 0..100, when the server reports a percentage. */
     val usedPercent: Double? = null,
@@ -195,7 +196,9 @@ data class HourlyTrendPoint(
 @Serializable
 data class DailyTrendPoint(
     val dayLabel: String,
-    val completedRequests: Long
+    val completedRequests: Long,
+    /** Priced spend for that day; null when the upstream priced nothing. */
+    val cost: Double? = null
 )
 
 @Serializable
@@ -296,6 +299,11 @@ data class RequestDetail(
 data class RequestPage(
     val items: List<RequestSummary>,
     val offset: Int,
+    /**
+     * Offset of the next append when local filtering consumed rows without returning
+     * them; null means the plain [offset] + [items].size arithmetic is correct.
+     */
+    val nextOffset: Int? = null,
     val total: Int,
     val hasMore: Boolean,
     val source: String = "gateway",

@@ -9,19 +9,26 @@ import com.magpie.pocket.core.data.MaskingQuery
 import com.magpie.pocket.core.data.RequestQuery
 import com.magpie.pocket.core.design.AppTab
 import com.magpie.pocket.core.model.Account
+import com.magpie.pocket.core.model.AccountQuotaView
 import com.magpie.pocket.core.model.AccountQuota
 import com.magpie.pocket.core.model.Capabilities
 import com.magpie.pocket.core.model.ConnectionConfig
 import com.magpie.pocket.core.model.ConnectionHealth
 import com.magpie.pocket.core.model.ConnectionStatus
+import com.magpie.pocket.core.model.CostDisplay
+import com.magpie.pocket.core.model.Coverage
+import com.magpie.pocket.core.model.DailyTrendPoint
+import com.magpie.pocket.core.model.DataCoverage
 import com.magpie.pocket.core.model.DataMode
 import com.magpie.pocket.core.model.DisplayPreferences
 import com.magpie.pocket.core.model.GlassTier
 import com.magpie.pocket.core.model.OverviewSnapshot
 import com.magpie.pocket.core.model.Period
 import com.magpie.pocket.core.model.PrivacyState
+import com.magpie.pocket.core.model.QuotaAlert
 import com.magpie.pocket.core.model.ProviderCatalogState
 import com.magpie.pocket.core.model.RequestDetail
+import com.magpie.pocket.core.model.RequestFilter
 import com.magpie.pocket.core.model.RequestPage
 import com.magpie.pocket.core.model.RequestSummary
 import com.magpie.pocket.core.model.RouteGroup
@@ -42,17 +49,25 @@ import com.magpie.pocket.core.network.PermissionDeniedException
 import com.magpie.pocket.core.network.ResourceNotFoundException
 import com.magpie.pocket.core.network.UnexpectedResponseException
 import com.magpie.pocket.core.security.CredentialStore
-import com.magpie.pocket.core.security.CredentialStorageException
 import com.magpie.pocket.core.security.PreferencesManager
+import com.magpie.pocket.core.util.MetricCalculators
 import com.magpie.pocket.core.util.RequestTimestamps
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 
 interface ConnectionStateSource {
     fun getConnection(): ConnectionConfig
@@ -147,6 +162,10 @@ class AppViewModel(
     private val _runningRequest = MutableStateFlow<RequestSummary?>(null)
     val runningRequest: StateFlow<RequestSummary?> = _runningRequest.asStateFlow()
 
+    /** Newest three in-flight requests; the overview lists all of them, not just the first. */
+    private val _runningRequests = MutableStateFlow<List<RequestSummary>>(emptyList())
+    val runningRequests: StateFlow<List<RequestSummary>> = _runningRequests.asStateFlow()
+
     private val _selectedRequest = MutableStateFlow<RequestSummary?>(null)
     val selectedRequest: StateFlow<RequestSummary?> = _selectedRequest.asStateFlow()
 
@@ -194,9 +213,6 @@ class AppViewModel(
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
-    private val _errorMessage = MutableStateFlow<String?>(null)
-    val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
-
     private val _capabilities = MutableStateFlow<Capabilities?>(null)
     val capabilities: StateFlow<Capabilities?> = _capabilities.asStateFlow()
 
@@ -213,6 +229,84 @@ class AppViewModel(
      */
     private val _revealedMaskingValues = MutableStateFlow<Map<String, String?>>(emptyMap())
     val revealedMaskingValues: StateFlow<Map<String, String?>> = _revealedMaskingValues.asStateFlow()
+
+    /*
+     * Page-ready derivations. Screens read these instead of recomputing money, quota
+     * ratios, day labels or token totals themselves, so one number has one definition.
+     */
+
+    /** Daily request counts plus the spend the upstream reported for the same day. */
+    val dailyTrends: StateFlow<List<DailyTrendPoint>> = _overview
+        .map { it?.dailyTrends.orEmpty() }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** Decode throughput for the selected usage period; same formula as the overview. */
+    val usageDecodeSpeed: StateFlow<Double?> = _usage
+        .map { MetricCalculators.decodeTokensPerSecond(it?.decodeOut, it?.decodeMs) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** Overview spend that still reports how many calls the upstream could not price. */
+    val overviewCost: StateFlow<CostDisplay> = _overview
+        .map { CostDisplay(value = it?.cost, unpriced = it?.unpriced ?: 0L) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, CostDisplay(value = null, unpriced = 0L))
+
+    /** Usage-period spend with the same unpriced tail as [overviewCost]. */
+    val usageCost: StateFlow<CostDisplay> = _usage
+        .map { CostDisplay(value = it?.cost, unpriced = it?.unpriced ?: 0L) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, CostDisplay(value = null, unpriced = 0L))
+
+    /** Every account with exactly one deciding window, masked and alias-first. */
+    val accountQuotas: StateFlow<List<AccountQuotaView>> = combine(
+        _quotas, _accounts, _displayPreferences
+    ) { quotas, accounts, preferences ->
+        quotas.map { it.toView(accounts, preferences.maskAccountNames) }
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** Windows already in the warning zone, worst first. */
+    val quotaAlerts: StateFlow<List<QuotaAlert>> = accountQuotas
+        .map { views ->
+            views.mapNotNull { view ->
+                val window = view.tightestWindow ?: return@mapNotNull null
+                val ratio = view.ratio ?: return@mapNotNull null
+                if (!MetricCalculators.isQuotaWarning(window)) return@mapNotNull null
+                QuotaAlert(
+                    accountLabel = view.label,
+                    ratio = ratio,
+                    windowId = window.id,
+                    resetsAt = window.resetsAt
+                )
+            }.sortedByDescending { it.ratio }
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** The server's own statistics day as "MM-dd"; null until the overview names a range end. */
+    val statisticsDay: StateFlow<String?> = combine(
+        _capabilities, _overview, _requestsPage
+    ) { capabilities, overview, page ->
+        statisticsDayOf(capabilities, overview, page)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** Coverage of everything currently shown; enum order is severity, so the worst wins. */
+    val dataCoverage: StateFlow<DataCoverage> = combine(
+        _overview, _usage, _requestsPage
+    ) { overview, usage, page ->
+        val coverage = listOfNotNull(overview?.coverage, usage?.coverage, page?.coverage)
+            .maxByOrNull { it.ordinal }
+            ?: Coverage.UNKNOWN
+        DataCoverage(
+            coverage = coverage,
+            stale = page?.items?.any { it.meta.stale } == true
+        )
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, DataCoverage(Coverage.UNKNOWN, false))
+
+    /** Request-list filters the active connection can really apply. */
+    val supportedRequestFilters: StateFlow<Set<RequestFilter>> = _connectionConfig
+        .map { filtersFor(it.mode) }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.Eagerly,
+            filtersFor(_connectionConfig.value.mode)
+        )
 
     private var activeRepo: MagpieRepository = demoRepo
     private var repoGeneration: Long = 0L
@@ -279,6 +373,7 @@ class AppViewModel(
         _quotas.value = emptyList()
         _requestsPage.value = null
         _runningRequest.value = null
+        _runningRequests.value = emptyList()
         _routingRequest.value = null
         _routingDetail.value = null
         _isFollowingLive.value = true
@@ -288,7 +383,6 @@ class AppViewModel(
         traceGeneration = 0L
         routingTraceGeneration = 0L
         _capabilities.value = null
-        _errorMessage.value = null
         _selectedGroupId.value = null
         _selectedRequest.value = null
         _selectedRequestDetail.value = null
@@ -362,7 +456,6 @@ class AppViewModel(
     private suspend fun performRefresh(generation: Long) {
         if (!runtimeMayRun(generation)) return
         _isLoading.value = true
-        _errorMessage.value = null
         if (_connectionConfig.value.mode == DataMode.LIVE && !isAuthFailureState()) {
             _connectionStatus.value = ConnectionStatus(ConnectionHealth.CONNECTING)
         }
@@ -441,14 +534,12 @@ class AppViewModel(
             cancelAllNetworkJobs()
             _isOnline.value = false
             _connectionStatus.value = status
-            _errorMessage.value = status.message
             if (clearTrace) _trace.value = null
             return
         }
         if (isAuthFailureState()) return
         _connectionStatus.value = status
         _isOnline.value = false
-        _errorMessage.value = status.message
     }
 
     private fun isAuthFailureState(): Boolean {
@@ -573,7 +664,6 @@ class AppViewModel(
         if (!runtimeMayRun(repoGeneration)) return
         _isOnline.value = true
         _connectionStatus.value = ConnectionStatus(ConnectionHealth.CONNECTED)
-        _errorMessage.value = null
     }
 
     /** Demo is local; LIVE networking requires foreground or an active opted-in service. */
@@ -598,7 +688,6 @@ class AppViewModel(
         if (!isAuthFailureState()) return
         _connectionStatus.value = ConnectionStatus(ConnectionHealth.CONNECTING)
         _isOnline.value = false
-        _errorMessage.value = null
     }
 
     fun onActivityStarted() {
@@ -917,9 +1006,11 @@ class AppViewModel(
             ?.let { _routeSettle.value = it }
 
         val runningIds = tr.runningRouteIds.toSet()
-        _runningRequest.value = tr.recentRoutes
+        val running = tr.recentRoutes
             .filter { it.key.routeId in runningIds }
-            .maxByOrNull { RequestTimestamps.parseMillis(it.startedAt) ?: Long.MIN_VALUE }
+            .sortedByDescending { RequestTimestamps.parseMillis(it.startedAt) ?: Long.MIN_VALUE }
+        _runningRequests.value = running.take(RUNNING_REQUEST_LIMIT)
+        _runningRequest.value = running.firstOrNull()
 
         if (_isFollowingLive.value) {
             val live = chooseAutoRoute(tr, ledger)
@@ -969,7 +1060,12 @@ class AppViewModel(
     private fun loadRequests(generation: Long, append: Boolean = false) {
         requestJob?.cancel()
         requestJob = viewModelScope.launch {
-            val currentOffset = if (append) _requestsPage.value?.items?.size ?: 0 else 0
+            val currentOffset = if (append) {
+                val loaded = _requestsPage.value
+                loaded?.nextOffset ?: loaded?.let { it.offset + it.items.size } ?: 0
+            } else {
+                0
+            }
             val query = RequestQuery(
                 offset = currentOffset,
                 limit = 50,
@@ -1358,12 +1454,9 @@ class AppViewModel(
     }
 
     fun disconnect() {
-        val cleared = try {
-            credentialStore.clearCredentials()
-            true
-        } catch (_: CredentialStorageException) {
-            false
-        }
+        // The active connection always falls back to demo, even when the keystore refuses
+        // to erase the saved key: a failed wipe must never keep the live session alive.
+        runCatching { credentialStore.clearCredentials() }
         val demoConfig = ConnectionConfig(
             id = "demo-main",
             name = "主网关",
@@ -1371,9 +1464,6 @@ class AppViewModel(
         )
         _connectionConfig.value = demoConfig
         setupRepository(demoConfig)
-        if (!cleared) {
-            _errorMessage.value = "已断开连接，但设备无法清除保存的凭据。请在系统设置中清除本应用数据。"
-        }
     }
 
     fun updateTheme(mode: ThemeMode) {
@@ -1392,6 +1482,62 @@ class AppViewModel(
         viewModelScope.launch { preferencesManager.updateMaskAccounts(enabled) }
     }
 
+    /**
+     * A connection-specific filter set: the ledger applies ERROR server-side while
+     * RUNNING and REROUTED are answered from the same rows locally.
+     */
+    private fun filtersFor(mode: DataMode): Set<RequestFilter> = when (mode) {
+        DataMode.LIVE -> LIVE_REQUEST_FILTERS
+        DataMode.DEMO -> DEMO_REQUEST_FILTERS
+    }
+
+    /**
+     * The upstream announces its statistics timezone; that zone decides which calendar
+     * day a UTC range end belongs to. Without a zone the literal server date is used
+     * instead of guessing from the device zone.
+     */
+    private fun statisticsDayOf(
+        capabilities: Capabilities?,
+        overview: OverviewSnapshot?,
+        page: RequestPage?
+    ): String? {
+        val rangeEnd = overview?.rangeEnd?.trim().orEmpty()
+        if (rangeEnd.isEmpty()) return null
+        val zoneId = capabilities?.statisticsTimeZone?.takeIf { it.isNotBlank() }
+            ?: page?.items?.firstOrNull()?.meta?.statisticsTimeZone?.takeIf { it.isNotBlank() }
+        if (zoneId == null) {
+            return IsoDayPrefix.find(rangeEnd)?.let {
+                it.groupValues[2] + "-" + it.groupValues[3]
+            }
+        }
+        val millis = RequestTimestamps.parseMillis(rangeEnd) ?: return null
+        return SimpleDateFormat("MM-dd", Locale.US)
+            .apply { timeZone = TimeZone.getTimeZone(zoneId) }
+            .format(Date(millis))
+    }
+
+    /** Alias first, then the account id, then the user's masking preference. */
+    private fun AccountQuota.toView(
+        accounts: List<Account>,
+        maskAccountNames: Boolean
+    ): AccountQuotaView {
+        val alias = accounts.firstOrNull { it.id == accountId }?.alias
+        val tightest = windows
+            .mapNotNull { window ->
+                val ratio = MetricCalculators.calculateQuotaUsedRatio(window)
+                    ?: return@mapNotNull null
+                window to ratio
+            }
+            .maxByOrNull { it.second }
+        return AccountQuotaView(
+            accountId = accountId,
+            label = MetricCalculators.maskAccountName(alias ?: accountId, maskAccountNames),
+            known = known,
+            tightestWindow = tightest?.first,
+            ratio = tightest?.second
+        )
+    }
+
     fun updateKeepLiveConnectionInBackground(enabled: Boolean) {
         viewModelScope.launch {
             preferencesManager.updateKeepLiveConnectionInBackground(enabled)
@@ -1408,3 +1554,16 @@ class AppViewModel(
 }
 
 private const val PRIVACY_PAGE_SIZE = 40
+
+/** The overview lists at most three in-flight requests. */
+private const val RUNNING_REQUEST_LIMIT = 3
+
+/** ERROR is server-side; RUNNING and REROUTED are applied to the returned ledger rows. */
+private val LIVE_REQUEST_FILTERS: Set<RequestFilter> = setOf(
+    RequestFilter.ALL, RequestFilter.RUNNING, RequestFilter.REROUTED, RequestFilter.ERROR
+)
+
+/** Demo data implements every filter locally. */
+private val DEMO_REQUEST_FILTERS: Set<RequestFilter> = RequestFilter.entries.toSet()
+
+private val IsoDayPrefix = Regex("^(\\d{4})-(\\d{2})-(\\d{2})")
