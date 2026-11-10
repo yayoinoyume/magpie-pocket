@@ -1,10 +1,7 @@
 package com.magpie.pocket.feature.connect
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,17 +12,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -39,7 +32,6 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.SheetState
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -380,158 +372,6 @@ private fun safeConnectionError(error: Throwable): String = when (error) {
     is com.magpie.pocket.core.network.UnexpectedResponseException ->
         "服务响应不兼容：该地址可能不是 Magpie 管理服务。"
     else -> "连接测试失败，请检查地址与凭证。"
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun GatewayDetailSheet(
-    config: ConnectionConfig,
-    capabilities: Capabilities?,
-    status: com.magpie.pocket.core.model.ConnectionStatus? = null,
-    sheetState: SheetState,
-    onDismiss: () -> Unit,
-    onOpenPreferences: () -> Unit,
-    onEditConnection: () -> Unit,
-    onRetry: (() -> Unit)? = null,
-    onDisconnect: () -> Unit
-) {
-    val colors = MagpieTheme.colors
-
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
-        containerColor = colors.surface,
-        shape = RoundedCornerShape(topStart = MagpieDimensions.RadiusSheetTop, topEnd = MagpieDimensions.RadiusSheetTop)
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = MagpieDimensions.PagePadding)
-                .padding(bottom = 32.dp)
-                .verticalScroll(rememberScrollState())
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = config.name,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = colors.textPrimary
-                    )
-                    Text(
-                        text = if (config.mode == DataMode.DEMO) "演示模式 · 本地数据隔离" else (config.baseUrl ?: "已连接"),
-                        fontSize = 13.sp,
-                        color = colors.textSecondary
-                    )
-                }
-                IconButton(onClick = onDismiss) {
-                    Icon(imageVector = Icons.Filled.Close, contentDescription = "关闭", tint = colors.textSecondary)
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Capabilities list
-            Text(text = "服务能力", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = colors.textPrimary,
-            lineHeight = 20.sp
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-
-            val items = listOf(
-                "实时路由追踪 (Trace)" to (capabilities?.trace ?: true),
-                "历史账本记录 (Ledger)" to (capabilities?.ledger ?: true),
-                "用量聚合统计 (Usage)" to (capabilities?.usage ?: true),
-                "账号配额监控 (Quotas)" to (capabilities?.quotas ?: true),
-                "路由组配置查询 (Groups)" to (capabilities?.groups ?: true)
-            )
-
-            items.forEach { (name, supported) ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(text = name, fontSize = 13.sp, color = colors.textPrimary,
-                    lineHeight = 18.sp
-                    )
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(if (supported) colors.success.copy(alpha = 0.14f) else colors.divider)
-                            .padding(horizontal = 6.dp, vertical = 2.dp)
-                    ) {
-                        Text(
-                            text = if (supported) "可用" else "不可用",
-                            fontSize = 11.sp,
-                            color = if (supported) colors.success else colors.textSecondary,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            if (status?.message != null) {
-                val needsCredentials =
-                    status.health == com.magpie.pocket.core.model.ConnectionHealth.AUTH_REQUIRED ||
-                        status.health == com.magpie.pocket.core.model.ConnectionHealth.ACCESS_DENIED
-                InlineNotice(
-                    message = status.message,
-                    isError = true,
-                    actionLabel = if (needsCredentials) "修改连接" else if (onRetry != null) "重试" else null,
-                    onAction = if (needsCredentials) onEditConnection else onRetry
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-            }
-
-            // Action buttons
-            Button(
-                onClick = onOpenPreferences,
-                modifier = Modifier.fillMaxWidth().height(48.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = colors.accent.copy(alpha = 0.12f), contentColor = colors.accent)
-            ) {
-                Icon(imageVector = Icons.Filled.Palette, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("显示偏好设置 (主题 / 玻璃 / 动画)")
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Button(
-                onClick = onEditConnection,
-                modifier = Modifier.fillMaxWidth().height(48.dp),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = colors.surface, contentColor = colors.textPrimary),
-                border = androidx.compose.foundation.BorderStroke(1.dp, colors.divider.copy(alpha = 0.5f))
-            ) {
-                Icon(imageVector = Icons.Filled.Link, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("配置网关连接")
-            }
-
-            if (config.mode == DataMode.LIVE) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Button(
-                    onClick = onDisconnect,
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = colors.error.copy(alpha = 0.12f), contentColor = colors.error)
-                ) {
-                    Icon(imageVector = Icons.Filled.PowerSettingsNew, contentDescription = null, modifier = Modifier.size(18.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("断开连接并返回演示模式")
-                }
-            }
-        }
-    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

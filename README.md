@@ -85,7 +85,7 @@ cd magpie-pocket
 
 产物位于 `app/build/outputs/apk/debug/app-debug.apk` 和 `app/build/outputs/apk/release/app-release.apk`。
 
-启动后可先使用演示模式，也可从左上角网关入口配置管理服务地址与认证信息。地址应指向 **Magpie 管理服务**，不是 `/v1` 模型推理接口。连接探测成功后才保存配置。
+启动后可先使用演示模式，也可从“更多”页的网关分组配置管理服务地址与认证信息；概览页的连接胶囊同样跳到那里。地址应指向 **Magpie 管理服务**，不是 `/v1` 模型推理接口。连接探测成功后才保存配置。
 
 ### 当前验证
 

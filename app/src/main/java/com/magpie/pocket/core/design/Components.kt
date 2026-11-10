@@ -22,7 +22,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.DarkMode
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
@@ -216,7 +215,6 @@ fun AppChrome(
     mode: DataMode,
     isOnline: Boolean,
     status: com.magpie.pocket.core.model.ConnectionStatus? = null,
-    onGatewayClick: () -> Unit,
     onToggleTheme: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -245,7 +243,6 @@ fun AppChrome(
                 .weight(1f)
                 .heightIn(min = MagpieDimensions.TouchTargetMinimum)
                 .clip(RoundedCornerShape(16.dp))
-                .springPress { onGatewayClick() }
                 .padding(horizontal = 0.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -301,13 +298,6 @@ fun AppChrome(
                         fontWeight = FontWeight.Medium,
                         color = colors.textSecondary,
                         maxLines = 1
-                    )
-                    Spacer(modifier = Modifier.width(3.dp))
-                    Icon(
-                        imageVector = Icons.Filled.ExpandMore,
-                        contentDescription = "打开网关详情",
-                        tint = colors.textSecondary,
-                        modifier = Modifier.size(14.dp)
                     )
                 }
             }
