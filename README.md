@@ -54,13 +54,11 @@ v1.0.1 introduced a new signing certificate. Versions 1.0.0 and earlier require 
 
 ### 能力
 
-- **概览**：今日请求、错误、首响均值、小时趋势和额度信息。
-- **实时路由**：自动跟随全局最新处理中请求及其实际路由组，显示实际供应商、账号、改道尝试、选路依据与上下文构成；历史查看保持固定，支持返回实时。
-- **用量**：今日 / 近 7 天、输入 / 输出 / 缓存 Token、加权缓存命中率、模型分布和账号额度窗口。
-- **请求账本**：搜索、状态筛选、请求明细与尝试时间线。RFC3339 时间按手机本地时区显示，支持纳秒、正负时区偏移和跨日。
+- **概览（现在）**：今日请求、成功率、首响均值与今日费用四项指标，最多 3 条处理中请求，只在有告警时出现的额度提醒，以及今日 24 小时柱图。本页只讲今日，不提供 14 天切换、不显示昨日同期、不放独立额度卡。
+- **实时路由（这一次）**：焦点请求卡（来源、路由组、状态、耗时、改道次数）、选路画布、选路依据、尝试时间线与上下文构成；自动跟随全局最新处理中请求及其实际路由组，历史查看保持固定，支持返回实时；页脚给本次启动以来的累计。
+- **用量（一段时间）**：今日 / 近 7 天 / 近 30 天 / 全部四档周期下的费用（含未计价次数与信用余额）、Token 构成、缓存命中率与解码速度、按日双线趋势、六维明细，以及标注为实时快照的额度健康。
+- **请求（账本）**：搜索、只显示当前连接支持的状态筛选、行内改道徽标（只有带尝试明细时才印数字）、请求明细与尝试时间线。RFC3339 时间按手机本地时区显示，支持纳秒、正负时区偏移和跨日。
 - **更多**：供应商目录（模型/价格/并发/密钥数量）、隐私掩码（摘要、日柱、类型排行、记录与按需揭示）、显示偏好与关于。
-- **费用与速度**：今日费用、未计价次数、解码速度（tok/s）、今日/7 天/30 天/全部四档周期。
-- **六维明细**：模型、智能体、会话、账号、调用方、供应商密钥。
 - **连接认证**：支持 Magpie Web Key / Cookie 会话，以及可选的 Cloudflare Access Service Token。需要两层认证时，两组凭据分别填写；CF Token 不能替代 Magpie Web Key。
 - **后台连接**：真实连接默认启用可关闭的常驻通知服务、30 秒轻量心跳与有上限的退避重连。返回前台或网络恢复时重新校验；演示模式不启动后台联网。
 - **显示偏好**：浅色 / 深色、三档材质、账号打码与减少动态效果；开关在浅色与深色的开/关状态都有明确的圆点和轨道。系统动画关闭、后台或离线时，路由动画停止。
@@ -91,7 +89,7 @@ cd magpie-pocket
 
 ### 当前验证
 
-- **166 项单元测试通过**，无失败、错误或跳过。
+- **200 项单元测试**（`@Test` 计数），最近一次全量运行无失败、错误或跳过。
 - **Android 11 / 14 原生验证通过**，覆盖后台心跳、故障恢复、自动路由、冷启动、动效、开关状态及正式包升级；具体范围见验证记录。
 - Debug / Release 构建成功；Lint 无错误；正式 APK v2 / v3 签名验证通过。
 
@@ -103,14 +101,12 @@ cd magpie-pocket
 
 The screenshots and animation above are captured from the actual Android app using clearly labeled **Demo data**; the table covers the four main pages, and the More page is shown in the app.
 
-- **Overview**: request statistics, mean TTFT, trends and quota information.
+- **Overview**: today's requests, success rate, mean TTFT and today's cost, at most three in-flight requests, quota alerts only when a window is near its limit, and today's 24-hour bars. Today only — no 14-day toggle, no same-time-yesterday comparison and no separate quota card.
 - **Background connection**: optional foreground notification service, a lightweight 30-second heartbeat and reconnect backoff capped at 30 seconds per delay; no live service in Demo mode.
-- **Routing**: automatic group selection from the latest live request, trace-driven flow, actual provider/account changes, routing evidence and context breakdown. Inspect historical requests without losing the selection, then return to live following.
-- **Usage**: today / seven-day views, token categories, weighted cache hit rate and quota windows.
-- **Requests**: search, status filters and attempt details. Timestamps are parsed as instants and rendered in the device timezone, including explicit offsets and nanosecond timestamps.
+- **Routing**: a focus card (source, group, state, duration, reroute count), the route canvas, routing evidence, the attempt timeline and the context breakdown; automatic group selection from the latest live request, trace-driven flow and a startup-total footer. Inspect historical requests without losing the selection, then return to live following.
+- **Usage**: four periods (today, 7 days, 30 days, all), cost with unpriced count and credit balance, token composition, cache hit rate and decode speed, a dual-line daily trend, the six-dimension breakdown and a quota-health snapshot.
+- **Requests**: search, filters limited to the states the connection supports, an inline reroute badge that only prints a count when attempts exist, and attempt details. Timestamps are parsed as instants and rendered in the device timezone, including explicit offsets and nanosecond timestamps.
 - **More**: provider catalog (models, prices, concurrency and key counts), privacy masking (summary, daily bars, type ranking, mask log and reveal on demand), display preferences and about.
-- **Cost and speed**: today's cost, unpriced call count, decode speed (tok/s), and the today / 7-day / 30-day / all-time periods.
-- **Six-dimension breakdown**: model, agent, session, account, caller and provider key.
 - **Access**: Magpie Web Key sessions and optional Cloudflare Access service-token headers, with encrypted credential storage.
 - **Accessibility**: account masking, light/dark themes and reduced motion. Routing motion also stops when system animations are disabled, the app is backgrounded or the connection is offline.
 
@@ -118,7 +114,7 @@ Requires **Android 7.0+ (API 24)**. Build with JDK 17/21 and Android SDK 34 usin
 
 Debug builds need no release key. For Release builds, copy `signing.properties.example` to the ignored `signing.properties` and supply your own signing credentials, or set the four `MAGPIE_KEYSTORE_*` / `MAGPIE_KEY_*` environment variables listed above. Private signing material must never be committed. Release builds fail explicitly when signing is not configured.
 
-Validation: **166 passing unit tests**, Android 11/14 native checks for background recovery, routing, switches and upgrades, successful Debug/Release builds and no lint errors. See [verification](docs/verification.md), [integration](docs/integration.md) and [design decisions](docs/decisions.md).
+Validation: **200 unit tests** (`@Test` count), Android 11/14 native checks for background recovery, routing, switches and upgrades, successful Debug/Release builds and no lint errors. See [verification](docs/verification.md), [integration](docs/integration.md) and [design decisions](docs/decisions.md).
 
 ## 复用设计 · Reuse the design
 
