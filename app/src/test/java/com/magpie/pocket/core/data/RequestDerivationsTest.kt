@@ -24,6 +24,19 @@ class RequestDerivationsTest {
     }
 
     @Test
+    fun rerouteBadgeCountsOnlyProvenHandoffs() {
+        // Attempts are the proof, so the badge can print how many handoffs happened.
+        assertEquals(
+            2,
+            RequestDerivations.rerouteBadgeCount(listOf(Attempt(1), Attempt(2), Attempt(3)))
+        )
+        assertEquals(0, RequestDerivations.rerouteBadgeCount(listOf(Attempt(1))))
+        // A ledger row has no attempts: its bare retried flag is not a count.
+        assertNull(RequestDerivations.rerouteBadgeCount(emptyList(), retried = true))
+        assertEquals(0, RequestDerivations.rerouteBadgeCount(emptyList(), retried = false))
+    }
+
+    @Test
     fun tokenUsageWithoutAnyCategoryIsUnknownNotZero() {
         assertNull(RequestDerivations.tokenUsage(null, null, null, null))
     }

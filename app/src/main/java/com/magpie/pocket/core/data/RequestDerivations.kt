@@ -18,6 +18,17 @@ object RequestDerivations {
     }
 
     /**
+     * The list badge prints a count only when attempts prove it. A ledger row carries no
+     * attempts and reports a bare retried flag, so its single reroute is evidence that a
+     * handoff happened, not a count: null means "有改道", 0 means no reroute at all.
+     */
+    fun rerouteBadgeCount(attempts: List<Attempt>, retried: Boolean = false): Int? = when {
+        attempts.isNotEmpty() -> rerouteCount(attempts)
+        retried -> null
+        else -> 0
+    }
+
+    /**
      * Token usage that keeps the upstream's missing categories missing. A row with no
      * token evidence at all has no usage, so the UI shows an em dash instead of zero.
      */

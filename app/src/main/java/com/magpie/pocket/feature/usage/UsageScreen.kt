@@ -116,8 +116,16 @@ fun UsageScreen(
     val dimension = UsageDimension.values().firstOrNull { it.name == dimensionKey }
         ?: UsageDimension.MODELS
     val rows = usageRows(usage, dimension, maskAccountNames)
-    val activeSort = UsageSort.values().firstOrNull { it.name == sortKey }
-        ?: defaultSort(dimension, rows)
+    // A sort key no row carries cannot order anything: its chip stays disabled, and a
+    // remembered selection falls back to a default sort that has data.
+    val sortOptions = UsageSort.values().filter { sort -> rows.any { sortMetric(it, sort) != null } }
+    val fallbackSort = defaultSort(dimension, rows)
+    val requestedSort = UsageSort.values().firstOrNull { it.name == sortKey }
+    val activeSort = when {
+        requestedSort != null && requestedSort in sortOptions -> requestedSort
+        fallbackSort in sortOptions -> fallbackSort
+        else -> sortOptions.firstOrNull() ?: fallbackSort
+    }
     val sortedRows = sortRows(rows, activeSort)
 
     val quotaRows = buildQuotaRows(accountQuotas, quotas)
@@ -239,6 +247,7 @@ fun UsageScreen(
         item {
             SortSelector(
                 selected = activeSort,
+                options = sortOptions,
                 onSelect = { next ->
                     if (next != activeSort) {
                         sortKey = next.name
@@ -540,6 +549,7 @@ private fun TrendBlock(
 @Composable
 private fun SortSelector(
     selected: UsageSort,
+    options: List<UsageSort>,
     onSelect: (UsageSort) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -555,6 +565,7 @@ private fun SortSelector(
         )
         Spacer(modifier = Modifier.width(6.dp))
         UsageSort.values().forEach { sort ->
+            val enabled = sort in options
             val isSelected = sort == selected
             Box(
                 modifier = Modifier
@@ -562,6 +573,7 @@ private fun SortSelector(
                     .heightIn(min = MagpieDimensions.TouchTargetMinimum)
                     .selectable(
                         selected = isSelected,
+                        enabled = enabled,
                         role = Role.RadioButton,
                         onClick = { onSelect(sort) }
                     ),
@@ -570,7 +582,11 @@ private fun SortSelector(
                 Text(
                     text = sort.label,
                     style = MagpieTypography.SubheadStyle,
-                    color = if (isSelected) colors.accent else colors.textSecondary,
+                    color = when {
+                        !enabled -> colors.textTertiary
+                        isSelected -> colors.accent
+                        else -> colors.textSecondary
+                    },
                     fontWeight = if (isSelected) FontWeight.Medium else FontWeight.Normal,
                     maxLines = 1
                 )

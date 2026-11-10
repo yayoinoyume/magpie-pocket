@@ -1,5 +1,6 @@
 package com.magpie.pocket.core.routing
 
+import com.magpie.pocket.core.design.AttemptState
 import com.magpie.pocket.core.model.Attempt
 import com.magpie.pocket.core.model.ContextBreakdown
 import com.magpie.pocket.core.model.Coverage
@@ -57,6 +58,29 @@ class RoutingPresentationTest {
         val other = request("9", "g2", FinalState.IN_PROGRESS, "2026-10-22T12:00:09Z")
         val trace = snapshot(runningIds = listOf("9"), routes = listOf(other))
         assertNull(chooseLiveRoute(trace, "g1"))
+    }
+
+    @Test
+    fun attemptStateIsTheSameOnBothPages() {
+        // A handoff is a reroute, even when that attempt recorded an error of its own.
+        assertEquals(
+            AttemptState.REROUTED,
+            Attempt(1, httpStatus = 429, errorCode = "rate_limited", handedOn = true).timelineState(null)
+        )
+        // A 2xx answer is the only success an attempt proves on its own.
+        assertEquals(AttemptState.SUCCEEDED, Attempt(2, httpStatus = 200).timelineState(null))
+        // A recorded status or error stays failed when no handoff followed it.
+        assertEquals(AttemptState.FAILED, Attempt(3, httpStatus = 502).timelineState(null))
+        assertEquals(
+            AttemptState.FAILED,
+            Attempt(4, errorCode = "timeout").timelineState(FinalState.FAILED)
+        )
+        // An attempt with no outcome of its own follows a settled request outcome...
+        assertEquals(AttemptState.SUCCEEDED, Attempt(5).timelineState(FinalState.SUCCEEDED))
+        assertEquals(AttemptState.FAILED, Attempt(5).timelineState(FinalState.FAILED))
+        // ...and an unsettled request keeps it in the warning bucket, never red.
+        assertEquals(AttemptState.REROUTED, Attempt(5).timelineState(FinalState.IN_PROGRESS))
+        assertEquals(AttemptState.REROUTED, Attempt(5).timelineState(null))
     }
 
     @Test

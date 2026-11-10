@@ -52,8 +52,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.magpie.pocket.core.data.RequestDerivations
 import com.magpie.pocket.core.design.AttemptEntry
-import com.magpie.pocket.core.design.AttemptState
 import com.magpie.pocket.core.design.AttemptTimeline
 import com.magpie.pocket.core.design.ErrorBlock
 import com.magpie.pocket.core.design.FilterChipRow
@@ -72,6 +72,7 @@ import com.magpie.pocket.core.model.RequestDetail
 import com.magpie.pocket.core.model.RequestFilter
 import com.magpie.pocket.core.model.RequestPage
 import com.magpie.pocket.core.model.RequestSummary
+import com.magpie.pocket.core.routing.timelineState
 import com.magpie.pocket.core.util.MetricCalculators
 import com.magpie.pocket.core.util.RequestTimestamps
 import kotlinx.coroutines.delay
@@ -423,8 +424,15 @@ fun RequestRow(
             )
         }
         Spacer(modifier = Modifier.height(6.dp))
-        // The real reroute count keeps "成功 · 改道 N 次" matching the 改道 filter.
-        StatusBadge(state = summary.finalState, rerouteCount = summary.rerouteCount)
+        // The ledger row carries no attempts, so its retried flag can only say "有改道".
+        // The exact "改道 N 次" count stays on the detail sheet, which has the attempts.
+        StatusBadge(
+            state = summary.finalState,
+            rerouteCount = RequestDerivations.rerouteBadgeCount(
+                attempts = summary.attempts,
+                retried = summary.rerouteCount > 0
+            )
+        )
         Spacer(modifier = Modifier.height(7.dp))
         Text(
             text = listOf(
@@ -536,7 +544,7 @@ fun RequestDetailSheetContent(
             )
         } else {
             AttemptTimeline(
-                entries = detail.attempts.map { attemptEntry(it, accounts, maskAccount) }
+                entries = detail.attempts.map { attemptEntry(it, accounts, maskAccount, summary.finalState) }
             )
         }
 
@@ -552,20 +560,18 @@ fun RequestDetailSheetContent(
 }
 
 /**
- * One attempt entry for the shared timeline: a 2xx status is a success, a handoff
- * to the next target is a reroute, and everything else is a failed attempt.
+ * One attempt entry for the shared timeline. The state comes from [timelineState] so
+ * both pages agree; [routeState] is the request outcome and only decides an attempt
+ * that recorded no status and no error of its own.
  */
 private fun attemptEntry(
     attempt: Attempt,
     accounts: List<Account>,
-    maskAccount: Boolean
+    maskAccount: Boolean,
+    routeState: FinalState?
 ): AttemptEntry {
     val status = attempt.httpStatus
-    val state = when {
-        status != null && status in 200..299 -> AttemptState.SUCCEEDED
-        attempt.handedOn -> AttemptState.REROUTED
-        else -> AttemptState.FAILED
-    }
+    val state = attempt.timelineState(routeState)
     val detail = listOfNotNull(
         validModel(attempt.model),
         attempt.accountId?.let { accountDisplay(it, accounts, maskAccount) },

@@ -72,7 +72,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.currentStateAsState
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.magpie.pocket.core.design.AttemptEntry
-import com.magpie.pocket.core.design.AttemptState
 import com.magpie.pocket.core.design.AttemptTimeline
 import com.magpie.pocket.core.design.DataPanel
 import com.magpie.pocket.core.design.BirdMark
@@ -99,6 +98,7 @@ import com.magpie.pocket.core.routing.RoutePhase
 import com.magpie.pocket.core.routing.RouteSettle
 import com.magpie.pocket.core.routing.attemptEvidence
 import com.magpie.pocket.core.routing.routePhase
+import com.magpie.pocket.core.routing.timelineState
 import com.magpie.pocket.core.routing.visibleProviderIds
 import com.magpie.pocket.core.util.MetricCalculators
 import android.provider.Settings
@@ -309,20 +309,24 @@ fun RoutingScreen(
             }
         }
 
-        item {
-            PageBlock {
-                Spacer(modifier = Modifier.height(20.dp))
-                val totals = trace?.totals
-                Text(
-                    text = "本次启动以来 " + listOf(
-                        "${displayOrDash(totals?.completedRequests?.toString())} 请求",
-                        "${displayOrDash(totals?.rerouteHandoffs?.toString())} 次改道",
-                        "${displayOrDash(totals?.finalErrors?.toString())} 次最终失败"
-                    ).joinToString(" · "),
-                    style = MagpieTypography.LabelStyle,
-                    color = colors.textSecondary
-                )
-                Spacer(modifier = Modifier.height(12.dp))
+        // A trace that is not observable, or carries no totals, has no footer to show.
+        // Printing zeros would claim a count this connection never reported.
+        val traceTotals = trace?.takeIf { it.observable }?.totals
+        if (traceTotals != null) {
+            item {
+                PageBlock {
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Text(
+                        text = "本次启动以来 " + listOf(
+                            "${displayOrDash(traceTotals.completedRequests?.toString())} 请求",
+                            "${displayOrDash(traceTotals.rerouteHandoffs?.toString())} 次改道",
+                            "${displayOrDash(traceTotals.finalErrors?.toString())} 次最终失败"
+                        ).joinToString(" · "),
+                        style = MagpieTypography.LabelStyle,
+                        color = colors.textSecondary
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
             }
         }
     }
@@ -1635,21 +1639,6 @@ private fun Attempt.toTimelineEntry(
         meta = MetricCalculators.formatDurationMs(durationMs),
         state = timelineState(routeState)
     )
-}
-
-/**
- * Attempts carry handoffs and response codes, not a timeline state. A handed-on attempt is
- * a reroute, a 2xx response succeeded and a recorded error stays failed. The last attempt
- * of a request that is still running has no outcome yet; the warning tint is the timeline's
- * only "not settled" state, so an unfinished attempt is never shown as a success or failure.
- */
-private fun Attempt.timelineState(routeState: FinalState?): AttemptState = when {
-    handedOn -> AttemptState.REROUTED
-    httpStatus != null && httpStatus in 200..299 -> AttemptState.SUCCEEDED
-    httpStatus != null || errorCode != null -> AttemptState.FAILED
-    routeState == FinalState.SUCCEEDED -> AttemptState.SUCCEEDED
-    routeState == FinalState.FAILED -> AttemptState.FAILED
-    else -> AttemptState.REROUTED
 }
 
 private fun String.contextLabel(): String = when (this) {
