@@ -613,7 +613,12 @@ data class UpstreamMaskingCount(
     /** Records report the kind as "k"; the summary reports the same value as "name". */
     @SerialName("k") val kind: String? = null,
     @SerialName("name") val name: String? = null,
-    @SerialName("n") val n: Long? = null
+    @SerialName("n") val n: Long? = null,
+    /** Record values only: reveal placeholder, visible head, length and discovery path. */
+    @SerialName("p") val placeholder: String? = null,
+    @SerialName("h") val head: String? = null,
+    @SerialName("l") val len: Long? = null,
+    @SerialName("b") val by: String? = null
 )
 
 @Serializable

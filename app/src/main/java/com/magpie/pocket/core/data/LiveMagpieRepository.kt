@@ -443,7 +443,16 @@ class LiveMagpieRepository(
             MaskingRecord(
                 // The key arrives as text or as a number; keep its text form only.
                 key = (r.key as? JsonPrimitive)?.contentOrNull,
-                values = r.values.orEmpty().map { MaskingCount(kind = it.kind ?: it.name, n = it.n) },
+                values = r.values.orEmpty().map {
+                    MaskingCount(
+                        kind = it.kind ?: it.name,
+                        n = it.n,
+                        placeholder = it.placeholder,
+                        head = it.head,
+                        len = it.len,
+                        by = it.by
+                    )
+                },
                 blocked = r.blocked,
                 observedAt = r.t,
                 what = r.what,
@@ -464,7 +473,10 @@ class LiveMagpieRepository(
         // Summary value rows identify themselves by placeholder, not by a numeric id.
         id = placeholder ?: id,
         name = name ?: placeholder,
-        n = n
+        n = n,
+        kind = kind,
+        head = head,
+        len = len
     )
 
     override suspend fun requests(query: RequestQuery): RequestPage {

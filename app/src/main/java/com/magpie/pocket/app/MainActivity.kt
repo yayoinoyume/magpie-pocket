@@ -236,6 +236,7 @@ fun MainAppRoot(viewModel: AppViewModel) {
     val capabilities by viewModel.capabilities.collectAsState()
     val providerCatalogState by viewModel.providerCatalogState.collectAsState()
     val privacyState by viewModel.privacyState.collectAsState()
+    val revealedMaskingValues by viewModel.revealedMaskingValues.collectAsState()
 
     var showConnectSheet by remember { mutableStateOf(false) }
     var showGatewayDetailSheet by remember { mutableStateOf(false) }
@@ -456,14 +457,26 @@ fun MainAppRoot(viewModel: AppViewModel) {
         )
     }
 
-    // Modal Sheet: Privacy masking (lazy load on open). M5 replaces its body.
+    // Modal Sheet: Privacy masking (lazy load on open).
     if (showPrivacySheet) {
         LaunchedEffect(Unit) { viewModel.loadPrivacy(7) }
         PrivacySheet(
             state = privacyState,
-            onDismiss = { showPrivacySheet = false },
-            onRetry = { viewModel.loadPrivacy(7, force = true) },
+            revealed = revealedMaskingValues,
+            isDemo = connectionConfig.mode == DataMode.DEMO,
+            onDismiss = {
+                viewModel.clearRevealedMaskingValues()
+                showPrivacySheet = false
+            },
+            onRetry = {
+                viewModel.loadPrivacy(
+                    days = privacyState.selectedDays ?: 7,
+                    force = true,
+                    kind = privacyState.selectedKind
+                )
+            },
             onDaysChange = { viewModel.setPrivacyDays(it) },
+            onKindChange = { viewModel.setPrivacyKind(it) },
             onLoadMore = { viewModel.loadMoreMaskingRecords() },
             onReveal = { viewModel.revealMaskingValue(it) }
         )
