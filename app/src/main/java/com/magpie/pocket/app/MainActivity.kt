@@ -222,7 +222,6 @@ fun MainAppRoot(viewModel: AppViewModel) {
     val usage by viewModel.usage.collectAsState()
     val quotas by viewModel.quotas.collectAsState()
     val requestsPage by viewModel.requestsPage.collectAsState()
-    val runningRequest by viewModel.runningRequest.collectAsState()
     val selectedRequest by viewModel.selectedRequest.collectAsState()
     val routingRequest by viewModel.routingRequest.collectAsState()
     val routingDetail by viewModel.routingDetail.collectAsState()
@@ -281,25 +280,31 @@ fun MainAppRoot(viewModel: AppViewModel) {
         tabStateHolder.SaveableStateProvider(activeTab.name) {
         when (activeTab) {
             AppTab.OVERVIEW -> {
+                val runningRequests by viewModel.runningRequests.collectAsState()
+                val quotaAlerts by viewModel.quotaAlerts.collectAsState()
+                val statisticsDay by viewModel.statisticsDay.collectAsState()
+                val dataCoverage by viewModel.dataCoverage.collectAsState()
+                val overviewCost by viewModel.overviewCost.collectAsState()
                 OverviewScreen(
                     overview = overview,
-                    trace = trace,
-                    runningRequest = runningRequest,
-                    quotas = quotas,
+                    runningRequests = runningRequests,
+                    quotaAlerts = quotaAlerts,
+                    statisticsDay = statisticsDay,
+                    cost = overviewCost,
+                    dataCoverage = dataCoverage,
                     isLoading = isLoading,
                     isOnline = isOnline,
                     connectionStatus = connectionStatus,
                     isDemo = connectionConfig.mode == DataMode.DEMO,
-                    onNavigateToRouting = { _ ->
-                        viewModel.resetToLatest()
+                    onToggleTheme = {
+                        val nextTheme = if (colors.isDark) ThemeMode.LIGHT else ThemeMode.DARK
+                        viewModel.updateTheme(nextTheme)
+                    },
+                    onOpenGateway = { showGatewayDetailSheet = true },
+                    onOpenQuota = { viewModel.selectTab(AppTab.USAGE) },
+                    onOpenRequest = { routeId ->
+                        viewModel.focusRoute(routeId)
                         viewModel.selectTab(AppTab.ROUTING)
-                    },
-                    onNavigateToErrors = {
-                        viewModel.selectTab(AppTab.REQUESTS)
-                        viewModel.setStatusFilter("ERROR")
-                    },
-                    onNavigateToQuotas = {
-                        viewModel.selectTab(AppTab.USAGE)
                     },
                     contentPadding = screenPaddingValues
                 )
