@@ -53,4 +53,21 @@ class PatternsTest {
     fun numericSpanRangesIgnoreTextWithoutNumbers() {
         assertEquals(emptyList<IntRange>(), numericSpanRanges("暂无趋势"))
     }
+
+    @Test
+    fun blankValuesPrintAsEmDash() {
+        assertEquals("—", displayOrDash(null))
+        assertEquals("—", displayOrDash(""))
+        assertEquals("—", displayOrDash("   "))
+        assertEquals("3.7 s", displayOrDash("3.7 s"))
+    }
+
+    @Test
+    fun contiguousRunsSplitAtEveryGap() {
+        assertEquals(listOf(0..1, 3..4), contiguousRuns(listOf(1f, 2f, null, 4f, 5f)))
+        assertEquals(listOf(1..1), contiguousRuns(listOf(null, 2f)))
+        assertEquals(listOf(0..2), contiguousRuns(listOf(1f, 2f, 3f)))
+        assertEquals(emptyList<IntRange>(), contiguousRuns(listOf(null, null)))
+        assertEquals(emptyList<IntRange>(), contiguousRuns(emptyList()))
+    }
 }
