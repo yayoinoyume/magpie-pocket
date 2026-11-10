@@ -20,10 +20,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -40,12 +40,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -87,7 +87,6 @@ fun UsageScreen(
     var selectedQuotaDetail by remember { mutableStateOf<AccountQuota?>(null) }
     var dimensionKey by rememberSaveable { mutableStateOf(UsageDimension.MODELS.name) }
     var breakdownExpanded by rememberSaveable { mutableStateOf(false) }
-    var accountsExpanded by rememberSaveable { mutableStateOf(false) }
 
     val dimension = UsageDimension.values().firstOrNull { it.name == dimensionKey } ?: UsageDimension.MODELS
     val totalTokens = MetricCalculators.calculateTotalTokens(usage?.tokens)
@@ -103,6 +102,13 @@ fun UsageScreen(
         }.maxByOrNull { it.ratio }
     }.maxByOrNull { it.ratio }
     val allUnlimited = allWindows.isNotEmpty() && allWindows.all { it.unlimited }
+    // Fold the account list only when there is something to fold: one account or a window
+    // already in the warning zone has to be visible without a tap.
+    val accountsExpandedByDefault =
+        quotas.size == 1 || allWindows.any { MetricCalculators.isQuotaWarning(it) }
+    var accountsExpanded by rememberSaveable(accountsExpandedByDefault) {
+        mutableStateOf(accountsExpandedByDefault)
+    }
 
     LazyColumn(
         modifier = modifier
@@ -156,7 +162,11 @@ fun UsageScreen(
                             modifier = Modifier
                                 .weight(1f)
                                 .fillMaxSize()
-                                .springPress(scaleDown = 0.98f) { onPeriodChange(period) },
+                                .selectable(
+                                    selected = selected,
+                                    role = Role.Tab,
+                                    onClick = { onPeriodChange(period) }
+                                ),
                             contentAlignment = Alignment.Center
                         ) {
                             Box(
@@ -351,10 +361,7 @@ fun UsageScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(min = MagpieDimensions.TouchTargetMinimum)
-                            .springPress(enabled = quotas.size > 4) {
-                                accountsExpanded = !accountsExpanded
-                            },
+                            .heightIn(min = MagpieDimensions.TouchTargetMinimum),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         if (tightest != null) {
@@ -414,17 +421,6 @@ fun UsageScreen(
                                     lineHeight = 16.sp
                                 )
                             }
-                        }
-                        if (quotas.size > 4) {
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Icon(
-                                Icons.Filled.ExpandMore,
-                                contentDescription = if (accountsExpanded) "收起账号额度" else "展开账号额度",
-                                tint = colors.textTertiary,
-                                modifier = Modifier
-                                    .size(20.dp)
-                                    .rotate(if (accountsExpanded) 180f else 0f)
-                            )
                         }
                     }
                     Spacer(modifier = Modifier.height(10.dp))
@@ -649,19 +645,21 @@ private fun breakdownFor(
         UsageDimension.MODELS -> emptyList()
     }
 
-    val anyCalls = source.any { it.calls != null }
+    // Rank by what the user actually spends: money first, then volume, then call count.
     val anyCost = source.any { it.cost != null }
+    val anyTokens = source.any { tokensOf(it) != null }
+    val anyCalls = source.any { it.calls != null }
     val sorted = when {
-        anyCalls -> source.sortedWith(
-            compareByDescending<UsageBreakdownItem> { it.calls ?: -1L }
-                .thenBy { it.label ?: it.id.orEmpty() }
-        )
         anyCost -> source.sortedWith(
             compareByDescending<UsageBreakdownItem> { it.cost ?: Double.NEGATIVE_INFINITY }
                 .thenBy { it.label ?: it.id.orEmpty() }
         )
-        else -> source.sortedWith(
+        anyTokens -> source.sortedWith(
             compareByDescending<UsageBreakdownItem> { tokensOf(it) ?: -1L }
+                .thenBy { it.label ?: it.id.orEmpty() }
+        )
+        else -> source.sortedWith(
+            compareByDescending<UsageBreakdownItem> { it.calls ?: -1L }
                 .thenBy { it.label ?: it.id.orEmpty() }
         )
     }
@@ -697,9 +695,9 @@ private fun breakdownFor(
     }
 
     val sortLabel = when {
-        anyCalls -> "按请求"
         anyCost -> "按费用"
-        else -> "按 Token"
+        anyTokens -> "按 Token"
+        else -> "按请求"
     }
     return DimensionData(sortLabel, rows)
 }
@@ -759,7 +757,11 @@ private fun DimensionChips(selected: UsageDimension, onSelect: (UsageDimension) 
             Box(
                 modifier = Modifier
                     .height(MagpieDimensions.TouchTargetMinimum)
-                    .springPress(scaleDown = 0.98f) { onSelect(dimension) },
+                    .selectable(
+                        selected = isSelected,
+                        role = Role.RadioButton,
+                        onClick = { onSelect(dimension) }
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Box(
@@ -905,6 +907,7 @@ private fun SectionLabel(label: String, trailing: String) {
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun TokenCompositionBar(usage: UsageSnapshot?) {
     val colors = MagpieTheme.colors
@@ -945,7 +948,11 @@ private fun TokenCompositionBar(usage: UsageSnapshot?) {
             }
         }
         Spacer(modifier = Modifier.height(7.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
             listOf("缓存", "未缓存", "输出", "写入").forEachIndexed { index, label ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
@@ -955,7 +962,7 @@ private fun TokenCompositionBar(usage: UsageSnapshot?) {
                             .background(palette[index])
                     )
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text(label, fontSize = 10.sp, color = colors.textSecondary, lineHeight = 14.sp)
+                    Text(label, fontSize = 11.sp, color = colors.textSecondary, lineHeight = 16.sp)
                 }
             }
         }
@@ -998,13 +1005,22 @@ private fun QuotaRow(quota: AccountQuota, maskedAccount: String, onClick: () -> 
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    maskedAccount,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = colors.textPrimary,
-                    lineHeight = 18.sp
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        maskedAccount,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = colors.textPrimary,
+                        lineHeight = 18.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (warningWindow != null) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        QuotaWarningBadge()
+                    }
+                }
                 Text(
                     text = when {
                         !quota.known -> "供应商未提供额度"
@@ -1017,18 +1033,10 @@ private fun QuotaRow(quota: AccountQuota, maskedAccount: String, onClick: () -> 
                     lineHeight = 16.sp
                 )
             }
+            // The percentage stays readable even in the warning zone; the badge carries the
+            // judgement instead of replacing the number.
             if (!quota.known) {
                 Text("未知", fontSize = 11.sp, color = colors.textSecondary)
-            } else if (warningWindow != null) {
-                Text(
-                    text = "额度偏低",
-                    fontSize = 10.sp,
-                    color = colors.warning,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(colors.warningSurface)
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                )
             } else if (primaryRatio != null) {
                 Text(
                     text = MetricCalculators.formatPercent(primaryRatio),
@@ -1058,4 +1066,19 @@ private fun QuotaRow(quota: AccountQuota, maskedAccount: String, onClick: () -> 
         Spacer(modifier = Modifier.height(10.dp))
         HorizontalDivider(color = colors.divider)
     }
+}
+
+@Composable
+private fun QuotaWarningBadge() {
+    val colors = MagpieTheme.colors
+    Text(
+        text = "额度偏低",
+        fontSize = 11.sp,
+        lineHeight = 14.sp,
+        color = colors.warning,
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(colors.warningSurface)
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+    )
 }

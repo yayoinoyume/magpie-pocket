@@ -152,15 +152,20 @@ object MetricCalculators {
     }
 
     /**
-     * Spend formatting. Sub-cent amounts keep four decimals so a real charge never
-     * renders as a fake zero, and an unknown amount is a dash rather than 0.
+     * Spend formatting. Unknown amounts are a dash and an exact zero stays 0.00, so neither
+     * reads as a real charge. A charge below one cent is reported as "<0.01" instead of four
+     * decimals nobody reads, and large totals stay short: whole money above 100, K above 10,000.
      */
     fun formatCost(cost: Double?): String {
         if (cost == null) return "—"
-        if (cost != 0.0 && kotlin.math.abs(cost) < 0.01) {
-            return String.format(Locale.US, "%.4f", cost)
+        val magnitude = kotlin.math.abs(cost)
+        return when {
+            magnitude == 0.0 -> "0.00"
+            magnitude < 0.01 -> "<0.01"
+            magnitude >= 10_000.0 -> String.format(Locale.US, "%.1fK", cost / 1_000.0)
+            magnitude >= 100.0 -> String.format(Locale.US, "%.0f", cost)
+            else -> String.format(Locale.US, "%.2f", cost)
         }
-        return String.format(Locale.US, "%.2f", cost)
     }
 
     /** Credits are a separate upstream unit from spend and are never merged into cost. */

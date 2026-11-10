@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -58,6 +59,8 @@ import com.magpie.pocket.core.design.MagpieDimensions
 import com.magpie.pocket.core.design.MagpieTheme
 import com.magpie.pocket.core.design.MagpieTypography
 import com.magpie.pocket.core.model.AccountQuota
+import com.magpie.pocket.core.model.ConnectionHealth
+import com.magpie.pocket.core.model.ConnectionStatus
 import com.magpie.pocket.core.model.OverviewSnapshot
 import com.magpie.pocket.core.model.RequestSummary
 import com.magpie.pocket.core.model.TraceSnapshot
@@ -85,6 +88,9 @@ fun OverviewScreen(
     runningRequest: RequestSummary?,
     quotas: List<AccountQuota>,
     isLoading: Boolean,
+    isOnline: Boolean,
+    connectionStatus: ConnectionStatus,
+    isDemo: Boolean,
     onNavigateToRouting: (String?) -> Unit,
     onNavigateToErrors: () -> Unit,
     onNavigateToQuotas: () -> Unit,
@@ -93,10 +99,16 @@ fun OverviewScreen(
 ) {
     val colors = MagpieTheme.colors
     val configuration = LocalConfiguration.current
-    val narrowWidth = configuration.screenWidthDp < 360
+    // Compact layout starts below 340dp, while the page gutter only narrows below 360dp:
+    // a 320dp phone keeps 16dp of margin and 340-359dp still affords 20dp.
+    val narrowWidth = configuration.screenWidthDp < 340
     val compact = narrowWidth || configuration.fontScale > 1.15f
     val stackedMetrics = configuration.fontScale >= 1.45f
-    val pagePadding = if (narrowWidth) MagpieDimensions.CompactPagePadding else MagpieDimensions.PagePadding
+    val pagePadding = if (configuration.screenWidthDp < 360) {
+        MagpieDimensions.CompactPagePadding
+    } else {
+        MagpieDimensions.PagePadding
+    }
     val cellGap = if (compact) 12.dp else 16.dp
     val date = SimpleDateFormat("M 月 d 日 · EEEE", Locale.CHINESE).format(Date())
 
@@ -155,6 +167,21 @@ fun OverviewScreen(
         unpricedCount > 0L -> "${unpricedCount} 次未计价"
         else -> "已计价调用"
     }
+    // The pill reports the real connection instead of a fixed green: demo data, a dropped
+    // link and a socket still reconnecting each get their own tone and label.
+    val connectionPill = when {
+        isDemo -> Triple("演示", colors.accent, colors.accentSurface)
+        isLoading && overview == null -> Triple("同步中", colors.textSecondary, colors.surfaceSubtle)
+        !isOnline -> Triple("离线", colors.warning, colors.warningSurface)
+        connectionStatus.health == ConnectionHealth.CONNECTED ->
+            Triple("已连接", colors.success, colors.successSurface)
+        else -> Triple(
+            connectionHealthLabel(connectionStatus.health),
+            colors.warning,
+            colors.warningSurface
+        )
+    }
+
     val metricValueStyle: TextStyle = if (compact) {
         MagpieTypography.SectionTitleStyle
     } else {
@@ -183,8 +210,7 @@ fun OverviewScreen(
                 ) {
                     Text(
                         text = "一切，尽在掌握",
-                        fontSize = MagpieTypography.PageTitle,
-                        fontWeight = FontWeight.Bold,
+                        style = MagpieTypography.PageTitleStyle,
                         color = colors.textPrimary
                     )
                     Spacer(modifier = Modifier.height(3.dp))
@@ -193,8 +219,9 @@ fun OverviewScreen(
                     )
                 }
                 StatusPill(
-                    label = if (isLoading && overview == null) "同步中" else "已连接",
-                    color = colors.success
+                    label = connectionPill.first,
+                    color = connectionPill.second,
+                    surface = connectionPill.third
                 )
             }
         }
@@ -233,16 +260,21 @@ fun OverviewScreen(
                         Spacer(modifier = Modifier.width(5.dp))
                         Text(
                             text = "次",
-                            fontSize = 15.sp,
+                            fontSize = 13.sp,
                             color = colors.textSecondary,
                             modifier = Modifier.padding(bottom = 5.dp)
                         )
+                        if (isDemo) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            DemoBadge(modifier = Modifier.padding(bottom = 5.dp))
+                        }
                     }
                     if (delta != null) {
                         Spacer(modifier = Modifier.height(4.dp))
                         StatusPill(
                             label = "${if (delta >= 0) "↑" else "↓"} ${MetricCalculators.formatPercent(kotlin.math.abs(delta))} 较昨日同期",
-                            color = colors.success
+                            color = colors.success,
+                            surface = colors.successSurface
                         )
                     } else {
                         Spacer(modifier = Modifier.height(4.dp))
@@ -460,7 +492,7 @@ fun OverviewScreen(
                 PlainRow(
                     icon = Icons.Filled.HourglassBottom,
                     title = MetricCalculators.maskAccountName(alertQuota.accountId, true),
-                    subtitle = "额度已用 ${MetricCalculators.formatPercent(MetricCalculators.calculateQuotaUsedRatio(window))} · 建议关注可用状态",
+                    subtitle = "额度已用 ${MetricCalculators.formatPercent(MetricCalculators.calculateQuotaUsedRatio(window))}，建议关注可用状态",
                     onClick = onNavigateToQuotas
                 )
             }
@@ -476,10 +508,10 @@ fun OverviewScreen(
                         runningRequest.agentId,
                         runningRequest.groupId,
                         runningRequest.providerId
-                    ).joinToString(" · ").ifBlank { "等待更多路由信息" },
+                    ).joinToString("、").ifBlank { "等待更多路由信息" },
                     onClick = { onNavigateToRouting(runningRequest.key.routeId) },
                     trailing = {
-                        StatusPill("回答中", colors.accent)
+                        StatusPill("回答中", colors.accent, colors.accentSurface)
                     }
                 )
             } else {
@@ -530,7 +562,9 @@ private fun PerformanceCell(
 ) {
     val colors = MagpieTheme.colors
     Column(
-        modifier = modifier.semantics(mergeDescendants = true) { heading() },
+        modifier = modifier
+            .heightIn(min = 72.dp)
+            .semantics(mergeDescendants = true) { heading() },
         verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
         Text(label, fontSize = 12.sp, lineHeight = 16.sp, color = colors.textSecondary)
@@ -657,21 +691,46 @@ private fun PlainRow(
 }
 
 @Composable
-private fun StatusPill(label: String, color: Color) {
-    val colors = MagpieTheme.colors
+private fun StatusPill(label: String, color: Color, surface: Color) {
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(14.dp))
-            .background(if (color == colors.success) colors.successSurface else colors.accentSurface)
+            .background(surface)
             .padding(horizontal = 8.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(modifier = Modifier.size(5.dp).clip(CircleShape).background(color))
         Spacer(modifier = Modifier.width(5.dp))
-        Text(label, fontSize = 10.sp, fontWeight = FontWeight.Medium, color = color, maxLines = 1,
+        Text(label, fontSize = 11.sp, fontWeight = FontWeight.Medium, color = color, maxLines = 1,
         lineHeight = 14.sp
         )
     }
+}
+
+/** Provenance label for demo data: the numbers look plausible but are not real. */
+@Composable
+private fun DemoBadge(modifier: Modifier = Modifier) {
+    val colors = MagpieTheme.colors
+    Text(
+        text = "演示",
+        fontSize = 11.sp,
+        lineHeight = 14.sp,
+        color = colors.accent,
+        modifier = modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(colors.accentSurface)
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+    )
+}
+
+private fun connectionHealthLabel(health: ConnectionHealth): String = when (health) {
+    ConnectionHealth.CONNECTED -> "已连接"
+    ConnectionHealth.CONNECTING -> "重连中"
+    ConnectionHealth.AUTH_REQUIRED -> "需要登录"
+    ConnectionHealth.ACCESS_DENIED -> "访问被拒绝"
+    ConnectionHealth.NETWORK_UNREACHABLE -> "网络不可达"
+    ConnectionHealth.INCOMPATIBLE -> "响应不兼容"
+    ConnectionHealth.OFFLINE -> "离线"
 }
 
 /**

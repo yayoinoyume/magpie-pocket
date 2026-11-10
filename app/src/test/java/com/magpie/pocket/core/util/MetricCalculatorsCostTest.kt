@@ -26,7 +26,9 @@ class MetricCalculatorsCostTest {
         assertEquals("—", MetricCalculators.formatCost(null))
         assertEquals("0.00", MetricCalculators.formatCost(0.0))
         assertEquals("12.35", MetricCalculators.formatCost(12.3456))
-        assertEquals("0.0034", MetricCalculators.formatCost(0.0034))
+        assertEquals("<0.01", MetricCalculators.formatCost(0.0034))
+        assertEquals("1235", MetricCalculators.formatCost(1234.56))
+        assertEquals("12.3K", MetricCalculators.formatCost(12345.0))
     }
 
     @Test
