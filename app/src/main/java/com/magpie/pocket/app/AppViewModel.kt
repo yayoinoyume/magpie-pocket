@@ -1111,8 +1111,8 @@ class AppViewModel(
     }
 
     /**
-     * Focuses one route by id while staying in live following, so a link that carries a
-     * route id is not replaced by "latest" and auto-follow keeps advancing afterwards.
+     * Focuses one route by id and resumes live following. The next live request can then
+     * advance the focus again, unlike [selectRoutingRequest], which pins history.
      */
     fun focusRoute(routeId: String) {
         val route = _trace.value?.recentRoutes?.firstOrNull { it.key.routeId == routeId }

@@ -62,6 +62,11 @@ class UpstreamExtensionParsingTest {
         val usage = json.decodeFromString(UpstreamUsageResponse.serializer(), """{"calls": 2}""")
 
         assertNull(usage.cost)
+        // A missing category is unknown, not a real zero.
+        assertNull(usage.input)
+        assertNull(usage.output)
+        assertNull(usage.cacheRead)
+        assertNull(usage.cacheWrite)
         assertNull(usage.unpriced)
         assertNull(usage.credits)
         assertNull(usage.decodeMs)

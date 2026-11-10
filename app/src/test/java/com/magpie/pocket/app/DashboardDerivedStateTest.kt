@@ -68,6 +68,17 @@ class DashboardDerivedStateTest {
     }
 
     @Test
+    fun usageCostKeepsItsOwnUnpricedTailNextToAZero() = runBlocking {
+        val viewModel = newViewModel()
+
+        val cost = viewModel.usageCost.first()
+
+        assertEquals(0.0, cost.value ?: -1.0, 0.0)
+        assertEquals(2L, cost.unpriced)
+        assertTrue(cost.hasUnpriced)
+    }
+
+    @Test
     fun quotaViewsExposeOnlyTheTightestWindowAndMaskTheAlias() = runBlocking {
         val viewModel = newViewModel()
 
