@@ -17,7 +17,6 @@ import com.magpie.pocket.core.model.ContextBreakdown
 import com.magpie.pocket.core.model.RequestDetail
 import com.magpie.pocket.core.model.GlassTier
 import com.magpie.pocket.core.model.ThemeMode
-import com.magpie.pocket.core.network.MagpieApiClient
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.Job
@@ -405,8 +404,7 @@ class RequestSelectionStateTest {
         return AppViewModel(
             credentialStore = FakeCredentialStore(),
             preferencesManager = FakePreferencesManager(),
-            demoRepo = DemoRepository(initialJsonString = json),
-            apiClient = MagpieApiClient()
+            demoRepo = DemoRepository(initialJsonString = json)
         ).also { createdViewModels += it }
     }
 }

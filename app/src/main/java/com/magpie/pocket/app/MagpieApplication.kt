@@ -4,7 +4,6 @@ import android.app.Application
 import android.content.pm.ApplicationInfo
 import android.util.Log
 import com.magpie.pocket.core.data.DemoRepository
-import com.magpie.pocket.core.network.MagpieApiClient
 import com.magpie.pocket.core.network.MagpieTiming
 import com.magpie.pocket.core.security.CredentialStore
 import com.magpie.pocket.core.security.PreferencesManager
@@ -22,11 +21,8 @@ class MagpieApplication : Application() {
     lateinit var preferencesManager: PreferencesManager
         private set
 
-    lateinit var demoRepository: DemoRepository
-        private set
-
-    lateinit var apiClient: MagpieApiClient
-        private set
+    /** Its JSON is read lazily, so a LIVE process never loads the bundled demo asset. */
+    val demoRepository: DemoRepository by lazy { DemoRepository(this) }
 
     /** Process-lifetime home for startup disk work that must not touch the main thread. */
     private val startupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -37,7 +33,6 @@ class MagpieApplication : Application() {
             credentialStore = CredentialStoreConnectionSource(credentialStore),
             preferencesManager = PreferencesManagerDisplaySource(preferencesManager),
             demoRepo = demoRepository,
-            apiClient = apiClient,
             keepaliveController = AndroidKeepaliveController(this)
         )
     }
@@ -59,8 +54,6 @@ class MagpieApplication : Application() {
         startupScope.launch { credentialStore.prepare() }
 
         preferencesManager = PreferencesManager(this)
-        demoRepository = DemoRepository(this)
-        apiClient = MagpieApiClient()
     }
 
     companion object {

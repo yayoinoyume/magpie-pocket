@@ -46,6 +46,7 @@ import com.magpie.pocket.core.network.AuthenticationRequiredException
 import com.magpie.pocket.core.network.CloudflareAccessRequiredException
 import com.magpie.pocket.core.network.MagpieApiClient
 import com.magpie.pocket.core.network.MagpieApiException
+import com.magpie.pocket.core.network.MagpieSession
 import com.magpie.pocket.core.network.MagpieTiming
 import com.magpie.pocket.core.network.NetworkUnavailableException
 import com.magpie.pocket.core.network.PermissionDeniedException
@@ -93,12 +94,18 @@ interface ConnectionStateSource {
 
 interface DisplayPreferencesSource {
     val displayPreferencesFlow: kotlinx.coroutines.flow.Flow<DisplayPreferences>
+
+    /** The tab name saved by the last session; null keeps the overview default. */
+    val lastActiveTabFlow: kotlinx.coroutines.flow.Flow<String?>
+        get() = kotlinx.coroutines.flow.flowOf(null)
+
     suspend fun updateThemeMode(mode: ThemeMode)
     suspend fun updateGlassTier(tier: GlassTier)
     suspend fun updateReduceMotion(enabled: Boolean)
     suspend fun updateMaskAccounts(enabled: Boolean)
     suspend fun updateQuotaDisplayMode(mode: QuotaDisplayMode)
     suspend fun updateKeepLiveConnectionInBackground(enabled: Boolean)
+    suspend fun saveLastActiveTab(tab: String) {}
 }
 
 class CredentialStoreConnectionSource(private val store: CredentialStore) : ConnectionStateSource {
@@ -111,6 +118,7 @@ class CredentialStoreConnectionSource(private val store: CredentialStore) : Conn
 
 class PreferencesManagerDisplaySource(private val manager: PreferencesManager) : DisplayPreferencesSource {
     override val displayPreferencesFlow = manager.displayPreferencesFlow
+    override val lastActiveTabFlow = manager.lastActiveTabFlow
     override suspend fun updateThemeMode(mode: ThemeMode) = manager.updateThemeMode(mode)
     override suspend fun updateGlassTier(tier: GlassTier) = manager.updateGlassTier(tier)
     override suspend fun updateReduceMotion(enabled: Boolean) = manager.updateReduceMotion(enabled)
@@ -119,6 +127,7 @@ class PreferencesManagerDisplaySource(private val manager: PreferencesManager) :
         manager.updateQuotaDisplayMode(mode)
     override suspend fun updateKeepLiveConnectionInBackground(enabled: Boolean) =
         manager.updateKeepLiveConnectionInBackground(enabled)
+    override suspend fun saveLastActiveTab(tab: String) = manager.saveLastActiveTab(tab)
 }
 
 /** First frame only: the saved connection is read off the main thread. */
@@ -132,7 +141,6 @@ class AppViewModel(
     private val credentialStore: ConnectionStateSource,
     private val preferencesManager: DisplayPreferencesSource,
     private val demoRepo: DemoRepository,
-    private val apiClient: MagpieApiClient,
     private val keepaliveController: KeepaliveController = NoOpKeepaliveController,
     private val heartbeatIntervalMs: Long = 30_000L,
     private val retryDelaysMs: List<Long> = listOf(1_000L, 2_000L, 4_000L, 8_000L, 15_000L, 30_000L),
@@ -149,6 +157,14 @@ class AppViewModel(
     private var lastValidatedAtMs = 0L
     private var validationPending = false
     private var notificationPermissionRequestClaimed = false
+    private var tabChosenByUser = false
+
+    /**
+     * Optional-probe support for the current refresh. They are read after the session so a
+     * late groups/trace 404 can correct the optimistic capabilities the probe returned.
+     */
+    @Volatile private var optionalGroupsSupported: Boolean? = null
+    @Volatile private var optionalTraceSupported: Boolean? = null
 
     /**
      * Starts on a LIVE placeholder and is replaced once the Keystore read answers. A demo
@@ -396,6 +412,17 @@ class AppViewModel(
             }
         }
 
+        // The saved tab is a disk read; the overview stays the default until it answers.
+        // A tap that lands first wins, so a slow DataStore read cannot undo the user.
+        viewModelScope.launch {
+            val savedTab = runCatching {
+                preferencesManager.lastActiveTabFlow.first()
+            }.getOrNull()
+            if (tabChosenByUser || savedTab == null) return@launch
+            val restored = AppTab.values().firstOrNull { it.name == savedTab }
+            if (restored != null) _activeTab.value = restored
+        }
+
         // The saved connection is a Keystore read. Build the repository only after that
         // disk work answers; until then the first screen stays on "同步中" instead of
         // showing demo data or blocking the main thread.
@@ -411,8 +438,13 @@ class AppViewModel(
     /**
      * [preparedClient] is the client the connection sheet already signed in on; it replaces
      * a freshly built one, so saving a verified connection never repeats the sign-in.
+     * [probeResult] is the state/groups/trace that sheet already read on that client.
      */
-    private fun setupRepository(config: ConnectionConfig, preparedClient: MagpieApiClient? = null) {
+    private fun setupRepository(
+        config: ConnectionConfig,
+        preparedClient: MagpieApiClient? = null,
+        probeResult: MagpieSession.ProbeResult? = null
+    ) {
         repoGeneration += 1
         val generation = repoGeneration
         cancelAllNetworkJobs()
@@ -472,8 +504,27 @@ class AppViewModel(
                 // A successful /api/state already is the session; panels may land later.
                 onSessionReady = { markConnected() },
                 // A supported trace starts as soon as its probe answer exists, before the
-                // group list and every panel.
-                onTraceProbeReady = { startTraceFromProbe(generation) }
+                // group list and every panel. The probe answers on an IO thread; the trace
+                // start decision belongs on the same dispatcher as every other refresh step.
+                onTraceProbeReady = {
+                    viewModelScope.launch { startTraceFromProbe(generation) }
+                },
+                // The optional probe lands after the session; only then is its support known.
+                onProbePanelsReady = { groupsSupported, traceSupported ->
+                    viewModelScope.launch {
+                        if (generation != repoGeneration) return@launch
+                        optionalGroupsSupported = groupsSupported
+                        optionalTraceSupported = traceSupported
+                        _capabilities.value = _capabilities.value?.copy(
+                            groups = groupsSupported,
+                            trace = traceSupported
+                        )
+                    }
+                },
+                onProbePanelsFailed = { error ->
+                    viewModelScope.launch { handleFailure(error, generation) }
+                },
+                initialProbe = probeResult
             )
         } else {
             demoRepo
@@ -544,12 +595,18 @@ class AppViewModel(
         }
 
         // Probe first: for live connections this establishes the Magpie session
-        // (using the encrypted Web Key) before any protected API load or trace.
+        // (using the encrypted Web Key) before any protected API load or trace. The optional
+        // groups/trace verdict belongs to this probe, so clear the previous one first.
+        optionalGroupsSupported = null
+        optionalTraceSupported = null
         val cap = activeRepo.probe()
         if (generation != repoGeneration) return
-        _capabilities.value = cap
+        _capabilities.value = cap.copy(
+            groups = optionalGroupsSupported ?: cap.groups,
+            trace = optionalTraceSupported ?: cap.trace
+        )
 
-        if (cap.trace) {
+        if (_capabilities.value?.trace == true) {
             ensureTraceLoop(generation)
         } else {
             traceJob?.cancel()
@@ -563,6 +620,8 @@ class AppViewModel(
         ensureHeartbeatLoop(generation)
 
         val firstOverview = _overview.value == null
+        // A groups 404 already reported by the optional probe needs no second read.
+        val groupsAvailable = _capabilities.value?.groups == true
         val steps = coroutineScope {
             // Overview is always "today"; the usage period must not relabel it. Both read
             // the same usage endpoint while the period is today, and the repository serves
@@ -570,10 +629,10 @@ class AppViewModel(
             val overviewJob = if (cap.usage != false) {
                 async { refreshStep { _overview.value = activeRepo.overview(Period.TODAY) } }
             } else null
-            val groupsJob = if (cap.groups) {
+            val groupsJob = if (groupsAvailable) {
                 async { refreshStep { _groups.value = activeRepo.groups() } }
             } else null
-            val accountsJob = if (cap.groups) {
+            val accountsJob = if (groupsAvailable) {
                 async { refreshStep { _accounts.value = activeRepo.accounts() } }
             } else null
             val usageJob = if (cap.usage != false) {
@@ -599,7 +658,7 @@ class AppViewModel(
         // The deployed /api/groups names no account. The usage and quota panels read in this
         // same refresh already hold the rows the group answer omits, so merging them here adds
         // no request; the group rows stay first and win every id they name.
-        if (cap.groups && steps.accounts == RefreshStep.Loaded) {
+        if (groupsAvailable && steps.accounts == RefreshStep.Loaded) {
             _accounts.value = mergeAccountSources(
                 groups = _accounts.value,
                 usage = _usage.value?.accounts.orEmpty(),
@@ -609,10 +668,16 @@ class AppViewModel(
 
         // A 200 proves a panel capability and a 404 denies it; any other failure leaves
         // the previous answer alone, so an unknown panel is never claimed just because
-        // its request was scheduled.
-        val supported = cap.copy(
+        // its request was scheduled. Starting from the live value preserves a groups or
+        // trace answer that the optional probe delivered while these panels were loading.
+        val proven = _capabilities.value ?: cap
+        val supported = proven.copy(
             usage = resolveUsageCapability(cap.usage, steps.usage, steps.overview),
-            groups = cap.groups && steps.groups != RefreshStep.Unsupported,
+            groups = when (steps.groups) {
+                RefreshStep.Loaded -> true
+                RefreshStep.Unsupported -> false
+                else -> proven.groups
+            },
             quotas = resolveCapability(cap.quotas, steps.quotas),
             ledger = resolveCapability(cap.ledger, steps.requests)
         )
@@ -772,6 +837,14 @@ class AppViewModel(
                     // recoverable interruption and re-establish the session.
                 } catch (e: CancellationException) {
                     throw e
+                } catch (e: ResourceNotFoundException) {
+                    // The optional probe proved the endpoint absent; that is not an outage.
+                    if (generation != repoGeneration) return@launch
+                    optionalTraceSupported = false
+                    _capabilities.value = _capabilities.value?.copy(trace = false)
+                    _trace.value = TraceSnapshot(epoch = "", seq = 0L, observable = false)
+                    traceJob = null
+                    return@launch
                 } catch (e: Exception) {
                     if (generation != repoGeneration) return@launch
                     handleFailure(e, generation)
@@ -1375,6 +1448,8 @@ class AppViewModel(
 
     fun selectTab(tab: AppTab) {
         _activeTab.value = tab
+        tabChosenByUser = true
+        viewModelScope.launch { runCatching { preferencesManager.saveLastActiveTab(tab.name) } }
     }
 
     /**
@@ -1415,10 +1490,13 @@ class AppViewModel(
         periodJob?.cancel()
         periodJob = viewModelScope.launch {
             try {
-                // Switching the usage period never changes the overview's own scope.
-                val overview = activeRepo.overview(Period.TODAY)
-                if (generation != repoGeneration) return@launch
-                _overview.value = overview
+                // The overview is always today and does not follow the period selector. Only
+                // an empty first load pays for it; later switches go straight to usage.
+                if (_overview.value == null) {
+                    val overview = activeRepo.overview(Period.TODAY)
+                    if (generation != repoGeneration) return@launch
+                    _overview.value = overview
+                }
                 val usage = activeRepo.usage(period)
                 if (generation != repoGeneration) return@launch
                 _usage.value = usage
@@ -1655,15 +1733,20 @@ class AppViewModel(
 
     /**
      * Saves a connection. [verifiedClient] is the client the connection sheet already signed
-     * in on, so the first refresh reuses that session instead of a second exchange.
+     * in on, and [probeResult] is what it read there, so the first refresh reuses both
+     * instead of a second exchange and a second state/groups read.
      */
-    fun saveConnection(newConfig: ConnectionConfig, verifiedClient: MagpieApiClient? = null) {
+    fun saveConnection(
+        newConfig: ConnectionConfig,
+        verifiedClient: MagpieApiClient? = null,
+        probeResult: MagpieSession.ProbeResult? = null
+    ) {
         credentialStore.saveConnection(newConfig)
         connectionLoadJob?.cancel()
         connectionLoadJob = null
         connectionLoaded = true
         _connectionConfig.value = newConfig
-        setupRepository(newConfig, verifiedClient)
+        setupRepository(newConfig, verifiedClient, probeResult)
     }
 
     fun disconnect() {

@@ -3,7 +3,6 @@ package com.magpie.pocket.app
 import androidx.lifecycle.viewModelScope
 import com.magpie.pocket.core.data.DemoRepository
 import com.magpie.pocket.core.model.*
-import com.magpie.pocket.core.network.MagpieApiClient
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
@@ -335,7 +334,7 @@ class BackgroundConnectionBehaviorTest {
             override fun clearCredentials() { value = ConnectionConfig("demo-main", "Demo", DataMode.DEMO) }
         }
         val fixture = java.io.File("src/main/assets/normalized-demo.json").readText()
-        return AppViewModel(store, prefs, DemoRepository(initialJsonString = fixture), MagpieApiClient(),
+        return AppViewModel(store, prefs, DemoRepository(initialJsonString = fixture),
             keepaliveController = keepalive, heartbeatIntervalMs = 55, retryDelaysMs = listOf(15L, 30L, 50L)).also { models += it }
     }
 
