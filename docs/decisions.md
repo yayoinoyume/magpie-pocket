@@ -161,3 +161,17 @@ The reusable visual specification is maintained in .agents/skills/magpie-pocket-
 - 账号行显示账号名与该账号已用比例最大的窗口读数，行本身不响应点击，只有 chevron 触发展开。
 - 两个展开集合默认都为空；单账号卡仍用卡底「查看 N 个窗口 / 收起」展开现有窗口列表。
 - `QuotaCards.kt` 新增 `quotaAccountTightest`，按已用比例最大选账号最紧窗口；删除按 `lastServedAt` 默认展开的 `defaultQuotaAccountKey` / `defaultExpandedQuotaAccounts`。
+
+## 2026-11-11 动效统一入口与额度计数方向
+
+**背景**：额度页与底部五个 tab 都是硬切换，圆环和额度条直接跳到目标值；同时额度行的计数恒为已用量，剩余模式下花光的窗口会同时印出「500 / 500 credits」和「0% 剩余」。
+
+**决策**：
+
+- `core/design/Motion.kt` 是全应用唯一的动效预算：`motionDuration(base)` 在系统关闭动画（`ValueAnimator.areAnimatorsEnabled()`，Android 8 以下按开启处理）或显示偏好 `reduceMotion` 打开时返回 0，所有 `tween` 时长都取自它，动效关闭时连错峰等待一起消失。缓动统一 easeOutCubic `CubicBezierEasing(0.215, 0.61, 0.355, 1)`：不弹跳、不 overshoot。
+- 时长取 SVC Dashboard 的取向、magpie Web 的规则：额度总览圆环 760ms（圆环与圆心百分比同一时长同一曲线），所有额度条 560ms，三层展开 340ms / 收起 260ms（收比开快），chevron 旋转 220ms（同一枚箭头旋转，不再换字形），用量/额度子页切换 260ms 水平滑动（方向由 tab 索引决定，向右切换从右进），时间范围切换 180ms 淡入淡出（不滑动），底部五个 tab 220ms 淡入加内容 8dp 上移。
+- 额度条首次进入从 0 长到目标，之后每次读数变化继续走同一段动画：`rememberEntered()` 让首帧取 0，再交给 `animateFloatAsState`，所以切换已用/剩余也是滑过去的。
+- 供应商卡首次组合时 320ms 淡入并上移 10dp，按列表索引错峰 `min(index, 6) * 40ms`：最多 6 张卡错峰，滚动到新卡才入场的会再播一次，纯重组不重播。
+- 计数方向：`QuotaCards.kt` 的 `countText` 接收 `displayMode`，`REMAINING` 时分子是 `limit - amount`（下限 0），`USED` 时分子是已用量；单窗口与多账号合计同一条规则。剩余模式下花光的窗口因此读作「0 / 500 credits」，与「0% 剩余」一致。
+
+**影响**：新增 `MotionTest`（时长开关）与 `QuotaCardsTest.aCountWindowReadsTheDirectionThePagePrints`（两种方向）；`UsageScreen` 的额度卡改为 `itemsIndexed`，卡片入场靠 `graphicsLayer`，不加任何常驻动画。

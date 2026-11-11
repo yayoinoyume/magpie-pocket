@@ -1,5 +1,15 @@
 package com.magpie.pocket.feature.usage
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -17,11 +27,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -37,10 +47,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
@@ -59,6 +71,12 @@ import com.magpie.pocket.core.design.MagpieTypography
 import com.magpie.pocket.core.design.SectionHeader
 import com.magpie.pocket.core.design.SegmentedControl
 import com.magpie.pocket.core.design.UnderlineTabs
+import com.magpie.pocket.core.design.motionDuration
+import com.magpie.pocket.core.design.motionEaseOutCubic
+import com.magpie.pocket.core.design.motionExpandEnter
+import com.magpie.pocket.core.design.motionExpandExit
+import com.magpie.pocket.core.design.rememberEntered
+import com.magpie.pocket.core.design.rememberEntranceProgress
 import com.magpie.pocket.core.design.springPress
 import com.magpie.pocket.app.QuotaOverview
 import com.magpie.pocket.app.QuotaProviderCard
@@ -79,6 +97,7 @@ import com.magpie.pocket.core.model.UsageSnapshot
 import com.magpie.pocket.core.util.MetricCalculators
 import com.magpie.pocket.core.util.RequestTimestamps
 import java.util.Locale
+import kotlin.math.min
 
 /** The two sub-pages of the usage page; the capsule under the title switches between them. */
 enum class UsageTab { USAGE, QUOTA }
@@ -245,166 +264,206 @@ fun UsageScreen(
             bottom = contentPadding.calculateBottomPadding()
         )
 
-        when (tab) {
-            UsageTab.USAGE -> LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                state = usageListState,
-                contentPadding = listPadding
-            ) {
-                item {
-                    CostCard(
-                        usage = usage,
-                        usageCost = usageCost,
-                        period = selectedPeriod,
-                        modifier = Modifier.padding(horizontal = MagpieDimensions.PagePadding)
-                    )
+        val tabMotionMillis = motionDuration(260)
+        AnimatedContent(
+            targetState = tab,
+            transitionSpec = {
+                // A sub-page to the right enters from the right, and the page it replaces
+                // leaves the other way, so a switch reads as one horizontal move.
+                val direction = if (targetState.ordinal > initialState.ordinal) 1 else -1
+                val enter = slideInHorizontally(
+                    animationSpec = tween(tabMotionMillis, easing = motionEaseOutCubic)
+                ) { width -> direction * width } + fadeIn(tween(tabMotionMillis))
+                val exit = slideOutHorizontally(
+                    animationSpec = tween(tabMotionMillis, easing = motionEaseOutCubic)
+                ) { width -> -direction * width } + fadeOut(tween(tabMotionMillis))
+                enter togetherWith exit
+            },
+            modifier = Modifier.fillMaxSize(),
+            label = "usageSubPage"
+        ) { section ->
+            when (section) {
+                UsageTab.USAGE -> Crossfade(
+                    targetState = selectedPeriod,
+                    animationSpec = tween(motionDuration(180)),
+                    label = "usagePeriod"
+                ) { period ->
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        state = usageListState,
+                        contentPadding = listPadding
+                    ) {
+                        item {
+                            CostCard(
+                                usage = usage,
+                                usageCost = usageCost,
+                                period = period,
+                                modifier = Modifier.padding(horizontal = MagpieDimensions.PagePadding)
+                            )
+                        }
+
+                        item {
+                            TokenCard(
+                                usage = usage,
+                                cacheHitRate = cacheHitRate,
+                                usageDecodeSpeed = usageDecodeSpeed,
+                                modifier = Modifier
+                                    .padding(horizontal = MagpieDimensions.PagePadding)
+                                    .padding(top = 12.dp)
+                            )
+                        }
+
+                        item {
+                            SectionHeader(
+                                title = "趋势",
+                                note = "按日",
+                                modifier = Modifier
+                                    .padding(horizontal = MagpieDimensions.PagePadding)
+                                    .padding(top = 20.dp)
+                            )
+                        }
+
+                        item {
+                            TrendBlock(
+                                usage = usage,
+                                modifier = Modifier.padding(horizontal = MagpieDimensions.PagePadding)
+                            )
+                        }
+
+                        item {
+                            SectionHeader(
+                                title = "明细",
+                                modifier = Modifier
+                                    .padding(horizontal = MagpieDimensions.PagePadding)
+                                    .padding(top = 20.dp)
+                            )
+                        }
+
+                        item {
+                            ChipGrid(
+                                options = UsageDimension.values().map { it.label },
+                                selectedIndex = dimension.ordinal,
+                                onSelect = { index ->
+                                    val next = UsageDimension.values().getOrNull(index)
+                                    if (next != null && next != dimension) {
+                                        dimensionKey = next.name
+                                        sortKey = defaultSort(
+                                            next,
+                                            usageRows(usage, next, maskAccountNames)
+                                        ).name
+                                        breakdownExpanded = false
+                                    }
+                                },
+                                modifier = Modifier.padding(horizontal = MagpieDimensions.PagePadding)
+                            )
+                        }
+
+                        item {
+                            SortSelector(
+                                selected = activeSort,
+                                options = sortOptions,
+                                onSelect = { next ->
+                                    if (next != activeSort) {
+                                        sortKey = next.name
+                                        breakdownExpanded = false
+                                    }
+                                },
+                                modifier = Modifier
+                                    .padding(horizontal = MagpieDimensions.PagePadding)
+                                    .padding(top = 10.dp)
+                            )
+                        }
+
+                        item {
+                            DetailSection(
+                                usage = usage,
+                                sort = activeSort,
+                                rows = sortedRows,
+                                expanded = breakdownExpanded,
+                                isLoading = isLoading,
+                                onToggleExpanded = { breakdownExpanded = !breakdownExpanded },
+                                modifier = Modifier
+                                    .padding(horizontal = MagpieDimensions.PagePadding)
+                                    .padding(top = 10.dp)
+                            )
+                        }
+
+                        item { Spacer(modifier = Modifier.height(8.dp)) }
+                    }
                 }
 
-                item {
-                    TokenCard(
-                        usage = usage,
-                        cacheHitRate = cacheHitRate,
-                        usageDecodeSpeed = usageDecodeSpeed,
-                        modifier = Modifier
-                            .padding(horizontal = MagpieDimensions.PagePadding)
-                            .padding(top = 12.dp)
-                    )
-                }
-
-                item {
-                    SectionHeader(
-                        title = "趋势",
-                        note = "按日",
-                        modifier = Modifier
-                            .padding(horizontal = MagpieDimensions.PagePadding)
-                            .padding(top = 20.dp)
-                    )
-                }
-
-                item {
-                    TrendBlock(
-                        usage = usage,
-                        modifier = Modifier.padding(horizontal = MagpieDimensions.PagePadding)
-                    )
-                }
-
-                item {
-                    SectionHeader(
-                        title = "明细",
-                        modifier = Modifier
-                            .padding(horizontal = MagpieDimensions.PagePadding)
-                            .padding(top = 20.dp)
-                    )
-                }
-
-                item {
-                    ChipGrid(
-                        options = UsageDimension.values().map { it.label },
-                        selectedIndex = dimension.ordinal,
-                        onSelect = { index ->
-                            val next = UsageDimension.values().getOrNull(index)
-                            if (next != null && next != dimension) {
-                                dimensionKey = next.name
-                                sortKey = defaultSort(
-                                    next,
-                                    usageRows(usage, next, maskAccountNames)
-                                ).name
-                                breakdownExpanded = false
-                            }
-                        },
-                        modifier = Modifier.padding(horizontal = MagpieDimensions.PagePadding)
-                    )
-                }
-
-                item {
-                    SortSelector(
-                        selected = activeSort,
-                        options = sortOptions,
-                        onSelect = { next ->
-                            if (next != activeSort) {
-                                sortKey = next.name
-                                breakdownExpanded = false
-                            }
-                        },
-                        modifier = Modifier
-                            .padding(horizontal = MagpieDimensions.PagePadding)
-                            .padding(top = 10.dp)
-                    )
-                }
-
-                item {
-                    DetailSection(
-                        usage = usage,
-                        sort = activeSort,
-                        rows = sortedRows,
-                        expanded = breakdownExpanded,
-                        isLoading = isLoading,
-                        onToggleExpanded = { breakdownExpanded = !breakdownExpanded },
-                        modifier = Modifier
-                            .padding(horizontal = MagpieDimensions.PagePadding)
-                            .padding(top = 10.dp)
-                    )
-                }
-
-                item { Spacer(modifier = Modifier.height(8.dp)) }
-            }
-
-            UsageTab.QUOTA -> LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                state = quotaListState,
-                contentPadding = listPadding
-            ) {
-                item {
-                    QuotaOverviewCard(
-                        overview = quotaSummary,
-                        providerCount = quotaCards.size,
-                        modifier = Modifier.padding(horizontal = MagpieDimensions.PagePadding)
-                    )
-                }
-
-                // No provider card means no switch to explain and nothing to count.
-                if (quotaCards.isNotEmpty()) {
+                UsageTab.QUOTA -> LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    state = quotaListState,
+                    contentPadding = listPadding
+                ) {
                     item {
-                        QuotaSupplierHeader(
-                            displayMode = quotaDisplayMode,
-                            onDisplayModeChange = onQuotaDisplayModeChange,
-                            modifier = Modifier
-                                .padding(horizontal = MagpieDimensions.PagePadding)
-                                .padding(top = 16.dp)
+                        QuotaOverviewCard(
+                            overview = quotaSummary,
+                            providerCount = quotaCards.size,
+                            modifier = Modifier.padding(horizontal = MagpieDimensions.PagePadding)
                         )
                     }
 
-                    items(quotaCards.size, key = { quotaCards[it].providerId }) { index ->
-                        val card = quotaCards[index]
-                        QuotaProviderCardView(
-                            card = card,
+                    // No provider card means no switch to explain and nothing to count.
+                    if (quotaCards.isNotEmpty()) {
+                        item {
+                            QuotaSupplierHeader(
+                                displayMode = quotaDisplayMode,
+                                onDisplayModeChange = onQuotaDisplayModeChange,
+                                modifier = Modifier
+                                    .padding(horizontal = MagpieDimensions.PagePadding)
+                                    .padding(top = 16.dp)
+                            )
+                        }
+
+                        itemsIndexed(
+                            items = quotaCards,
+                            key = { _, card -> card.providerId }
+                        ) { index, card ->
+                            // A newcomer fades in and rises 10dp, staggered by its place in the
+                            // list; the wait and the travel both collapse when motion is off.
+                            val entrance = rememberEntranceProgress(
+                                durationMillis = motionDuration(320),
+                                delayMillis = motionDuration(min(index, 6) * 40)
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .padding(horizontal = MagpieDimensions.PagePadding)
+                                    .padding(top = 10.dp)
+                                    .graphicsLayer {
+                                        alpha = entrance.value
+                                        translationY = (1f - entrance.value) * 10.dp.toPx()
+                                    }
+                            ) {
+                                QuotaProviderCardView(
+                                    card = card,
+                                    displayMode = quotaDisplayMode,
+                                    expanded = card.providerId in expandedQuotaProviders,
+                                    onToggleExpanded = {
+                                        expandedQuotaProviders =
+                                            expandedQuotaProviders.toggle(card.providerId)
+                                    },
+                                    expandedAccounts = expandedQuotaAccounts,
+                                    onToggleAccount = { key ->
+                                        expandedQuotaAccounts = expandedQuotaAccounts.toggle(key)
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    item {
+                        QuotaModeNote(
                             displayMode = quotaDisplayMode,
-                            expanded = card.providerId in expandedQuotaProviders,
-                            onToggleExpanded = {
-                                expandedQuotaProviders =
-                                    expandedQuotaProviders.toggle(card.providerId)
-                            },
-                            expandedAccounts = expandedQuotaAccounts,
-                            onToggleAccount = { key ->
-                                expandedQuotaAccounts = expandedQuotaAccounts.toggle(key)
-                            },
                             modifier = Modifier
                                 .padding(horizontal = MagpieDimensions.PagePadding)
-                                .padding(top = 10.dp)
+                                .padding(top = 14.dp)
                         )
                     }
-                }
 
-                item {
-                    QuotaModeNote(
-                        displayMode = quotaDisplayMode,
-                        modifier = Modifier
-                            .padding(horizontal = MagpieDimensions.PagePadding)
-                            .padding(top = 14.dp)
-                    )
+                    item { Spacer(modifier = Modifier.height(8.dp)) }
                 }
-
-                item { Spacer(modifier = Modifier.height(8.dp)) }
             }
         }
     }
@@ -926,7 +985,23 @@ private fun QuotaOverviewCard(
 @Composable
 private fun QuotaOverviewRing(remaining: Double?, color: Color) {
     val colors = MagpieTheme.colors
-    val shown = ((remaining ?: 0.0) / 100.0).coerceIn(0.0, 1.0)
+    val entered = rememberEntered()
+    // The sweep and the number share one duration and one curve, so they read as a single
+    // measurement: both grow out of zero on entry and follow every later refresh.
+    val sweep by animateFloatAsState(
+        targetValue = if (entered && remaining != null) {
+            (remaining / 100.0).coerceIn(0.0, 1.0).toFloat()
+        } else {
+            0f
+        },
+        animationSpec = tween(motionDuration(760), easing = motionEaseOutCubic),
+        label = "quotaRingSweep"
+    )
+    val percent by animateFloatAsState(
+        targetValue = if (entered && remaining != null) remaining.toFloat() else 0f,
+        animationSpec = tween(motionDuration(760), easing = motionEaseOutCubic),
+        label = "quotaRingPercent"
+    )
     val track = if (remaining != null && remaining < 30.0) {
         colors.error.copy(alpha = 0.18f)
     } else {
@@ -950,7 +1025,7 @@ private fun QuotaOverviewRing(remaining: Double?, color: Color) {
                 drawArc(
                     color = color,
                     startAngle = -90f,
-                    sweepAngle = (360f * shown).toFloat(),
+                    sweepAngle = 360f * sweep,
                     useCenter = false,
                     topLeft = topLeft,
                     size = arcSize,
@@ -960,11 +1035,12 @@ private fun QuotaOverviewRing(remaining: Double?, color: Color) {
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                text = formatQuotaPercent(remaining),
+                text = if (remaining == null) "—" else formatQuotaPercent(percent.toDouble()),
                 style = MagpieTypography.SubheadStyle.copy(
                     fontSize = 22.sp,
                     lineHeight = 26.sp,
-                    fontWeight = FontWeight.SemiBold
+                    fontWeight = FontWeight.SemiBold,
+                    fontFeatureSettings = "tnum"
                 ),
                 color = if (remaining != null) color else colors.textTertiary
             )
@@ -1130,77 +1206,83 @@ private fun QuotaProviderCardView(
                     onToggle = onToggleExpanded,
                     modifier = Modifier.padding(top = 11.dp)
                 )
-                if (expanded) {
-                    card.accounts.forEachIndexed { index, account ->
-                        val accountKey = quotaAccountKey(card.providerId, account, index)
-                        val accountExpanded = accountKey in expandedAccounts
-                        val accountTightest = quotaAccountTightest(account, displayMode)
-                        val accountValue = accountTightest?.let { row ->
-                            listOfNotNull(row.countText, row.shareText)
-                                .takeIf { it.isNotEmpty() }
-                                ?.joinToString(" · ")
-                                ?: row.text
-                                ?: if (row.unlimited) "无限额" else "—"
-                        } ?: account.windows.firstOrNull { it.text != null }?.text
-                            ?: if (account.windows.any { it.unlimited }) "无限额" else "—"
-                        HorizontalDivider(
-                            color = colors.divider,
-                            modifier = Modifier.padding(top = if (index == 0) 12.dp else 0.dp)
-                        )
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 44.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = account.label,
-                                style = MagpieTypography.SubheadStyle,
-                                color = colors.textPrimary,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f)
+                AnimatedVisibility(
+                    visible = expanded,
+                    enter = motionExpandEnter(),
+                    exit = motionExpandExit()
+                ) {
+                    Column {
+                        card.accounts.forEachIndexed { index, account ->
+                            val accountKey = quotaAccountKey(card.providerId, account, index)
+                            val accountExpanded = accountKey in expandedAccounts
+                            val accountTightest = quotaAccountTightest(account, displayMode)
+                            val accountValue = accountTightest?.let { row ->
+                                listOfNotNull(row.countText, row.shareText)
+                                    .takeIf { it.isNotEmpty() }
+                                    ?.joinToString(" · ")
+                                    ?: row.text
+                                    ?: if (row.unlimited) "无限额" else "—"
+                            } ?: account.windows.firstOrNull { it.text != null }?.text
+                                ?: if (account.windows.any { it.unlimited }) "无限额" else "—"
+                            HorizontalDivider(
+                                color = colors.divider,
+                                modifier = Modifier.padding(top = if (index == 0) 12.dp else 0.dp)
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = accountValue,
-                                style = MagpieTypography.LabelStyle.copy(fontSize = 12.sp),
-                                color = if (accountTightest != null) {
-                                    quotaIndexColor(accountTightest.color)
-                                } else {
-                                    colors.textTertiary
-                                },
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Box(
+                            Row(
                                 modifier = Modifier
-                                    .size(44.dp)
-                                    .clickable { onToggleAccount(accountKey) },
-                                contentAlignment = Alignment.Center
+                                    .fillMaxWidth()
+                                    .heightIn(min = 44.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Icon(
-                                    imageVector = if (accountExpanded) {
-                                        Icons.Filled.ExpandLess
-                                    } else {
-                                        Icons.Filled.ExpandMore
-                                    },
-                                    contentDescription = if (accountExpanded) {
-                                        "收起账号"
-                                    } else {
-                                        "展开账号"
-                                    },
-                                    tint = colors.textTertiary,
-                                    modifier = Modifier.size(18.dp)
+                                Text(
+                                    text = account.label,
+                                    style = MagpieTypography.SubheadStyle,
+                                    color = colors.textPrimary,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f)
                                 )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = accountValue,
+                                    style = MagpieTypography.LabelStyle.copy(fontSize = 12.sp),
+                                    color = if (accountTightest != null) {
+                                        quotaIndexColor(accountTightest.color)
+                                    } else {
+                                        colors.textTertiary
+                                    },
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .clickable { onToggleAccount(accountKey) },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    QuotaChevron(
+                                        expanded = accountExpanded,
+                                        contentDescription = if (accountExpanded) {
+                                            "收起账号"
+                                        } else {
+                                            "展开账号"
+                                        }
+                                    )
+                                }
                             }
-                        }
-                        if (accountExpanded) {
-                            HorizontalDivider(color = colors.divider)
-                            QuotaWindowList(
-                                windows = account.windows,
-                                modifier = Modifier.padding(start = 10.dp)
-                            )
+                            AnimatedVisibility(
+                                visible = accountExpanded,
+                                enter = motionExpandEnter(),
+                                exit = motionExpandExit()
+                            ) {
+                                Column {
+                                    HorizontalDivider(color = colors.divider)
+                                    QuotaWindowList(
+                                        windows = account.windows,
+                                        modifier = Modifier.padding(start = 10.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -1244,12 +1326,18 @@ private fun QuotaProviderCardView(
                     )
                 }
 
-                if (expanded && card.windowCount > 0) {
-                    HorizontalDivider(
-                        color = colors.divider,
-                        modifier = Modifier.padding(top = 10.dp)
-                    )
-                    QuotaWindowList(card.accounts.firstOrNull()?.windows.orEmpty())
+                AnimatedVisibility(
+                    visible = expanded && card.windowCount > 0,
+                    enter = motionExpandEnter(),
+                    exit = motionExpandExit()
+                ) {
+                    Column {
+                        HorizontalDivider(
+                            color = colors.divider,
+                            modifier = Modifier.padding(top = 10.dp)
+                        )
+                        QuotaWindowList(card.accounts.firstOrNull()?.windows.orEmpty())
+                    }
                 }
                 if (card.windowCount > 0) {
                     HorizontalDivider(
@@ -1304,11 +1392,9 @@ private fun QuotaMergedBlock(
                 color = colors.textSecondary,
                 modifier = Modifier.weight(1f)
             )
-            Icon(
-                imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-                contentDescription = if (expanded) "收起账号" else "展开账号",
-                tint = colors.textTertiary,
-                modifier = Modifier.size(18.dp)
+            QuotaChevron(
+                expanded = expanded,
+                contentDescription = if (expanded) "收起账号" else "展开账号"
             )
         }
         if (card.mergedWindows.isNotEmpty()) {
@@ -1435,13 +1521,28 @@ private fun QuotaMoreRow(
             maxLines = 1,
             modifier = Modifier.weight(1f)
         )
-        Icon(
-            imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
-            contentDescription = text,
-            tint = colors.textTertiary,
-            modifier = Modifier.size(18.dp)
-        )
+        QuotaChevron(expanded = expanded, contentDescription = text)
     }
+}
+
+/** The card's open/closed mark: one chevron that turns over instead of swapping glyphs. */
+@Composable
+private fun QuotaChevron(expanded: Boolean, contentDescription: String) {
+    val colors = MagpieTheme.colors
+    // One chevron turns over instead of two glyphs swapping, so open and closed share a shape.
+    val angle by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = tween(motionDuration(220)),
+        label = "quotaChevron"
+    )
+    Icon(
+        imageVector = Icons.Filled.ExpandMore,
+        contentDescription = contentDescription,
+        tint = colors.textTertiary,
+        modifier = Modifier
+            .size(18.dp)
+            .rotate(angle)
+    )
 }
 
 @Composable
@@ -1453,6 +1554,18 @@ private fun QuotaBar(
 ) {
     val colors = MagpieTheme.colors
     val shape = RoundedCornerShape(height)
+    val entered = rememberEntered()
+    // A bar grows out of its track on entry and keeps animating later readings, so switching
+    // used/remaining slides the fill rather than jumping it.
+    val fraction by animateFloatAsState(
+        targetValue = if (entered && percent != null) {
+            (percent / 100.0).coerceIn(0.0, 1.0).toFloat()
+        } else {
+            0f
+        },
+        animationSpec = tween(motionDuration(560), easing = motionEaseOutCubic),
+        label = "quotaBarFill"
+    )
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -1463,7 +1576,7 @@ private fun QuotaBar(
         if (percent != null) {
             Box(
                 modifier = Modifier
-                    .fillMaxWidth((percent / 100.0).coerceIn(0.0, 1.0).toFloat())
+                    .fillMaxWidth(fraction)
                     .fillMaxSize()
                     .clip(shape)
                     .background(color)

@@ -19,7 +19,7 @@ data class QuotaWindowRow(
     /** Stable identity for the expanded-state set: provider, window name and occurrence. */
     val key: String,
     val name: String,
-    /** "0 / 500 credits"; null for a window that reports a share only. */
+    /** "0 / 500 credits", the numerator read in the page's direction; null for a share-only window. */
     val countText: String?,
     /** "0.0% 剩余" or "100.0% 已用"; null when the window has no reading. */
     val shareText: String?,
@@ -285,7 +285,7 @@ private fun mergedQuotaWindows(
                 key = providerId + "\n" + name + "#1",
                 name = name,
                 used = used,
-                countText = countText(totalAmount, totalLimit, unit),
+                countText = countText(totalAmount, totalLimit, unit, displayMode),
                 text = null,
                 unlimited = false,
                 resetsAt = null,
@@ -334,7 +334,7 @@ private fun quotaWindowRow(
     val limit = window.allowanceLimit
     val usedAmount = if (limit != null) countAmount(window) else null
     val count = if (usedAmount != null && limit != null) {
-        countText(usedAmount, limit, window.unit.takeIf { it.isNotBlank() })
+        countText(usedAmount, limit, window.unit.takeIf { it.isNotBlank() }, displayMode)
     } else {
         null
     }
@@ -432,9 +432,23 @@ internal fun formatQuotaPercent(value: Double?): String {
     }
 }
 
-private fun countText(amount: Double, limit: Double, unit: String?): String {
+/**
+ * "500 / 500 credits". The numerator reads the page's direction: the used amount when the page
+ * prints used shares, what is left of the allowance when it prints remaining shares, so a
+ * spent window never reads "500 / 500" under a "0% remaining" caption.
+ */
+private fun countText(
+    amount: Double,
+    limit: Double,
+    unit: String?,
+    displayMode: QuotaDisplayMode
+): String {
+    val numerator = when (displayMode) {
+        QuotaDisplayMode.USED -> amount
+        QuotaDisplayMode.REMAINING -> (limit - amount).coerceAtLeast(0.0)
+    }
     val unitSuffix = unit?.let { " " + it }.orEmpty()
-    return formatQuotaCount(amount) + " / " + formatQuotaCount(limit) + unitSuffix
+    return formatQuotaCount(numerator) + " / " + formatQuotaCount(limit) + unitSuffix
 }
 
 /** Counts keep a decimal while small and turn compact once they are token-sized. */
