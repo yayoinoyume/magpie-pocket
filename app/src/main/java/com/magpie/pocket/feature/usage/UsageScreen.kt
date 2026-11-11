@@ -1088,11 +1088,8 @@ private fun QuotaProviderCardView(
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
-                    val subtitle = listOfNotNull(
-                        card.plan,
-                        if (multiAccount) card.accountCount.toString() + " 个账号" else null
-                    ).joinToString(" · ")
-                    if (subtitle.isNotEmpty()) {
+                    val subtitle = card.plan?.takeIf { it.isNotBlank() }
+                    if (subtitle != null) {
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = subtitle,
@@ -1134,27 +1131,21 @@ private fun QuotaProviderCardView(
                     modifier = Modifier.padding(top = 11.dp)
                 )
                 if (expanded) {
-                    Text(
-                        text = card.accountCount.toString() + " 个账号",
-                        style = MagpieTypography.LabelStyle.copy(
-                            fontSize = 11.sp,
-                            lineHeight = 15.sp
-                        ),
-                        color = colors.textTertiary,
-                        modifier = Modifier.padding(top = 12.dp)
-                    )
                     card.accounts.forEachIndexed { index, account ->
                         val accountKey = quotaAccountKey(card.providerId, account, index)
                         val accountExpanded = accountKey in expandedAccounts
                         val accountTightest = quotaAccountTightest(account, displayMode)
                         val accountValue = accountTightest?.let { row ->
-                            row.countText ?: row.shareText ?: row.text
+                            listOfNotNull(row.countText, row.shareText)
+                                .takeIf { it.isNotEmpty() }
+                                ?.joinToString(" · ")
+                                ?: row.text
                                 ?: if (row.unlimited) "无限额" else "—"
                         } ?: account.windows.firstOrNull { it.text != null }?.text
                             ?: if (account.windows.any { it.unlimited }) "无限额" else "—"
                         HorizontalDivider(
                             color = colors.divider,
-                            modifier = Modifier.padding(top = if (index == 0) 4.dp else 0.dp)
+                            modifier = Modifier.padding(top = if (index == 0) 12.dp else 0.dp)
                         )
                         Row(
                             modifier = Modifier
@@ -1260,7 +1251,7 @@ private fun QuotaProviderCardView(
                     )
                     QuotaWindowList(card.accounts.firstOrNull()?.windows.orEmpty())
                 }
-                if (card.windowCount > 0 && !unlimitedOnly && textOnly == null) {
+                if (card.windowCount > 0) {
                     HorizontalDivider(
                         color = colors.divider,
                         modifier = Modifier.padding(top = 11.dp)
