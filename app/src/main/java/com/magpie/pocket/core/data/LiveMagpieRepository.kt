@@ -462,6 +462,7 @@ class LiveMagpieRepository(
                     used = usedCount?.toLong(),
                     limit = w.limit?.toLong(),
                     resetsAt = w.resetsAt ?: w.resets,
+                    startsAt = w.startsAt,
                     usedPercent = if (isCount || w.text) null else w.used,
                     amount = usedCount,
                     allowanceLimit = w.limit,
@@ -478,6 +479,10 @@ class LiveMagpieRepository(
                     ?: "unknown",
                 displayName = q.name?.takeIf { it.isNotBlank() },
                 accountId = (q.user ?: q.account)?.takeIf { it.isNotBlank() },
+                plan = q.plan?.takeIf { it.isNotBlank() },
+                balance = q.balance?.takeIf { it.isNotBlank() },
+                until = q.until?.takeIf { it.isNotBlank() },
+                lastServedAt = q.lastServedAt?.takeIf { it.isNotBlank() },
                 // The answer's own trustworthiness. A window that carries no figure still shows
                 // up in the list, but its own flag says so; a provider is not unknown because its
                 // windows happen to be unlimited.

@@ -300,6 +300,22 @@ class AppViewModel(
         providerQuotaViews(quotas, accounts, preferences.maskAccountNames)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    /**
+     * Provider cards with account grouping, merged totals and pace. The quota page reads these;
+     * [accountQuotas] stays the overview/alerts dimension and keeps its one-row-per-provider
+     * contract.
+     */
+    val quotaCards: StateFlow<List<QuotaProviderCard>> = combine(
+        _quotas, _accounts, _displayPreferences
+    ) { quotas, accounts, preferences ->
+        quotaProviderCards(
+            quotas = quotas,
+            accounts = accounts,
+            maskAccountNames = preferences.maskAccountNames,
+            displayMode = preferences.quotaDisplayMode
+        )
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
     /** Windows already in the warning zone, worst first. */
     val quotaAlerts: StateFlow<List<QuotaAlert>> = accountQuotas
         .map { views ->

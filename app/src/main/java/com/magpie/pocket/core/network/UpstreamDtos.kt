@@ -437,6 +437,10 @@ data class UpstreamQuotaAccount(
     @SerialName("provider") val provider: String? = null,
     @SerialName("name") val name: String? = null,
     @SerialName("user") val user: String? = null,
+    @SerialName("plan") val plan: String? = null,
+    @SerialName("balance") val balance: String? = null,
+    @SerialName("until") val until: String? = null,
+    @SerialName("lastServedAt") val lastServedAt: String? = null,
     @SerialName("readAt") val readAt: String? = null,
     @SerialName("known") val known: Boolean = true,
     @SerialName("observed") val observed: String? = null,
@@ -456,6 +460,7 @@ data class UpstreamQuotaWindow(
     @SerialName("text") val text: Boolean = false,
     @SerialName("unlimited") val unlimited: Boolean = false,
     @SerialName("resetsAt") val resetsAt: String? = null,
+    @SerialName("startsAt") val startsAt: String? = null,
     @SerialName("resets") val resets: String? = null
 )
 
