@@ -1,5 +1,6 @@
 package com.magpie.pocket.core.model
 
+import androidx.compose.runtime.Immutable
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -99,6 +100,7 @@ data class Attempt(
     val handedOn: Boolean = false
 )
 
+@Immutable
 @Serializable
 data class RequestSummary(
     val key: RequestKey,
@@ -190,6 +192,7 @@ data class ContextPart(
     val tokens: Long
 )
 
+@Immutable
 @Serializable
 data class ContextBreakdown(
     val requestKey: RequestKey,
@@ -206,6 +209,7 @@ data class TraceTotals(
     val finalErrors: Long = 0L
 )
 
+@Immutable
 @Serializable
 data class TraceSnapshot(
     val epoch: String,
@@ -266,6 +270,7 @@ data class UsageModelItem(
     val totalTokens: Long
 )
 
+@Immutable
 @Serializable
 data class UsageSnapshot(
     val period: Period = Period.TODAY,
@@ -339,6 +344,7 @@ data class RequestDetail(
     val sourceMeta: SourceMeta
 )
 
+@Immutable
 @Serializable
 data class RequestPage(
     val items: List<RequestSummary>,
@@ -367,6 +373,7 @@ data class ConnectionConfig(
     val cfAccessClientSecret: String? = null
 )
 
+@Immutable
 @Serializable
 data class DisplayPreferences(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
@@ -544,6 +551,7 @@ data class CostDisplay(
  * the page prints. The two shares and the absolute pair are the same deciding window in the
  * units the row prints.
  */
+@Immutable
 data class AccountQuotaView(
     val providerId: String,
     val label: String,

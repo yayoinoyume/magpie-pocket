@@ -2,6 +2,7 @@ package com.magpie.pocket.feature.routing
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -55,10 +56,13 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.PathMeasure
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -85,6 +89,9 @@ import com.magpie.pocket.core.design.MagpieTypography
 import com.magpie.pocket.core.design.SectionHeader
 import com.magpie.pocket.core.design.StatusBadge
 import com.magpie.pocket.core.design.displayOrDash
+import com.magpie.pocket.core.design.motionDuration
+import com.magpie.pocket.core.design.motionEaseOutCubic
+import com.magpie.pocket.core.design.rememberEntered
 import com.magpie.pocket.core.design.springPress
 import com.magpie.pocket.core.model.Account
 import com.magpie.pocket.core.model.Attempt
@@ -120,12 +127,12 @@ private sealed interface RoutingSheet {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RoutingScreen(
-    trace: TraceSnapshot?,
+    traceState: State<TraceSnapshot?>,
     groups: List<RouteGroup>,
     accounts: List<Account>,
     selectedGroupId: String?,
-    selectedRequest: RequestSummary?,
-    requestDetail: RequestDetail?,
+    selectedRequestState: State<RequestSummary?>,
+    requestDetailState: State<RequestDetail?>,
     onSelectRequest: (RequestSummary) -> Unit,
     onResetToLatest: () -> Unit,
     onOpenRequestDetail: (RequestSummary) -> Unit,
@@ -138,6 +145,9 @@ fun RoutingScreen(
     contentPadding: PaddingValues,
     modifier: Modifier = Modifier
 ) {
+    val trace by traceState
+    val selectedRequest by selectedRequestState
+    val requestDetail by requestDetailState
     val colors = MagpieTheme.colors
     val preferences = MagpieTheme.preferences
     var showDecisionModal by remember { mutableStateOf(false) }
@@ -748,7 +758,7 @@ private fun RouteCanvas(
 }
 
 @Composable
-private fun rememberFlowOffset(active: Boolean, periodMs: Int, distance: Float): Float {
+private fun rememberFlowOffset(active: Boolean, periodMs: Int, distance: Float): State<Float> {
     val offset = remember { Animatable(0f) }
     LaunchedEffect(active, periodMs, distance) {
         if (!active) {
@@ -761,7 +771,7 @@ private fun rememberFlowOffset(active: Boolean, periodMs: Int, distance: Float):
             offset.animateTo(distance, tween(periodMs, easing = LinearEasing))
         }
     }
-    return offset.value
+    return offset.asState()
 }
 
 @Composable
@@ -935,6 +945,13 @@ private fun ProviderPulse(color: Color) {
     }
 }
 
+private class BranchSegment(
+    val path: Path,
+    val measure: PathMeasure,
+    val neutralStroke: Stroke,
+    val litStroke: Stroke
+)
+
 @Composable
 private fun BranchConnector(
     providerCount: Int,
@@ -964,91 +981,117 @@ private fun BranchConnector(
             travel.snapTo(0f)
         }
     }
-    Canvas(modifier = modifier) {
-        val midX = size.width / 2f
-        val midY = size.height * 0.46f
-        val stroke = 1.dp.toPx()
-        val radius = 7.dp.toPx()
-        val neutral = colors.divider
-        val accent = when (phase) {
-            RoutePhase.ACTIVE -> colors.accent
-            RoutePhase.SUCCEEDED -> colors.success
-            RoutePhase.FAILED -> colors.error
-            RoutePhase.CANCELLED -> colors.textTertiary
-            RoutePhase.UNCONFIRMED -> colors.warning
-            RoutePhase.PINNED -> colors.textTertiary
-            else -> neutral
-        }
-        val animated = liveMotion || settleState != null
-        val dash = if (liveMotion) PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), 3.dp.toPx()), dashOffset) else null
-
-        drawLine(
-            color = if (animated) accent.copy(alpha = 0.8f) else accent.copy(alpha = 0.35f),
-            start = Offset(midX, 0f),
-            end = Offset(midX, midY),
-            strokeWidth = stroke,
-            pathEffect = dash
-        )
-
-        val targets = when {
-            providerCount <= 1 -> listOf(midX)
-            else -> listOf(size.width * 0.25f, size.width * 0.75f)
-        }
-        targets.forEachIndexed { index, x ->
-            val chosen = activeIndex == index || providerCount <= 1 && activeIndex == 0
-            val chosenLit = chosen && (animated || phase in setOf(
+    Box(
+        modifier = modifier.drawWithCache {
+            val midX = size.width / 2f
+            val midY = size.height * 0.46f
+            val stroke = 1.dp.toPx()
+            val radius = 7.dp.toPx()
+            val settledPhase = phase in setOf(
                 RoutePhase.SUCCEEDED,
                 RoutePhase.FAILED,
                 RoutePhase.CANCELLED,
                 RoutePhase.UNCONFIRMED
-            ))
-            val path = Path().apply {
-                moveTo(midX, midY)
-                if (x == midX) {
-                    lineTo(midX, size.height)
-                } else {
-                    lineTo(x - if (x < midX) -radius else radius, midY)
-                    quadraticBezierTo(x, midY, x, midY + radius)
-                    lineTo(x, size.height)
-                }
-            }
-            drawPath(
-                path = path,
-                color = if (chosenLit) accent else neutral,
-                style = Stroke(
-                    width = if (chosenLit) stroke * 1.35f else stroke,
-                    cap = StrokeCap.Round,
-                    join = StrokeJoin.Round,
-                    pathEffect = if (chosen && liveMotion) dash else null
-                )
             )
-            if (chosen && (liveMotion || settleState != null)) {
-                val pm = PathMeasure().apply { setPath(path, false) }
-                val length = pm.length
-                if (length > 0f) {
-                    val position = pm.getPosition(travel.value * length)
-                    drawCircle(colors.surface, radius = 4.dp.toPx(), center = position)
-                    drawCircle(
-                        if (settleState == FinalState.FAILED) colors.error else if (settleState == FinalState.SUCCEEDED) colors.success else colors.accent,
-                        radius = 2.5.dp.toPx(),
-                        center = position
+            // Geometry is rebuilt only when the size or the branch topology changes; the two
+            // moving dots read their progress below, in the draw pass.
+            val targets = when {
+                providerCount <= 1 -> listOf(midX)
+                else -> listOf(size.width * 0.25f, size.width * 0.75f)
+            }
+            val segments = targets.map { x ->
+                val path = Path().apply {
+                    moveTo(midX, midY)
+                    if (x == midX) {
+                        lineTo(midX, size.height)
+                    } else {
+                        lineTo(x - if (x < midX) -radius else radius, midY)
+                        quadraticBezierTo(x, midY, x, midY + radius)
+                        lineTo(x, size.height)
+                    }
+                }
+                BranchSegment(
+                    path = path,
+                    measure = PathMeasure().apply { setPath(path, false) },
+                    neutralStroke = Stroke(width = stroke, cap = StrokeCap.Round, join = StrokeJoin.Round),
+                    litStroke = Stroke(width = stroke * 1.35f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                )
+            }
+            onDrawBehind {
+                val offset = dashOffset.value
+                val travelProgress = travel.value
+                val neutral = colors.divider
+                val accent = when (phase) {
+                    RoutePhase.ACTIVE -> colors.accent
+                    RoutePhase.SUCCEEDED -> colors.success
+                    RoutePhase.FAILED -> colors.error
+                    RoutePhase.CANCELLED -> colors.textTertiary
+                    RoutePhase.UNCONFIRMED -> colors.warning
+                    RoutePhase.PINNED -> colors.textTertiary
+                    else -> neutral
+                }
+                val animated = liveMotion || settleState != null
+                val dash = if (liveMotion) {
+                    PathEffect.dashPathEffect(floatArrayOf(3.dp.toPx(), 3.dp.toPx()), offset)
+                } else {
+                    null
+                }
+
+                drawLine(
+                    color = if (animated) accent.copy(alpha = 0.8f) else accent.copy(alpha = 0.35f),
+                    start = Offset(midX, 0f),
+                    end = Offset(midX, midY),
+                    strokeWidth = stroke,
+                    pathEffect = dash
+                )
+
+                segments.forEachIndexed { index, segment ->
+                    val chosen = activeIndex == index || providerCount <= 1 && activeIndex == 0
+                    val chosenLit = chosen && (animated || settledPhase)
+                    drawPath(
+                        path = segment.path,
+                        color = if (chosenLit) accent else neutral,
+                        style = if (chosen && liveMotion) {
+                            Stroke(
+                                width = if (chosenLit) segment.litStroke.width else segment.neutralStroke.width,
+                                cap = StrokeCap.Round,
+                                join = StrokeJoin.Round,
+                                pathEffect = dash
+                            )
+                        } else if (chosenLit) {
+                            segment.litStroke
+                        } else {
+                            segment.neutralStroke
+                        }
                     )
-                    if (settleState != null) {
-                        val sourcePosition = Offset(
-                            position.x + (midX - position.x) * (1f - travel.value),
-                            position.y + (0f - position.y) * (1f - travel.value)
-                        )
-                        drawCircle(colors.surface, radius = 4.dp.toPx(), center = sourcePosition)
-                        drawCircle(
-                            if (settleState == FinalState.FAILED) colors.error else if (settleState == FinalState.SUCCEEDED) colors.success else colors.accent,
-                            radius = 2.5.dp.toPx(),
-                            center = sourcePosition
-                        )
+                    if (chosen && animated) {
+                        val length = segment.measure.length
+                        if (length > 0f) {
+                            val position = segment.measure.getPosition(travelProgress * length)
+                            drawCircle(colors.surface, radius = 4.dp.toPx(), center = position)
+                            drawCircle(
+                                if (settleState == FinalState.FAILED) colors.error else if (settleState == FinalState.SUCCEEDED) colors.success else colors.accent,
+                                radius = 2.5.dp.toPx(),
+                                center = position
+                            )
+                            if (settleState != null) {
+                                val sourcePosition = Offset(
+                                    position.x + (midX - position.x) * (1f - travelProgress),
+                                    position.y + (0f - position.y) * (1f - travelProgress)
+                                )
+                                drawCircle(colors.surface, radius = 4.dp.toPx(), center = sourcePosition)
+                                drawCircle(
+                                    if (settleState == FinalState.FAILED) colors.error else if (settleState == FinalState.SUCCEEDED) colors.success else colors.accent,
+                                    radius = 2.5.dp.toPx(),
+                                    center = sourcePosition
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
-    }
+    )
 }
 
 @Composable
@@ -1117,28 +1160,67 @@ private fun DecisionRow(evidence: List<String>, summary: RequestSummary?, onOpen
 private fun ContextSection(context: ContextBreakdown) {
     val colors = MagpieTheme.colors
     val segments = context.parts.take(3)
+    val palette = listOf(colors.accent, colors.accent.copy(alpha = 0.58f), colors.textTertiary.copy(alpha = 0.55f))
+    fun targetRatio(index: Int): Float {
+        val tokens = segments.getOrNull(index)?.tokens ?: 0L
+        return if (context.totalTokens > 0L) tokens.toFloat() / context.totalTokens.toFloat() else 0f
+    }
+    // Ratios animate on every data change; the entrance multiplies them once, so the first
+    // reading grows out of zero while later readings only slide their boundaries.
+    val ratio0 = animateFloatAsState(
+        targetValue = targetRatio(0),
+        animationSpec = tween(motionDuration(300), easing = motionEaseOutCubic),
+        label = "contextShare0"
+    )
+    val ratio1 = animateFloatAsState(
+        targetValue = targetRatio(1),
+        animationSpec = tween(motionDuration(300), easing = motionEaseOutCubic),
+        label = "contextShare1"
+    )
+    val ratio2 = animateFloatAsState(
+        targetValue = targetRatio(2),
+        animationSpec = tween(motionDuration(300), easing = motionEaseOutCubic),
+        label = "contextShare2"
+    )
+    val entrance = animateFloatAsState(
+        targetValue = if (rememberEntered()) 1f else 0f,
+        animationSpec = tween(motionDuration(700), easing = motionEaseOutCubic),
+        label = "contextEntrance"
+    )
     Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(7.dp)
                 .clip(RoundedCornerShape(7.dp))
-                .background(colors.divider),
-            horizontalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            val palette = listOf(colors.accent, colors.accent.copy(alpha = 0.58f), colors.textTertiary.copy(alpha = 0.55f))
-            segments.forEachIndexed { index, part ->
-                val ratio = if (context.totalTokens > 0) part.tokens.toFloat() / context.totalTokens.toFloat() else 0f
-                if (ratio > 0f) {
-                    Box(
-                        modifier = Modifier
-                            .weight(ratio)
-                            .fillMaxSize()
-                            .background(palette[index % palette.size])
-                    )
+                .background(colors.divider)
+                .drawBehind {
+                    val gap = 2.dp.toPx()
+                    val ratios = floatArrayOf(ratio0.value, ratio1.value, ratio2.value)
+                    var activeCount = 0
+                    var total = 0f
+                    ratios.forEach { ratio ->
+                        if (ratio > 0f) {
+                            activeCount++
+                            total += ratio
+                        }
+                    }
+                    if (total <= 0f) return@drawBehind
+                    val available = (size.width - gap * (activeCount - 1)).coerceAtLeast(0f)
+                    val progress = entrance.value
+                    var x = 0f
+                    ratios.forEachIndexed { index, ratio ->
+                        if (ratio <= 0f) return@forEachIndexed
+                        val width = available * (ratio / total) * progress
+                        drawRect(
+                            color = palette[index % palette.size],
+                            topLeft = Offset(x, 0f),
+                            size = Size(width, size.height)
+                        )
+                        x += width + gap
+                    }
                 }
-            }
-        }
+        )
         Spacer(modifier = Modifier.height(5.dp))
         Row(modifier = Modifier.fillMaxWidth()) {
             Text(
