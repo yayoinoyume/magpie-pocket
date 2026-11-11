@@ -496,6 +496,12 @@ class AppViewModel(
         activeRepo = if (config.mode == DataMode.LIVE && !config.baseUrl.isNullOrBlank()) {
             val client = preparedClient ?: clientFactory(config)
             activeLiveClient = client
+            // The sheet's probe already holds the group rows, so show them before the
+            // repository's first refresh: a refresh waits on activity or a backoff, and
+            // the group panel should not sit empty until then.
+            probeResult?.groups?.toRouteGroups()?.takeIf { it.isNotEmpty() }?.let {
+                _groups.value = it
+            }
             LiveMagpieRepository(
                 baseUrl = config.baseUrl,
                 connectionId = config.id,
@@ -527,11 +533,6 @@ class AppViewModel(
                 },
                 initialProbe = probeResult
             )
-            // The sheet's probe already holds the group rows, so show them now: a refresh
-            // waits on activity state or a backoff, and the panel should not sit empty.
-            probeResult?.groups?.toRouteGroups()?.takeIf { it.isNotEmpty() }?.let {
-                _groups.value = it
-            }
         } else {
             demoRepo
         }
