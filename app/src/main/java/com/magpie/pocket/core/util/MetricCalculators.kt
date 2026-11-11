@@ -120,6 +120,13 @@ object MetricCalculators {
     fun calculateQuotaUsedRatio(window: QuotaWindow): Double? {
         if (!window.known || window.unlimited) return null
         window.usedPercent?.let { return (it / 100.0).coerceAtLeast(0.0) }
+        // Counts can be fractional, so the pair the answer actually reported wins over the
+        // truncated Long fields.
+        val amount = window.amount
+        val allowance = window.allowanceLimit
+        if (amount != null && allowance != null && allowance > 0.0) {
+            return (amount / allowance).coerceAtLeast(0.0)
+        }
         val limit = window.limit ?: return null
         if (limit <= 0L) return null
         val used = window.used ?: return null

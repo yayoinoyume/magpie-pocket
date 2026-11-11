@@ -266,16 +266,21 @@ class DemoRepository(private val context: Context? = null, initialJsonString: St
             if (wArr != null) {
                 for (j in 0 until wArr.length()) {
                     val w = wArr.getJSONObject(j)
+                    val used = if (w.has("used")) w.optDouble("used") else null
+                    val amount = if (w.has("amount")) w.optDouble("amount") else null
+                    val limit = if (w.has("limit")) w.optDouble("limit") else null
+                    val isCount = quotaFigureIsCount(used, amount, limit)
+                    val usedCount = if (isCount) amount ?: used else amount
                     wList.add(
                         QuotaWindow(
                             id = w.optString("id"),
                             unit = w.optString("unit"),
-                            used = w.optNullableLong("used"),
-                            limit = w.optNullableLong("limit"),
+                            used = usedCount?.toLong(),
+                            limit = limit?.toLong(),
                             resetsAt = w.optString("resetsAt", null),
-                            usedPercent = if (w.has("used") && !w.has("limit")) w.optDouble("used") else null,
-                            amount = if (w.has("amount")) w.optDouble("amount") else null,
-                            allowanceLimit = if (w.has("limit")) w.optDouble("limit") else null,
+                            usedPercent = if (isCount) null else used,
+                            amount = usedCount,
+                            allowanceLimit = limit,
                             display = w.optString("display", null),
                             unlimited = w.optBoolean("unlimited", false)
                         )

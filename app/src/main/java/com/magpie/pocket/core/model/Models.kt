@@ -150,6 +150,7 @@ data class AccountQuota(
     val displayName: String? = null,
     /** Present only when the answer names an account (a phone, an email, a key). */
     val accountId: String? = null,
+    /** Whether the answer itself is trustworthy; each window carries its own trust flag. */
     val known: Boolean,
     val observedAt: String? = null,
     val windows: List<QuotaWindow> = emptyList()

@@ -157,7 +157,8 @@ class LiveMagpieRepositoryCompatTest {
 
         val credits = account.windows.first()
         assertEquals("credits", credits.id)
-        assertEquals(52.5, credits.usedPercent ?: 0.0, 0.0001)
+        // Amount/limit is a count, so the share field stays empty; 10.5 / 20 gives the ratio.
+        assertNull(credits.usedPercent)
         assertEquals(10.5, credits.amount ?: 0.0, 0.0001)
         assertEquals(20.0, credits.allowanceLimit ?: 0.0, 0.0001)
         assertEquals(0.525, MetricCalculators.calculateQuotaUsedRatio(credits) ?: 0.0, 0.0001)
@@ -173,8 +174,54 @@ class LiveMagpieRepositoryCompatTest {
         assertNull(MetricCalculators.calculateQuotaUsedRatio(unknown))
 
         val unlimited = quotas.first { it.accountId == "unlimited-account" }
-        assertFalse(unlimited.known)
+        // The answer itself is known; only the window has no figure to show.
+        assertTrue(unlimited.known)
+        assertFalse(unlimited.windows.single().known)
         assertNull(MetricCalculators.calculateQuotaUsedRatio(unlimited.windows.single()))
+    }
+
+    @Test
+    fun quotaWindowsKeepAbsoluteCountsAndSharesApart() = runBlocking {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse = when {
+                request.path == "/api/state" ->
+                    json("""{"version":"Magpie current","timezone":"Asia/Shanghai"}""")
+                request.path == "/api/usage/quotas" -> json(
+                    """
+                    [
+                      {"provider":"count-vendor","name":"Count vendor","windows":[
+                        {"name":"daily","used":301,"limit":350,"unit":"credits"}]},
+                      {"provider":"count-only","name":"Count only","windows":[
+                        {"name":"tokens","used":1240}]},
+                      {"provider":"share-vendor","name":"Share vendor","windows":[
+                        {"name":"7 days","used":13}]}
+                    ]
+                    """.trimIndent()
+                )
+                else -> MockResponse().setResponseCode(404)
+            }
+        }
+
+        val quotas = repo.quotas()
+
+        // used + limit is an absolute count: 301 / 350, never a 301% share.
+        val counted = quotas.first { it.providerId == "count-vendor" }.windows.single()
+        assertNull(counted.usedPercent)
+        assertEquals(301L, counted.used)
+        assertEquals(350L, counted.limit)
+        assertEquals(0.86, MetricCalculators.calculateQuotaUsedRatio(counted) ?: 0.0, 0.0001)
+
+        // used above 100 with no limit is still a count, and has no share to show.
+        val countOnly = quotas.first { it.providerId == "count-only" }.windows.single()
+        assertNull(countOnly.usedPercent)
+        assertEquals(1240L, countOnly.used)
+        assertNull(MetricCalculators.calculateQuotaUsedRatio(countOnly))
+
+        // used alone is a share: 13 means 13%, not thirteen credits.
+        val share = quotas.first { it.providerId == "share-vendor" }.windows.single()
+        assertNull(share.used)
+        assertEquals(13.0, share.usedPercent ?: 0.0, 0.0001)
+        assertEquals(0.13, MetricCalculators.calculateQuotaUsedRatio(share) ?: 0.0, 0.0001)
     }
 
     @Test

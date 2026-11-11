@@ -1200,14 +1200,22 @@ private fun secondaryText(row: UsageRow, sort: UsageSort): String? {
     return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
 }
 
+/**
+ * A provider row reads its windows, not the answer's trust flag: unlimited is a known answer, so
+ * "无限额" must win before anything says the figures are missing.
+ */
 private fun quotaStateText(view: AccountQuotaView): String {
     val window = view.tightestWindow
     if (window != null) {
         val reset = RequestTimestamps.formatResetAt(window.resetsAt)
         return window.id + (reset?.let { " · 重置 " + it } ?: "")
     }
-    if (view.windows.isNotEmpty() && view.windows.all { it.unlimited }) return "无限额"
-    return if (view.known) "额度未知" else "无可查询的额度窗口"
+    return when {
+        view.windows.isEmpty() -> "暂无额度窗口"
+        view.windows.all { it.unlimited } -> "无限额"
+        view.known -> "额度未知"
+        else -> "无可查询的额度窗口"
+    }
 }
 
 @Composable
@@ -1222,8 +1230,11 @@ private fun quotaRatioColor(ratio: Double): Color {
 
 private fun quotaWindowText(window: QuotaWindow, ratio: Double?): String {
     if (window.unlimited) return "无限额"
-    if (!window.known) return "额度未知"
-    val percent = ratio?.let { MetricCalculators.formatPercent(it) } ?: window.display ?: "—"
+    // The upstream's own rendering wins when it sent one; an unknown window has nothing else.
+    val reported = window.display?.takeIf { it.isNotBlank() }
+    if (reported != null) return reported
+    if (!window.known) return "—"
+    val percent = ratio?.let { MetricCalculators.formatPercent(it) } ?: "—"
     val amount = window.amount
     val allowance = window.allowanceLimit
     return if (amount != null && allowance != null) {
