@@ -135,3 +135,17 @@ The reusable visual specification is maintained in .agents/skills/magpie-pocket-
 
 - `quotaFigureIsCount` 收敛成只判 `used > 100`：此前“带 limit 就是绝对数”会把 50/500 算成 10%，真实网关 23 个带 limit 的窗口全部算错。
 - 时间范围分段（文字 + 下划线）本轮不改，只做额度。
+
+## 2026-11-11 额度改为供应商卡片（卡内展开）
+
+**决策**：
+
+- 额度子页按供应商成卡：卡头供应商名 + 最紧窗口的显示百分比（有余额时显示余额原文），4dp 条，下面是最紧窗口的计数/百分比与重置行；卡底按钮在卡内展开全部窗口，不再打开底部 sheet。
+- 总览卡用全部窗口的剩余比例算术平均（排除 `unlimited` / `text` / 无读数窗口），剩余低于 30% 计数；最低/最高按供应商最紧窗口。
+- 多账号供应商先在卡内给「N 个账号合计」块，再列账号；只有 ≥2 个账号共有的同名窗口才合计：计数窗口 `amount` / `limit` 相加，纯百分比只在同 plan 账号间平均，`text` / `unlimited` 跳过。
+- 账户默认展开 `lastServedAt` 最大的一个，其余用 2 列简略网格；账号行点击切换，卡底可一次展开全部或收成简略。
+- Pace = `used - 100 * (now - startsAt) / (resetsAt - startsAt)`；正数「比均速快」，负数「比均速慢」，窗口两端无效时不显示。
+- 余额卡显示上游给的余额原文且不画条；无限额显示「无限额」；纯文本窗口照抄上游 `display`；纯百分比窗口只显示百分比。
+- 已用/剩余切换继续作用于所有数字和条；切换只改读数方向，不改最紧窗口、排序与颜色。
+
+**影响**：`QuotaWindow` / `AccountQuota` 增加 `startsAt`、`plan`、`balance`、`until`、`lastServedAt`；`app/QuotaCards.kt` 与旧 `QuotaProviderViews.kt` 并存，旧视图仍供概览告警使用。

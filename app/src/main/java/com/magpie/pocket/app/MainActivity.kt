@@ -333,11 +333,11 @@ fun MainAppRoot(viewModel: AppViewModel) {
             AppTab.USAGE -> {
                 // Page-ready derivations: one definition per number across the app.
                 val usageCost by viewModel.usageCost.collectAsState()
-                val accountQuotas by viewModel.accountQuotas.collectAsState()
+                val quotaCards by viewModel.quotaCards.collectAsState()
                 val usageDecodeSpeed by viewModel.usageDecodeSpeed.collectAsState()
                 UsageScreen(
                     usage = usage,
-                    accountQuotas = accountQuotas,
+                    quotaCards = quotaCards,
                     quotaDisplayMode = preferences.quotaDisplayMode,
                     onQuotaDisplayModeChange = { viewModel.updateQuotaDisplayMode(it) },
                     usageCost = usageCost,
