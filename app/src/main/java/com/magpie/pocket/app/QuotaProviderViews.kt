@@ -37,13 +37,23 @@ internal fun providerQuotaViews(
                 window to ratio
             }
             .maxByOrNull { it.second }
+        // A display-only window has no share to compare, but it does have text to print, so it
+        // decides the row when nothing can be measured. An unlimited window keeps saying so on
+        // its own and never becomes the row's figure.
+        val deciding = tightest?.first ?: windows.firstOrNull { it.text }
         AccountQuotaView(
             providerId = providerId,
             label = providerLabel(rows, accounts, maskAccountNames),
             known = rows.any { it.known },
-            tightestWindow = tightest?.first,
+            tightestWindow = deciding,
             ratio = tightest?.second,
-            windows = windows
+            windows = windows,
+            usedPercent = quotaUsedPercent(deciding),
+            remainingPercent = quotaRemainingPercent(deciding),
+            usedAmount = deciding?.amount,
+            remainingAmount = quotaRemainingAmount(deciding),
+            unitLabel = deciding?.unit?.takeIf { it.isNotBlank() },
+            displayText = deciding?.display?.takeIf { it.isNotBlank() }
         )
     }.sortedWith(
         // Worst first: the ring reads the first row, and the worst provider must stay visible.
@@ -79,4 +89,23 @@ private fun providerLabel(
     val accountId = rows.firstNotNullOfOrNull { it.accountId } ?: return name
     val alias = accounts.firstOrNull { it.id == accountId }?.alias
     return name + " · " + MetricCalculators.maskAccountName(alias ?: accountId, maskAccountNames)
+}
+
+/**
+ * The used share of one window as a 0..100 percentage. A display-only, unknown or unlimited
+ * window has no number, and neither side of the pair is invented for it.
+ */
+internal fun quotaUsedPercent(window: QuotaWindow?): Double? = window
+    ?.let { MetricCalculators.calculateQuotaUsedRatio(it) }
+    ?.let { (it * 100.0).coerceAtMost(100.0) }
+
+/** The same share read the other way: what is still left of the allowance. */
+internal fun quotaRemainingPercent(window: QuotaWindow?): Double? =
+    quotaUsedPercent(window)?.let { 100.0 - it }
+
+/** Allowance minus used, only when the answer reported both; a share alone cannot give it. */
+internal fun quotaRemainingAmount(window: QuotaWindow?): Double? {
+    val amount = window?.amount ?: return null
+    val allowance = window.allowanceLimit ?: return null
+    return (allowance - amount).coerceAtLeast(0.0)
 }

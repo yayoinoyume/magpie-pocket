@@ -157,8 +157,9 @@ class LiveMagpieRepositoryCompatTest {
 
         val credits = account.windows.first()
         assertEquals("credits", credits.id)
-        // Amount/limit is a count, so the share field stays empty; 10.5 / 20 gives the ratio.
-        assertNull(credits.usedPercent)
+        // A used value inside 0..100 is a share even when a limit rides along, and the absolute
+        // pair the same answer reported is the more precise figure for the ratio.
+        assertEquals(52.5, credits.usedPercent ?: 0.0, 0.0001)
         assertEquals(10.5, credits.amount ?: 0.0, 0.0001)
         assertEquals(20.0, credits.allowanceLimit ?: 0.0, 0.0001)
         assertEquals(0.525, MetricCalculators.calculateQuotaUsedRatio(credits) ?: 0.0, 0.0001)
@@ -194,7 +195,9 @@ class LiveMagpieRepositoryCompatTest {
                       {"provider":"count-only","name":"Count only","windows":[
                         {"name":"tokens","used":1240}]},
                       {"provider":"share-vendor","name":"Share vendor","windows":[
-                        {"name":"7 days","used":13}]}
+                        {"name":"7 days","used":13}]},
+                      {"provider":"limit-vendor","name":"Limit vendor","windows":[
+                        {"name":"credits","used":50,"limit":500,"unit":"credits"}]}
                     ]
                     """.trimIndent()
                 )
@@ -222,6 +225,15 @@ class LiveMagpieRepositoryCompatTest {
         assertNull(share.used)
         assertEquals(13.0, share.usedPercent ?: 0.0, 0.0001)
         assertEquals(0.13, MetricCalculators.calculateQuotaUsedRatio(share) ?: 0.0, 0.0001)
+
+        // A limit next to a 0..100 used value used to make the window a count: 50 / 500 = 10%.
+        // The used value is the share, so this window is half spent, not a tenth.
+        val limited = quotas.first { it.providerId == "limit-vendor" }.windows.single()
+        assertEquals(50.0, limited.usedPercent ?: 0.0, 0.0001)
+        // The answer reported a share and a limit, but no absolute used count to pair with it.
+        assertNull(limited.amount)
+        assertEquals(500.0, limited.allowanceLimit ?: 0.0, 0.0001)
+        assertEquals(0.5, MetricCalculators.calculateQuotaUsedRatio(limited) ?: 0.0, 0.0001)
     }
 
     @Test

@@ -348,6 +348,7 @@ class BackgroundConnectionBehaviorTest {
         override suspend fun updateGlassTier(tier: GlassTier) { state.value = state.value.copy(glassTier = tier) }
         override suspend fun updateReduceMotion(enabled: Boolean) { state.value = state.value.copy(reduceMotion = enabled) }
         override suspend fun updateMaskAccounts(enabled: Boolean) { state.value = state.value.copy(maskAccountNames = enabled) }
+        override suspend fun updateQuotaDisplayMode(mode: QuotaDisplayMode) { state.value = state.value.copy(quotaDisplayMode = mode) }
         override suspend fun updateKeepLiveConnectionInBackground(enabled: Boolean) { state.value = state.value.copy(keepLiveConnectionInBackground = enabled) }
     }
 
@@ -372,6 +373,9 @@ class BackgroundConnectionBehaviorTest {
         }
         override suspend fun updateMaskAccounts(enabled: Boolean) {
             state.value = (state.value ?: DisplayPreferences()).copy(maskAccountNames = enabled)
+        }
+        override suspend fun updateQuotaDisplayMode(mode: QuotaDisplayMode) {
+            state.value = (state.value ?: DisplayPreferences()).copy(quotaDisplayMode = mode)
         }
         override suspend fun updateKeepLiveConnectionInBackground(enabled: Boolean) {
             state.value = (state.value ?: DisplayPreferences())

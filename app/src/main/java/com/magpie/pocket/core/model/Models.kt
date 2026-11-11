@@ -32,6 +32,22 @@ enum class GlassTier {
     CLEAR, TINTED, SOLID
 }
 
+/**
+ * Which side of a quota a page reads: the share already spent, or the share still left. The
+ * preference is stored by [code], and a value this build does not know reads as the default.
+ */
+@Serializable
+enum class QuotaDisplayMode(val code: String) {
+    USED("used"),
+    REMAINING("remaining");
+
+    companion object {
+        /** Remaining is the default, so a missing or unknown stored value reads as it. */
+        fun fromCode(code: String?): QuotaDisplayMode =
+            values().firstOrNull { it.code == code } ?: REMAINING
+    }
+}
+
 enum class ConnectionHealth {
     CONNECTING, CONNECTED, AUTH_REQUIRED, ACCESS_DENIED, NETWORK_UNREACHABLE, INCOMPATIBLE, OFFLINE
 }
@@ -138,6 +154,8 @@ data class QuotaWindow(
     val amount: Double? = null,
     val allowanceLimit: Double? = null,
     val display: String? = null,
+    /** A display-only window: [display] is text, and no used value in it is a reading. */
+    val text: Boolean = false,
     val unlimited: Boolean = false,
     val known: Boolean = true
 )
@@ -346,7 +364,9 @@ data class DisplayPreferences(
     val reduceMotion: Boolean = false,
     val maskAccountNames: Boolean = true,
     /** LIVE only: keep the encrypted session and trace alive while backgrounded. */
-    val keepLiveConnectionInBackground: Boolean = true
+    val keepLiveConnectionInBackground: Boolean = true,
+    /** Used share or remaining share. Remaining is the default: less left is the danger. */
+    val quotaDisplayMode: QuotaDisplayMode = QuotaDisplayMode.REMAINING
 )
 
 @Serializable
@@ -508,6 +528,11 @@ data class CostDisplay(
  * row read this, so the same provider can never show two percentages; [windows] keeps every
  * window the provider reported for the detail sheet, with a name the provider repeated numbered
  * #2, #3 … so no two rows read the same.
+ *
+ * [ratio] is the used share of the deciding window and never follows the display preference:
+ * sorting and colour read it, so the most dangerous provider stays first and red whichever side
+ * the page prints. The two shares and the absolute pair are the same deciding window in the
+ * units the row prints.
  */
 data class AccountQuotaView(
     val providerId: String,
@@ -515,7 +540,19 @@ data class AccountQuotaView(
     val known: Boolean,
     val tightestWindow: QuotaWindow?,
     val ratio: Double?,
-    val windows: List<QuotaWindow> = emptyList()
+    val windows: List<QuotaWindow> = emptyList(),
+    /** Used share of the deciding window, 0..100; null when it reported no number. */
+    val usedPercent: Double? = null,
+    /** The same share read the other way, 0..100. */
+    val remainingPercent: Double? = null,
+    /** Absolute used count, only when the answer reported one. */
+    val usedAmount: Double? = null,
+    /** Allowance minus used, only when the answer reported both. */
+    val remainingAmount: Double? = null,
+    /** The window's own unit ("credits", "USD"), null when it named none. */
+    val unitLabel: String? = null,
+    /** The upstream's own rendering, which a display-only window always prefers. */
+    val displayText: String? = null
 )
 
 /**

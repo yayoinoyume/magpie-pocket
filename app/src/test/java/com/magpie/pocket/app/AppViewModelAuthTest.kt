@@ -5,6 +5,7 @@ import com.magpie.pocket.core.model.ConnectionConfig
 import com.magpie.pocket.core.model.ConnectionHealth
 import com.magpie.pocket.core.model.DataMode
 import com.magpie.pocket.core.model.DisplayPreferences
+import com.magpie.pocket.core.model.QuotaDisplayMode
 import com.magpie.pocket.core.model.ThemeMode
 import com.magpie.pocket.core.network.MagpieApiClient
 import androidx.lifecycle.viewModelScope
@@ -700,6 +701,10 @@ private class AuthFakePreferencesManager : DisplayPreferencesSource {
 
     override suspend fun updateMaskAccounts(enabled: Boolean) {
         state.value = state.value.copy(maskAccountNames = enabled)
+    }
+
+    override suspend fun updateQuotaDisplayMode(mode: QuotaDisplayMode) {
+        state.value = state.value.copy(quotaDisplayMode = mode)
     }
 
     override suspend fun updateKeepLiveConnectionInBackground(enabled: Boolean) {

@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.magpie.pocket.core.model.DisplayPreferences
 import com.magpie.pocket.core.model.GlassTier
+import com.magpie.pocket.core.model.QuotaDisplayMode
 import com.magpie.pocket.core.model.ThemeMode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -21,13 +22,15 @@ class PreferencesManager(private val context: Context) {
         val reduceMotion = prefs[KEY_REDUCE_MOTION] ?: false
         val maskAccounts = prefs[KEY_MASK_ACCOUNTS] ?: true
         val keepLiveConnection = prefs[KEY_KEEP_LIVE_CONNECTION] ?: true
+        val quotaDisplayMode = prefs[KEY_QUOTA_DISPLAY_MODE]
 
         DisplayPreferences(
             themeMode = try { ThemeMode.valueOf(themeModeStr) } catch (_: Exception) { ThemeMode.SYSTEM },
             glassTier = try { GlassTier.valueOf(glassTierStr) } catch (_: Exception) { GlassTier.CLEAR },
             reduceMotion = reduceMotion,
             maskAccountNames = maskAccounts,
-            keepLiveConnectionInBackground = keepLiveConnection
+            keepLiveConnectionInBackground = keepLiveConnection,
+            quotaDisplayMode = QuotaDisplayMode.fromCode(quotaDisplayMode)
         )
     }
 
@@ -63,6 +66,12 @@ class PreferencesManager(private val context: Context) {
         }
     }
 
+    suspend fun updateQuotaDisplayMode(mode: QuotaDisplayMode) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_QUOTA_DISPLAY_MODE] = mode.code
+        }
+    }
+
     suspend fun updateKeepLiveConnectionInBackground(enabled: Boolean) {
         context.dataStore.edit { prefs ->
             prefs[KEY_KEEP_LIVE_CONNECTION] = enabled
@@ -87,6 +96,7 @@ class PreferencesManager(private val context: Context) {
         private val KEY_REDUCE_MOTION = booleanPreferencesKey("pref_reduce_motion")
         private val KEY_MASK_ACCOUNTS = booleanPreferencesKey("pref_mask_accounts")
         private val KEY_KEEP_LIVE_CONNECTION = booleanPreferencesKey("pref_keep_live_connection")
+        private val KEY_QUOTA_DISPLAY_MODE = stringPreferencesKey("pref_quota_display_mode")
         private val KEY_LAST_ACTIVE_TAB = stringPreferencesKey("pref_last_tab")
         private val KEY_LAST_GROUP_ID = stringPreferencesKey("pref_last_group_id")
     }
