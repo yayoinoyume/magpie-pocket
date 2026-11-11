@@ -1188,6 +1188,16 @@ internal fun contextSegments(parts: List<ContextPart>, totalTokens: Long): List<
     return head + ContextSegment(mergedLabel, ranked.drop(2).sumOf { it.tokens }, merged = true)
 }
 
+/**
+ * Window occupancy as magpie states it: "0.4% full" next to the window size. The legend
+ * itself stays in tokens, so a request that fills one part never reads as 100% used.
+ */
+internal fun windowUsageLabel(totalTokens: Long, windowLimit: Long?): String = when {
+    windowLimit == null || windowLimit <= 0L -> "窗口上限未知"
+    else -> "窗口 ${MetricCalculators.formatCompactNumber(windowLimit)} · " +
+        MetricCalculators.formatPercent(totalTokens.toDouble() / windowLimit)
+}
+
 /** Three-segment context bar; the window limit stays beside the legend. */
 @Composable
 private fun ContextSection(context: ContextBreakdown) {
@@ -1220,11 +1230,7 @@ private fun ContextSection(context: ContextBreakdown) {
         animationSpec = tween(motionDuration(700), easing = motionEaseOutCubic),
         label = "contextEntrance"
     )
-    val windowLabel = if (context.windowLimit != null) {
-        "窗口 ${MetricCalculators.formatCompactNumber(context.windowLimit)}"
-    } else {
-        "窗口上限未知"
-    }
+    val windowLabel = windowUsageLabel(context.totalTokens, context.windowLimit)
     Column(modifier = Modifier.fillMaxWidth()) {
         if (segments.isEmpty()) {
             Row(modifier = Modifier.fillMaxWidth()) {
@@ -1280,7 +1286,9 @@ private fun ContextSection(context: ContextBreakdown) {
         Row(modifier = Modifier.fillMaxWidth()) {
             Text(
                 text = segments.joinToString(" · ") { segment ->
-                    "${segment.label} ${MetricCalculators.formatPercent(if (context.totalTokens > 0) segment.tokens.toDouble() / context.totalTokens else null)}"
+                    // magpie's legend counts tokens; the share of the prompt is what the bar
+                    // shape already shows, and printing it read as "100%" for a single part.
+                    "${segment.label} ${MetricCalculators.formatCompactNumber(segment.tokens)}"
                 },
                 fontSize = MagpieTypography.CaptionStyle.fontSize,
                 color = colors.textSecondary,

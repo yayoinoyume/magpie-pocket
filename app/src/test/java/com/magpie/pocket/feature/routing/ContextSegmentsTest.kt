@@ -122,5 +122,17 @@ class ContextSegmentsTest {
         assertEquals(listOf(70L, 30L), segments.map { it.tokens })
     }
 
+    @Test
+    fun windowUsageStatesTheShareOfTheWindowNotOfThePrompt() {
+        assertEquals("窗口 1.0M · 0.4%", windowUsageLabel(totalTokens = 4_300, windowLimit = 1_000_000))
+        assertEquals("窗口 1.0M · 100.0%", windowUsageLabel(totalTokens = 1_000_000, windowLimit = 1_000_000))
+    }
+
+    @Test
+    fun unknownWindowDoesNotInventAShare() {
+        assertEquals("窗口上限未知", windowUsageLabel(totalTokens = 4_300, windowLimit = null))
+        assertEquals("窗口上限未知", windowUsageLabel(totalTokens = 4_300, windowLimit = 0))
+    }
+
     private fun part(kind: String, tokens: Long) = ContextPart(kind = kind, tokens = tokens)
 }
