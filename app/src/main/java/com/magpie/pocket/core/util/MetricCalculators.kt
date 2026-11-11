@@ -4,6 +4,7 @@ import com.magpie.pocket.core.model.QuotaWindow
 import com.magpie.pocket.core.model.TokenUsage
 import java.text.DecimalFormat
 import java.util.Locale
+import kotlin.math.roundToInt
 
 object MetricCalculators {
 
@@ -178,6 +179,28 @@ object MetricCalculators {
     fun decodeTokensPerSecond(decodeOut: Long?, decodeMs: Long?): Double? {
         if (decodeOut == null || decodeMs == null || decodeMs <= 0L) return null
         return decodeOut.toDouble() / (decodeMs.toDouble() / 1000.0)
+    }
+
+    /**
+     * Request-level output rate: output tokens over decode time, where decode time is total
+     * duration minus time to first token. Missing TTFT is not zero: without a first-token
+     * timestamp the decode window is unknown, so the rate is null. Contradictory timing
+     * cannot produce a rate either.
+     */
+    fun requestTokensPerSecond(outputTokens: Long?, durationMs: Long?, ttftMs: Long?): Double? {
+        if (outputTokens == null || outputTokens <= 0L) return null
+        if (durationMs == null || durationMs <= 0L) return null
+        if (ttftMs == null) return null
+        val decodeMs = durationMs - ttftMs
+        if (decodeMs <= 0L) return null
+        val rate = outputTokens.toDouble() / (decodeMs.toDouble() / 1000.0)
+        return rate.takeIf { it > 0.0 }
+    }
+
+    /** Display form for [requestTokensPerSecond]; unknown or invalid samples produce no label. */
+    fun formatTokensPerSecond(rate: Double?): String? {
+        if (rate == null || !rate.isFinite() || rate <= 0.0) return null
+        return "${rate.roundToInt()} tok/s"
     }
 
     /**

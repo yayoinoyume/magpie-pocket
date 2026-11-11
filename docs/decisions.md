@@ -21,6 +21,7 @@
 ## 3. 统计口径与算法实现
 
 - **首响均值（TTFT Mean）**：默认采用加权算术均值 `ttftSumMs / ttftSampleCount`，不将均值标为中位数。
+- **请求输出速度**：请求级口径，按 `output / ((durationMs - ttftMs) / 1000)` 计算，`output` 含 reasoning；`ttftMs` 缺失时直接返回 null，不按 0 处理（否则会把首响时间算进 decode，得到虚高速度）；输出或耗时缺失/非正、解码时长非正时也返回 null。账本行整项不显示，详情显示“—”，不做上限截断。
 - **总 Token 归一化**：`inputUncached + output + cacheRead + cacheWrite`。上游输出中包含的 reasoning Token 不重复累加。
 - **加权缓存命中率**：`sum(cacheRead) / sum(inputUncached + cacheRead + cacheWrite)`。分母为 0 时输出 null（界面显示“—”），而非错误记为 0%。
 - **改道次数独立于终态**：`rerouteCount` 仅记录发生候选交接的次数；有 attempts 时改道请求既可能最终成功（`成功 · 改道 1 次`），也可能最终失败（`失败 · 改道 2 次`）。账本行没有 attempts、只有上游 retried，徽标只写 `失败 · 有改道`，不把 1 当次数。
