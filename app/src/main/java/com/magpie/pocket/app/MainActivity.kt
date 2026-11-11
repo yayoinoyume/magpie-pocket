@@ -219,7 +219,6 @@ fun MainAppRoot(viewModel: AppViewModel) {
     val accounts by viewModel.accounts.collectAsState()
     val selectedGroupId by viewModel.selectedGroupId.collectAsState()
     val usage by viewModel.usage.collectAsState()
-    val quotas by viewModel.quotas.collectAsState()
     val requestsPage by viewModel.requestsPage.collectAsState()
     val selectedRequest by viewModel.selectedRequest.collectAsState()
     val routingRequest by viewModel.routingRequest.collectAsState()
@@ -338,7 +337,6 @@ fun MainAppRoot(viewModel: AppViewModel) {
                 val usageDecodeSpeed by viewModel.usageDecodeSpeed.collectAsState()
                 UsageScreen(
                     usage = usage,
-                    quotas = quotas,
                     accountQuotas = accountQuotas,
                     usageCost = usageCost,
                     usageDecodeSpeed = usageDecodeSpeed,

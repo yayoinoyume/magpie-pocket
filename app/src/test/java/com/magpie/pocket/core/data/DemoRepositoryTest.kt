@@ -73,7 +73,10 @@ class DemoRepositoryTest {
         val quotas = repo.quotas()
         val wba03 = quotas.find { it.accountId == "wba-03" }
         assertNotNull(wba03)
-        val daily = wba03!!.windows.first()
+        val quota = wba03!!
+        assertEquals("workbuddy-ai", quota.providerId)
+        assertEquals("WorkBuddy AI", quota.displayName)
+        val daily = quota.windows.first()
         assertEquals(301L, daily.used)
         assertEquals(350L, daily.limit)
         assertTrue(MetricCalculators.isQuotaWarning(daily))

@@ -144,9 +144,13 @@ data class QuotaWindow(
 
 @Serializable
 data class AccountQuota(
-    val accountId: String,
-    /** Null when the quota answer names the account without saying which provider owns it. */
-    val providerId: String? = null,
+    /** The provider a quota answer belongs to; the deployed gateway answers quotas per provider. */
+    val providerId: String,
+    /** The provider's display name from the upstream; a provider name is never masked. */
+    val displayName: String? = null,
+    /** Present only when the answer names an account (a phone, an email, a key). */
+    val accountId: String? = null,
+    /** Whether the answer itself is trustworthy; each window carries its own trust flag. */
     val known: Boolean,
     val observedAt: String? = null,
     val windows: List<QuotaWindow> = emptyList()
@@ -500,20 +504,26 @@ data class CostDisplay(
 }
 
 /**
- * One account reduced to the single window that decides its health. The ring and the
- * account row read this, so the same account can never show two percentages.
+ * One provider reduced to the single window that decides its health. The ring and the provider
+ * row read this, so the same provider can never show two percentages; [windows] keeps every
+ * window the provider reported for the detail sheet, with a name the provider repeated numbered
+ * #2, #3 … so no two rows read the same.
  */
 data class AccountQuotaView(
-    val accountId: String,
+    val providerId: String,
     val label: String,
     val known: Boolean,
     val tightestWindow: QuotaWindow?,
-    val ratio: Double?
+    val ratio: Double?,
+    val windows: List<QuotaWindow> = emptyList()
 )
 
-/** A quota window already inside the warning zone; [accountLabel] is masked per preference. */
+/**
+ * A provider window already inside the warning zone. [providerLabel] keeps the provider name and
+ * masks only an account the upstream actually named.
+ */
 data class QuotaAlert(
-    val accountLabel: String,
+    val providerLabel: String,
     val ratio: Double,
     val windowId: String,
     val resetsAt: String?

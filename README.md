@@ -35,7 +35,7 @@ v1.0.1 introduced a new signing certificate. Versions 1.0.0 and earlier require 
   <tr>
     <td><img src="docs/screenshots/overview.png" width="210" alt="概览：请求统计、趋势与额度"></td>
     <td><img src="docs/screenshots/routing.png" width="210" alt="路由：请求来源、Magpie、供应商和账号"></td>
-    <td><img src="docs/screenshots/usage.png" width="210" alt="用量：Token、缓存命中率和账号额度"></td>
+    <td><img src="docs/screenshots/usage.png" width="210" alt="用量：Token、缓存命中率和供应商额度"></td>
     <td><img src="docs/screenshots/requests.png" width="210" alt="请求账本：状态、耗时和本地时间"></td>
   </tr>
 </table>

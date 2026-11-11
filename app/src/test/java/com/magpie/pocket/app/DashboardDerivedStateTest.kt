@@ -2,6 +2,7 @@ package com.magpie.pocket.app
 
 import androidx.lifecycle.viewModelScope
 import com.magpie.pocket.core.data.DemoRepository
+import com.magpie.pocket.core.model.AccountQuotaView
 import com.magpie.pocket.core.model.Attempt
 import com.magpie.pocket.core.model.Coverage
 import com.magpie.pocket.core.model.ConnectionConfig
@@ -16,6 +17,7 @@ import com.magpie.pocket.core.model.SourceMeta
 import com.magpie.pocket.core.model.ThemeMode
 import com.magpie.pocket.core.model.TraceSnapshot
 import com.magpie.pocket.core.network.MagpieApiClient
+import com.magpie.pocket.core.util.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -79,15 +81,53 @@ class DashboardDerivedStateTest {
     }
 
     @Test
-    fun quotaViewsExposeOnlyTheTightestWindowAndMaskTheAlias() = runBlocking {
+    fun quotaViewsKeyTheProviderAndKeepItsNameUnmasked() = runBlocking {
         val viewModel = newViewModel()
 
-        val account = viewModel.accountQuotas.first().single()
+        val provider = viewModel.quotaView("vendor")
 
-        assertEquals("acc-1", account.accountId)
-        assertEquals("wor***ary", account.label)
-        assertEquals("daily", account.tightestWindow?.id)
-        assertEquals(0.9, account.ratio ?: 0.0, 0.0001)
+        assertEquals("vendor", provider.providerId)
+        assertEquals("Vendor · wor***ary", provider.label)
+        assertEquals("daily", provider.tightestWindow?.id)
+        assertEquals(0.9, provider.ratio ?: 0.0, 0.0001)
+        assertEquals(2, provider.windows.size)
+    }
+
+    @Test
+    fun togglingMaskingRewritesOnlyTheAccountPartOfAQuotaLabel() = runBlocking {
+        val viewModel = newViewModel()
+
+        val masked = viewModel.quotaView("vendor")
+        assertEquals("Vendor · wor***ary", masked.label)
+        assertEquals("OpenCode Go", viewModel.quotaView("opencode-go").label)
+
+        viewModel.updateMaskAccounts(false)
+
+        // Wait for the stored preference to reach the page before reading the new labels.
+        val plain = viewModel.accountQuotas.first { views ->
+            views.any { it.providerId == "vendor" && it.label == "Vendor · workbuddy-primary" }
+        }
+        assertEquals("Vendor · workbuddy-primary", plain.first { it.providerId == "vendor" }.label)
+        // A provider the answer never tied to an account has no account part to mask.
+        assertEquals("OpenCode Go", plain.first { it.providerId == "opencode-go" }.label)
+        // Worst first, and the masking toggle never reorders the rows.
+        assertEquals(listOf("vendor", "opencode-go"), plain.map { it.providerId })
+    }
+
+    @Test
+    fun aRejectedMaskingWriteKeepsTheStoredPreferenceAndLogsIt() = runBlocking {
+        val viewModel = newViewModel(preferences = DashboardFakePreferencesManager(failWrites = true))
+        val logged = mutableListOf<String>()
+        AppLog.logger = { message, _ -> logged += message }
+        try {
+            viewModel.updateMaskAccounts(false)
+
+            assertTrue(viewModel.displayPreferences.value.maskAccountNames)
+            assertEquals("Vendor · wor***ary", viewModel.quotaView("vendor").label)
+            assertEquals(listOf("mask account names was not saved"), logged)
+        } finally {
+            AppLog.logger = null
+        }
     }
 
     @Test
@@ -96,7 +136,7 @@ class DashboardDerivedStateTest {
 
         val alert = viewModel.quotaAlerts.first().single()
 
-        assertEquals("wor***ary", alert.accountLabel)
+        assertEquals("Vendor · wor***ary", alert.providerLabel)
         assertEquals("daily", alert.windowId)
         assertEquals(0.9, alert.ratio, 0.0001)
         assertEquals("2026-11-11T00:00:00Z", alert.resetsAt)
@@ -191,17 +231,22 @@ class DashboardDerivedStateTest {
 
     private fun newViewModel(
         statisticsTimeZone: String = "Asia/Shanghai",
-        overviewHasTrends: Boolean = true
+        overviewHasTrends: Boolean = true,
+        preferences: DisplayPreferencesSource = DashboardFakePreferencesManager()
     ): AppViewModel {
         val repo = DemoRepository(initialJsonString = demoJson(statisticsTimeZone, overviewHasTrends))
         repo.setScenario("offlineWithCache")
         return AppViewModel(
             credentialStore = DashboardFakeCredentialStore(),
-            preferencesManager = DashboardFakePreferencesManager(),
+            preferencesManager = preferences,
             demoRepo = repo,
             apiClient = MagpieApiClient()
         ).also { viewModels += it }
     }
+
+    private suspend fun AppViewModel.quotaView(providerId: String): AccountQuotaView =
+        accountQuotas.first { views -> views.any { it.providerId == providerId } }
+            .first { it.providerId == providerId }
 
     /**
      * One fixture with a priced zero plus unpriced calls, two quota windows that disagree,
@@ -241,11 +286,21 @@ class DashboardDerivedStateTest {
           ],
           "quotas": [
             {
+              "providerId": "vendor",
+              "displayName": "Vendor",
               "accountId": "acc-1",
               "known": true,
               "windows": [
                 { "id": "hourly", "unit": "%", "used": 10, "limit": 100 },
                 { "id": "daily", "unit": "%", "used": 90, "limit": 100, "resetsAt": "2026-11-11T00:00:00Z" }
+              ]
+            },
+            {
+              "providerId": "opencode-go",
+              "displayName": "OpenCode Go",
+              "known": true,
+              "windows": [
+                { "id": "7 days", "used": 13 }
               ]
             }
           ],
@@ -272,14 +327,20 @@ private class DashboardFakeCredentialStore : ConnectionStateSource {
     override fun clearCredentials() { config = ConnectionConfig(id = "demo-main", name = "主网关", mode = DataMode.DEMO) }
 }
 
-private class DashboardFakePreferencesManager : DisplayPreferencesSource {
+private class DashboardFakePreferencesManager(
+    /** Rejects writes the way a full or locked disk does, leaving the stored value alone. */
+    private val failWrites: Boolean = false
+) : DisplayPreferencesSource {
     private val state = MutableStateFlow(DisplayPreferences())
     override val displayPreferencesFlow = state
 
     override suspend fun updateThemeMode(mode: ThemeMode) { state.value = state.value.copy(themeMode = mode) }
     override suspend fun updateGlassTier(tier: GlassTier) { state.value = state.value.copy(glassTier = tier) }
     override suspend fun updateReduceMotion(enabled: Boolean) { state.value = state.value.copy(reduceMotion = enabled) }
-    override suspend fun updateMaskAccounts(enabled: Boolean) { state.value = state.value.copy(maskAccountNames = enabled) }
+    override suspend fun updateMaskAccounts(enabled: Boolean) {
+        if (failWrites) throw java.io.IOException("preferences are read-only")
+        state.value = state.value.copy(maskAccountNames = enabled)
+    }
     override suspend fun updateKeepLiveConnectionInBackground(enabled: Boolean) {
         state.value = state.value.copy(keepLiveConnectionInBackground = enabled)
     }

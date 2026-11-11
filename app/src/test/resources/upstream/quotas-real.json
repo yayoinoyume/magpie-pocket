@@ -1,0 +1,1236 @@
+[
+  {
+    "provider": "opencode-go",
+    "name": "OpenCode Go",
+    "icon": "opencode",
+    "windows": [
+      {
+        "name": "5 hours",
+        "used": 0,
+        "trayKind": "5h"
+      },
+      {
+        "name": "7 days",
+        "used": 13,
+        "resetsAt": "2026-11-16T00:00:00Z",
+        "startsAt": "2026-11-09T00:00:00Z",
+        "trayKind": "7d"
+      },
+      {
+        "name": "Month",
+        "used": 23,
+        "resetsAt": "2026-11-25T09:10:14Z",
+        "trayKind": "name:month"
+      }
+    ],
+    "readAt": "2026-11-11T00:36:13.866987675Z",
+    "lastServedAt": "2026-11-10T03:40:15.514179467Z"
+  },
+  {
+    "provider": "stepfun-cn",
+    "name": "StepFun (China)",
+    "icon": "stepfun-color",
+    "plan": "Plus",
+    "windows": [
+      {
+        "name": "Credits",
+        "used": 0.10654300000000338,
+        "trayKind": "name:credits"
+      }
+    ],
+    "until": "2026-11-19T09:00:40Z",
+    "renew": "off",
+    "readAt": "2026-11-11T00:36:15.087082172Z",
+    "lastServedAt": "2026-10-20T02:47:41.771633908Z"
+  },
+  {
+    "provider": "stepfun-cn",
+    "name": "StepFun (China)",
+    "icon": "stepfun-color",
+    "windows": [],
+    "balance": "¥3.57",
+    "readAt": "2026-11-11T00:36:15.037704708Z",
+    "lastServedAt": "2026-10-20T02:47:41.771633908Z"
+  },
+  {
+    "provider": "volcengine",
+    "name": "Volcengine Ark",
+    "icon": "volcengine-color",
+    "plan": "Coding Plan",
+    "windows": [
+      {
+        "name": "5 hours",
+        "used": 0,
+        "trayKind": "5h"
+      },
+      {
+        "name": "Weekly",
+        "used": 45.17738133333333,
+        "resetsAt": "2026-11-15T16:00:00Z",
+        "startsAt": "2026-11-08T16:00:00Z",
+        "trayKind": "7d"
+      },
+      {
+        "name": "Month",
+        "used": 59.84109600000001,
+        "resetsAt": "2026-12-03T15:59:59Z",
+        "startsAt": "2026-11-03T15:59:59Z",
+        "trayKind": "month"
+      }
+    ],
+    "readAt": "2026-11-11T00:36:15.08708431Z",
+    "lastServedAt": "2026-11-10T12:49:43.052776138Z"
+  },
+  {
+    "provider": "volcengine-2",
+    "name": "Volcengine Ark 2",
+    "icon": "volcengine-color",
+    "plan": "Coding Plan",
+    "windows": [
+      {
+        "name": "5 hours",
+        "used": 0,
+        "trayKind": "5h"
+      },
+      {
+        "name": "Weekly",
+        "used": 40.02462233333333,
+        "resetsAt": "2026-11-15T16:00:00Z",
+        "startsAt": "2026-11-08T16:00:00Z",
+        "trayKind": "7d"
+      },
+      {
+        "name": "Month",
+        "used": 81.67556566666667,
+        "resetsAt": "2026-11-16T15:59:59Z",
+        "startsAt": "2026-10-16T15:59:59Z",
+        "trayKind": "month"
+      }
+    ],
+    "readAt": "2026-11-11T00:36:15.087101187Z",
+    "lastServedAt": "2026-11-10T12:26:43.883083828Z"
+  },
+  {
+    "provider": "yayoiapi",
+    "name": "YAYOIAPI",
+    "icon": "file:cf717dcf4e77399e.png",
+    "windows": [],
+    "balance": "$-53582.01",
+    "balanceTrend": {
+      "points": [
+        {
+          "at": "2026-11-06T11:04:17Z",
+          "amount": -53582
+        },
+        {
+          "at": "2026-11-07T23:43:32Z",
+          "amount": -53582
+        },
+        {
+          "at": "2026-11-08T00:00:32Z",
+          "amount": -53582.01
+        },
+        {
+          "at": "2026-11-11T00:36:19Z",
+          "amount": -53582.01
+        }
+      ],
+      "fitFrom": "2026-11-06T11:04:17Z",
+      "fitStart": -53582.001,
+      "fitNow": -53582.0105,
+      "perDay": 0.0021,
+      "runsOut": "2026-11-11T00:36:19Z"
+    },
+    "readAt": "2026-11-11T00:36:19.420488349Z",
+    "lastServedAt": "2026-11-07T23:51:55.148019682Z"
+  },
+  {
+    "provider": "mistral",
+    "name": "Mistral",
+    "icon": "mistral-color",
+    "plan": "Student",
+    "user": "vibe",
+    "windows": [
+      {
+        "name": "Month",
+        "used": 17.09587544,
+        "resetsAt": "2026-12-01T00:00:00Z",
+        "amount": 25.64381316,
+        "limit": 150,
+        "unit": "USD",
+        "holds": {
+          "tokens": 358363953,
+          "cost": 73.46331127690996,
+          "priced": true,
+          "used": 17.09587544,
+          "routed": {
+            "calls": 5215,
+            "tokens": 61265455,
+            "cacheRead": 597182080,
+            "cost": 12.559196190000002
+          },
+          "since": "2026-11-01T00:00:00Z"
+        },
+        "startsAt": "2026-11-01T00:00:00Z",
+        "trayKind": "month"
+      }
+    ],
+    "readAt": "2026-11-11T00:36:14.236127832Z",
+    "lastServedAt": "2026-11-10T01:55:06.954967011Z"
+  },
+  {
+    "provider": "mistral",
+    "name": "Mistral",
+    "icon": "mistral-color",
+    "plan": "Student",
+    "user": "mstr…Ucna",
+    "windows": [
+      {
+        "name": "API · Month",
+        "used": 5.00629684,
+        "resetsAt": "2026-12-01T00:00:00Z",
+        "amount": 0.750944526,
+        "limit": 15,
+        "unit": "USD",
+        "holdsWhy": "none",
+        "startsAt": "2026-11-01T00:00:00Z",
+        "trayKind": "month"
+      }
+    ],
+    "readAt": "2026-11-11T00:36:14.249227309Z",
+    "lastServedAt": "2026-11-07T15:36:29.442542039Z"
+  },
+  {
+    "provider": "workbuddy",
+    "name": "WorkBuddy",
+    "icon": "workbuddy-color",
+    "plan": "Free plan",
+    "user": "18009276201",
+    "windows": [
+      {
+        "name": "Credits",
+        "used": 100,
+        "resetsAt": "2026-11-30T15:59:59Z",
+        "display": "500 / 500",
+        "amount": 500,
+        "limit": 500,
+        "unit": "credits",
+        "startsAt": "2026-10-31T16:00:00Z",
+        "trayKind": "month:credits",
+        "trayExtra": true
+      },
+      {
+        "name": "Extra credits",
+        "used": 96.98918360265306,
+        "display": "4752.47 / 4900",
+        "amount": 4752.46999653,
+        "limit": 4900,
+        "unit": "credits",
+        "runsOutAt": "2026-12-09T16:00:21Z",
+        "runsOut": 47.53000347,
+        "trayKind": "name:extra credits",
+        "trayExtra": true
+      },
+      {
+        "name": "Total credits",
+        "used": 97.26796289870369,
+        "resetsAt": "2026-11-30T15:59:59Z",
+        "display": "5252.47 / 5400",
+        "amount": 5252.46999653,
+        "limit": 5400,
+        "unit": "credits",
+        "runsOutAt": "2026-12-09T16:00:21Z",
+        "runsOut": 47.53000347,
+        "holdsWhy": "credits",
+        "startsAt": "2026-10-31T16:00:00Z",
+        "trayKind": "month"
+      },
+      {
+        "name": "deepseek-v4.1-flash tokens (est.)",
+        "used": 35.585164,
+        "resetsAt": "2026-11-11T16:16:46.192Z",
+        "display": "71.2M / ~200M",
+        "amount": 71170328,
+        "limit": 200000000,
+        "startsAt": "2026-11-10T16:16:46.192Z",
+        "trayKind": "1d:deepseek-v4.1-flash tokens (est.)",
+        "trayExtra": true
+      }
+    ],
+    "readAt": "2026-11-11T00:35:29.827111772Z",
+    "daily": {
+      "since": "2026-10-17",
+      "days": [
+        {
+          "day": "2026-10-18",
+          "used": 165.78
+        },
+        {
+          "day": "2026-10-19",
+          "used": 334.41
+        },
+        {
+          "day": "2026-10-20",
+          "used": 179.16
+        },
+        {
+          "day": "2026-10-21",
+          "used": 88.31
+        },
+        {
+          "day": "2026-10-26",
+          "used": 102.66
+        },
+        {
+          "day": "2026-10-27",
+          "used": 159.09
+        },
+        {
+          "day": "2026-10-28",
+          "used": 70.57
+        },
+        {
+          "day": "2026-10-29",
+          "used": 438.4
+        },
+        {
+          "day": "2026-10-30",
+          "used": 2.79
+        },
+        {
+          "day": "2026-11-08",
+          "used": 264.54
+        },
+        {
+          "day": "2026-11-09",
+          "used": 235.46
+        }
+      ],
+      "window": "Credits"
+    },
+    "moreDaily": [
+      {
+        "since": "2026-11-04",
+        "days": [
+          {
+            "day": "2026-11-04",
+            "used": 294.53
+          },
+          {
+            "day": "2026-11-07",
+            "used": 472.4
+          },
+          {
+            "day": "2026-11-08",
+            "used": 99.65
+          },
+          {
+            "day": "2026-11-09",
+            "used": 808.02
+          },
+          {
+            "day": "2026-11-10",
+            "used": 117.24
+          },
+          {
+            "day": "2026-11-11",
+            "used": 27.21
+          }
+        ],
+        "window": "Extra credits"
+      },
+      {
+        "since": "2026-11-05",
+        "days": [
+          {
+            "day": "2026-11-06",
+            "used": 536.92
+          },
+          {
+            "day": "2026-11-07",
+            "used": 597.05
+          },
+          {
+            "day": "2026-11-08",
+            "used": 364.19
+          },
+          {
+            "day": "2026-11-09",
+            "used": 1043.48
+          },
+          {
+            "day": "2026-11-10",
+            "used": 117.24
+          },
+          {
+            "day": "2026-11-11",
+            "used": 27.21
+          }
+        ],
+        "window": "Total credits"
+      }
+    ],
+    "checkins": true,
+    "checkinBy": "plugin:workbuddy",
+    "checkin": {
+      "user": "18009276201",
+      "day": "2026-11-11",
+      "at": "2026-11-10T16:00:39.0478033Z",
+      "outcome": "claimed",
+      "credit": 100,
+      "streak": 29,
+      "by": "plugin:workbuddy",
+      "claimed": "2026-11-10T16:00:39.0478033Z"
+    },
+    "checkinKey": "workbuddy|workbuddy#m5tc4p"
+  },
+  {
+    "provider": "workbuddy",
+    "name": "WorkBuddy",
+    "icon": "workbuddy-color",
+    "plan": "Free plan",
+    "user": "153****8998",
+    "windows": [
+      {
+        "name": "Credits",
+        "used": 0,
+        "resetsAt": "2026-11-30T15:59:59Z",
+        "display": "0 / 500",
+        "limit": 500,
+        "unit": "credits",
+        "startsAt": "2026-10-31T16:00:00Z",
+        "trayKind": "month:credits",
+        "trayExtra": true
+      },
+      {
+        "name": "Extra credits",
+        "used": 67.53416661527777,
+        "display": "2431.23 / 3600",
+        "amount": 2431.22999815,
+        "limit": 3600,
+        "unit": "credits",
+        "runsOutAt": "2026-11-18T00:31:11Z",
+        "runsOut": 68.77000185,
+        "trayKind": "name:extra credits",
+        "trayExtra": true
+      },
+      {
+        "name": "Total credits",
+        "used": 59.29829263780488,
+        "resetsAt": "2026-11-30T15:59:59Z",
+        "display": "2431.23 / 4100",
+        "amount": 2431.22999815,
+        "limit": 4100,
+        "unit": "credits",
+        "runsOutAt": "2026-11-18T00:31:11Z",
+        "runsOut": 68.77000185,
+        "holdsWhy": "credits",
+        "startsAt": "2026-10-31T16:00:00Z",
+        "trayKind": "month"
+      },
+      {
+        "name": "deepseek-v4.1-flash tokens (est.)",
+        "used": 99.792896,
+        "resetsAt": "2026-11-11T07:20:08.622Z",
+        "display": "199.6M / ~200M",
+        "amount": 199585792,
+        "limit": 200000000,
+        "startsAt": "2026-11-10T07:20:08.622Z",
+        "trayKind": "1d:deepseek-v4.1-flash tokens (est.)",
+        "trayExtra": true
+      }
+    ],
+    "readAt": "2026-11-11T00:35:21.074168434Z",
+    "daily": {
+      "since": "2026-10-18",
+      "days": [
+        {
+          "day": "2026-10-18",
+          "used": 38.62
+        },
+        {
+          "day": "2026-10-19",
+          "used": 148.02
+        },
+        {
+          "day": "2026-10-20",
+          "used": 358.3
+        }
+      ],
+      "window": "Credits"
+    },
+    "moreDaily": [
+      {
+        "since": "2026-11-04",
+        "days": [
+          {
+            "day": "2026-11-09",
+            "used": 1018.69
+          },
+          {
+            "day": "2026-11-10",
+            "used": 749.23
+          }
+        ],
+        "window": "Extra credits"
+      },
+      {
+        "since": "2026-11-05",
+        "days": [
+          {
+            "day": "2026-11-09",
+            "used": 1018.69
+          },
+          {
+            "day": "2026-11-10",
+            "used": 749.23
+          }
+        ],
+        "window": "Total credits"
+      }
+    ],
+    "checkins": true,
+    "checkinBy": "plugin:workbuddy",
+    "checkin": {
+      "user": "153****8998",
+      "day": "2026-11-11",
+      "at": "2026-11-10T16:00:39.0478033Z",
+      "outcome": "claimed",
+      "credit": 100,
+      "streak": 16,
+      "by": "plugin:workbuddy",
+      "claimed": "2026-11-10T16:00:39.0478033Z"
+    },
+    "checkinKey": "workbuddy|workbuddy"
+  },
+  {
+    "provider": "workbuddy",
+    "name": "WorkBuddy",
+    "icon": "workbuddy-color",
+    "plan": "Free plan",
+    "user": "175****5258",
+    "windows": [
+      {
+        "name": "Credits",
+        "used": 100,
+        "resetsAt": "2026-11-30T15:59:59Z",
+        "display": "500 / 500",
+        "amount": 500,
+        "limit": 500,
+        "unit": "credits",
+        "startsAt": "2026-10-31T16:00:00Z",
+        "trayKind": "month:credits",
+        "trayExtra": true
+      },
+      {
+        "name": "Extra credits",
+        "used": 93.83999993149999,
+        "display": "3753.6 / 4000",
+        "amount": 3753.59999726,
+        "limit": 4000,
+        "unit": "credits",
+        "runsOutAt": "2026-12-08T16:00:41Z",
+        "runsOut": 46.40000274,
+        "trayKind": "name:extra credits",
+        "trayExtra": true
+      },
+      {
+        "name": "Total credits",
+        "used": 94.52444438355556,
+        "resetsAt": "2026-11-30T15:59:59Z",
+        "display": "4253.6 / 4500",
+        "amount": 4253.59999726,
+        "limit": 4500,
+        "unit": "credits",
+        "runsOutAt": "2026-12-08T16:00:41Z",
+        "runsOut": 46.40000274,
+        "holdsWhy": "credits",
+        "startsAt": "2026-10-31T16:00:00Z",
+        "trayKind": "month"
+      },
+      {
+        "name": "deepseek-v4.1-flash tokens (est.)",
+        "used": 100,
+        "resetsAt": "2026-11-11T02:15:11.852Z",
+        "display": "200.0M / ~200M",
+        "amount": 200029738,
+        "limit": 200000000,
+        "startsAt": "2026-11-10T02:15:11.852Z",
+        "trayKind": "1d:deepseek-v4.1-flash tokens (est.)",
+        "trayExtra": true
+      }
+    ],
+    "readAt": "2026-11-11T00:35:29.646310307Z",
+    "daily": {
+      "since": "2026-10-18",
+      "days": [
+        {
+          "day": "2026-10-20",
+          "used": 5.19
+        },
+        {
+          "day": "2026-10-28",
+          "used": 228.95
+        },
+        {
+          "day": "2026-10-29",
+          "used": 208.57
+        },
+        {
+          "day": "2026-10-30",
+          "used": 256.76
+        },
+        {
+          "day": "2026-11-07",
+          "used": 114.11
+        },
+        {
+          "day": "2026-11-09",
+          "used": 385.89
+        }
+      ],
+      "window": "Credits"
+    },
+    "moreDaily": [
+      {
+        "since": "2026-11-04",
+        "days": [
+          {
+            "day": "2026-11-04",
+            "used": 263.3
+          },
+          {
+            "day": "2026-11-05",
+            "used": 259.43
+          },
+          {
+            "day": "2026-11-07",
+            "used": 413.27
+          },
+          {
+            "day": "2026-11-09",
+            "used": 393.74
+          },
+          {
+            "day": "2026-11-10",
+            "used": 459.86
+          }
+        ],
+        "window": "Extra credits"
+      },
+      {
+        "since": "2026-11-05",
+        "days": [
+          {
+            "day": "2026-11-06",
+            "used": 667.12
+          },
+          {
+            "day": "2026-11-07",
+            "used": 1002.76
+          },
+          {
+            "day": "2026-11-09",
+            "used": 779.63
+          },
+          {
+            "day": "2026-11-10",
+            "used": 459.86
+          }
+        ],
+        "window": "Total credits"
+      }
+    ],
+    "checkins": true,
+    "checkinBy": "plugin:workbuddy",
+    "checkin": {
+      "user": "175****5258",
+      "day": "2026-11-11",
+      "at": "2026-11-10T16:00:39.0478033Z",
+      "outcome": "claimed",
+      "credit": 100,
+      "streak": 25,
+      "by": "plugin:workbuddy",
+      "claimed": "2026-11-10T16:00:39.0478033Z"
+    },
+    "checkinKey": "workbuddy|workbuddy#v0xfig"
+  },
+  {
+    "provider": "workbuddy",
+    "name": "WorkBuddy",
+    "icon": "workbuddy-color",
+    "plan": "Free plan",
+    "user": "180****5139",
+    "windows": [
+      {
+        "name": "Credits",
+        "used": 100,
+        "resetsAt": "2026-11-30T15:59:59Z",
+        "display": "500 / 500",
+        "amount": 500,
+        "limit": 500,
+        "unit": "credits",
+        "startsAt": "2026-10-31T16:00:00Z",
+        "trayKind": "month:credits",
+        "trayExtra": true
+      },
+      {
+        "name": "Extra credits",
+        "used": 92.78526307789474,
+        "display": "3525.84 / 3800",
+        "amount": 3525.83999696,
+        "limit": 3800,
+        "unit": "credits",
+        "runsOutAt": "2026-12-08T16:00:41Z",
+        "runsOut": 74.16000304,
+        "trayKind": "name:extra credits",
+        "trayExtra": true
+      },
+      {
+        "name": "Total credits",
+        "used": 93.62418597581396,
+        "resetsAt": "2026-11-30T15:59:59Z",
+        "display": "4025.84 / 4300",
+        "amount": 4025.83999696,
+        "limit": 4300,
+        "unit": "credits",
+        "runsOutAt": "2026-12-08T16:00:41Z",
+        "runsOut": 74.16000304,
+        "holdsWhy": "credits",
+        "startsAt": "2026-10-31T16:00:00Z",
+        "trayKind": "month"
+      },
+      {
+        "name": "deepseek-v4.1-flash tokens (est.)",
+        "used": 99.9777305,
+        "resetsAt": "2026-11-11T02:18:14.706Z",
+        "display": "200.0M / ~200M",
+        "amount": 199955461,
+        "limit": 200000000,
+        "startsAt": "2026-11-10T02:18:14.706Z",
+        "trayKind": "1d:deepseek-v4.1-flash tokens (est.)",
+        "trayExtra": true
+      }
+    ],
+    "readAt": "2026-11-11T00:35:21.69428865Z",
+    "daily": {
+      "since": "2026-10-18",
+      "days": [
+        {
+          "day": "2026-10-20",
+          "used": 73.31
+        },
+        {
+          "day": "2026-10-28",
+          "used": 269.33
+        },
+        {
+          "day": "2026-10-29",
+          "used": 268.38
+        },
+        {
+          "day": "2026-10-30",
+          "used": 14.26
+        },
+        {
+          "day": "2026-11-09",
+          "used": 500
+        }
+      ],
+      "window": "Credits"
+    },
+    "moreDaily": [
+      {
+        "since": "2026-11-04",
+        "days": [
+          {
+            "day": "2026-11-05",
+            "used": 142.2
+          },
+          {
+            "day": "2026-11-07",
+            "used": 63.83
+          },
+          {
+            "day": "2026-11-08",
+            "used": 535.23
+          },
+          {
+            "day": "2026-11-09",
+            "used": 698.54
+          },
+          {
+            "day": "2026-11-10",
+            "used": 586.72
+          }
+        ],
+        "window": "Extra credits"
+      },
+      {
+        "since": "2026-11-05",
+        "days": [
+          {
+            "day": "2026-11-06",
+            "used": 685.94
+          },
+          {
+            "day": "2026-11-07",
+            "used": 435.6
+          },
+          {
+            "day": "2026-11-08",
+            "used": 535.23
+          },
+          {
+            "day": "2026-11-09",
+            "used": 1198.54
+          },
+          {
+            "day": "2026-11-10",
+            "used": 586.72
+          }
+        ],
+        "window": "Total credits"
+      }
+    ],
+    "checkins": true,
+    "checkinBy": "plugin:workbuddy",
+    "checkin": {
+      "user": "180****5139",
+      "day": "2026-11-11",
+      "at": "2026-11-10T16:00:39.0478033Z",
+      "outcome": "claimed",
+      "credit": 100,
+      "streak": 23,
+      "by": "plugin:workbuddy",
+      "claimed": "2026-11-10T16:00:39.0478033Z"
+    },
+    "checkinKey": "workbuddy|workbuddy#q99fxm"
+  },
+  {
+    "provider": "workbuddy-ai",
+    "name": "WorkBuddy AI",
+    "icon": "workbuddy-color",
+    "plan": "Free plan",
+    "user": "kisaraginosaku@gmail.com",
+    "windows": [
+      {
+        "name": "Credits",
+        "used": 100,
+        "resetsAt": "2026-11-30T15:59:59Z",
+        "display": "100 / 100",
+        "amount": 100,
+        "limit": 100,
+        "unit": "credits",
+        "holdsWhy": "credits",
+        "startsAt": "2026-10-31T16:00:00Z",
+        "trayKind": "month"
+      }
+    ],
+    "readAt": "2026-11-11T00:35:28.78212645Z",
+    "daily": {
+      "since": "2026-10-09",
+      "days": [
+        {
+          "day": "2026-10-18",
+          "used": 2.85
+        },
+        {
+          "day": "2026-10-19",
+          "used": 8.67
+        },
+        {
+          "day": "2026-10-21",
+          "used": 5.06
+        },
+        {
+          "day": "2026-10-29",
+          "used": 102.9
+        },
+        {
+          "day": "2026-10-30",
+          "used": 85.73
+        },
+        {
+          "day": "2026-11-03",
+          "used": 100
+        }
+      ],
+      "window": "Credits"
+    }
+  },
+  {
+    "provider": "workbuddy-ai",
+    "name": "WorkBuddy AI",
+    "icon": "workbuddy-color",
+    "plan": "Free plan",
+    "user": "perplexityuser@gmail.com",
+    "windows": [
+      {
+        "name": "Credits",
+        "used": 100,
+        "resetsAt": "2026-11-30T15:59:59Z",
+        "display": "100 / 100",
+        "amount": 100,
+        "limit": 100,
+        "unit": "credits",
+        "holds": {
+          "tokens": 6697752,
+          "priced": false,
+          "used": 100,
+          "routed": {
+            "calls": 1142,
+            "tokens": 6697752,
+            "cacheRead": 177424512
+          },
+          "since": "2026-10-31T16:00:00Z"
+        },
+        "startsAt": "2026-10-31T16:00:00Z",
+        "trayKind": "month"
+      }
+    ],
+    "readAt": "2026-11-11T00:35:28.692679574Z",
+    "daily": {
+      "since": "2026-10-16",
+      "days": [
+        {
+          "day": "2026-10-18",
+          "used": 11.19
+        },
+        {
+          "day": "2026-10-19",
+          "used": 30.58
+        },
+        {
+          "day": "2026-10-20",
+          "used": 3.52
+        },
+        {
+          "day": "2026-10-21",
+          "used": 18.2
+        },
+        {
+          "day": "2026-10-23",
+          "used": 0.05
+        },
+        {
+          "day": "2026-10-25",
+          "used": 0.14
+        },
+        {
+          "day": "2026-10-26",
+          "used": 0.9
+        },
+        {
+          "day": "2026-10-28",
+          "used": 192.35
+        },
+        {
+          "day": "2026-10-29",
+          "used": 3.61
+        },
+        {
+          "day": "2026-10-30",
+          "used": 9.7
+        },
+        {
+          "day": "2026-11-03",
+          "used": 100
+        }
+      ],
+      "window": "Credits"
+    }
+  },
+  {
+    "provider": "workbuddy-ai",
+    "name": "WorkBuddy AI",
+    "icon": "workbuddy-color",
+    "plan": "Free plan",
+    "user": "thaovobrentpery@gmail.com",
+    "windows": [
+      {
+        "name": "Credits",
+        "used": 100,
+        "resetsAt": "2026-11-30T15:59:59Z",
+        "display": "100 / 100",
+        "amount": 100,
+        "limit": 100,
+        "unit": "credits",
+        "holdsWhy": "credits",
+        "startsAt": "2026-10-31T16:00:00Z",
+        "trayKind": "month"
+      }
+    ],
+    "readAt": "2026-11-11T00:35:19.635651041Z",
+    "daily": {
+      "since": "2026-10-09",
+      "days": [
+        {
+          "day": "2026-10-18",
+          "used": 8.04
+        },
+        {
+          "day": "2026-10-19",
+          "used": 3.18
+        },
+        {
+          "day": "2026-10-21",
+          "used": 4.6
+        },
+        {
+          "day": "2026-10-29",
+          "used": 17.58
+        },
+        {
+          "day": "2026-10-30",
+          "used": 3.14
+        },
+        {
+          "day": "2026-11-03",
+          "used": 100
+        }
+      ],
+      "window": "Credits"
+    }
+  },
+  {
+    "provider": "workbuddy-ai",
+    "name": "WorkBuddy AI",
+    "icon": "workbuddy-color",
+    "plan": "Free plan",
+    "user": "hxz45692668@gmail.com",
+    "windows": [
+      {
+        "name": "Credits",
+        "used": 0,
+        "resetsAt": "2026-11-30T15:59:59Z",
+        "display": "0 / 100",
+        "limit": 100,
+        "unit": "credits",
+        "holdsWhy": "low",
+        "startsAt": "2026-10-31T16:00:00Z",
+        "trayKind": "month"
+      }
+    ],
+    "readAt": "2026-11-11T00:35:19.477378118Z",
+    "daily": {
+      "since": "2026-10-09",
+      "days": [
+        {
+          "day": "2026-10-17",
+          "used": 226.06
+        },
+        {
+          "day": "2026-10-18",
+          "used": 82.63
+        },
+        {
+          "day": "2026-10-19",
+          "used": 0.63
+        }
+      ],
+      "window": "Credits"
+    }
+  },
+  {
+    "provider": "commandcode-plan",
+    "name": "Command Code",
+    "icon": "commandcode",
+    "plan": "Go",
+    "user": "API key …PveG",
+    "windows": [
+      {
+        "name": "5 hours",
+        "used": 0.12479289,
+        "resetsAt": "2026-11-11T05:31:03.982Z",
+        "holdsWhy": "low",
+        "startsAt": "2026-11-11T00:31:03.982Z",
+        "trayKind": "5h"
+      },
+      {
+        "name": "Credits",
+        "used": 51.31388866900001,
+        "resetsAt": "2026-11-26T11:26:39Z",
+        "display": "5.13 / 10.00 credits",
+        "amount": 5.13,
+        "limit": 10,
+        "unit": "credits",
+        "holdsWhy": "clock",
+        "trayKind": "name:credits"
+      },
+      {
+        "name": "Weekly",
+        "used": 4.563834386666666,
+        "resetsAt": "2026-11-16T12:17:34.361Z",
+        "holdsWhy": "low",
+        "startsAt": "2026-11-09T12:17:34.361Z",
+        "trayKind": "7d"
+      }
+    ],
+    "until": "2026-11-26T11:26:39Z",
+    "renew": "auto",
+    "readAt": "2026-11-11T00:35:18.914230012Z",
+    "daily": {
+      "since": "2026-10-29",
+      "days": [
+        {
+          "day": "2026-10-29",
+          "used": 0.16
+        },
+        {
+          "day": "2026-10-30",
+          "used": 0.08
+        },
+        {
+          "day": "2026-10-31",
+          "used": 0.05
+        },
+        {
+          "day": "2026-11-01",
+          "used": 0.05
+        },
+        {
+          "day": "2026-11-02",
+          "used": 0.1
+        },
+        {
+          "day": "2026-11-03",
+          "used": 0.1
+        },
+        {
+          "day": "2026-11-04",
+          "used": 0.08
+        },
+        {
+          "day": "2026-11-05",
+          "used": 0.06
+        },
+        {
+          "day": "2026-11-06",
+          "used": 0.44
+        },
+        {
+          "day": "2026-11-07",
+          "used": 1.7
+        },
+        {
+          "day": "2026-11-08",
+          "used": 0.87
+        },
+        {
+          "day": "2026-11-09",
+          "used": 0.21
+        },
+        {
+          "day": "2026-11-10",
+          "used": 0.18
+        }
+      ],
+      "window": "Credits"
+    }
+  },
+  {
+    "provider": "qoder-cn",
+    "name": "Qoder CN",
+    "icon": "qoder",
+    "plan": "personal_standard",
+    "user": "01a0b708-4866-77e2-b496-469b3e2a92f6",
+    "windows": [
+      {
+        "name": "Add-on credits",
+        "used": 96.15384615384616,
+        "display": "2500 / 2600 credits",
+        "amount": 2500,
+        "limit": 2600,
+        "unit": "credits",
+        "holdsWhy": "clock",
+        "trayKind": "name:add-on credits"
+      }
+    ],
+    "until": "9999-12-31T00:00:00Z",
+    "readAt": "2026-11-11T00:35:19.084342522Z",
+    "daily": {
+      "since": "2026-10-27",
+      "days": [
+        {
+          "day": "2026-11-07",
+          "used": 2300
+        },
+        {
+          "day": "2026-11-08",
+          "used": 100
+        },
+        {
+          "day": "2026-11-09",
+          "used": 100
+        }
+      ],
+      "window": "Add-on credits"
+    },
+    "checkins": true,
+    "checkinBy": "plugin:qoder-cn",
+    "checkin": {
+      "user": "01a0b708-4866-77e2-b496-469b3e2a92f6",
+      "day": "2026-11-11",
+      "at": "2026-11-11T00:30:56.487147399Z",
+      "outcome": "done",
+      "credit": 100,
+      "until": "2026-11-11T02:01:00Z",
+      "by": "plugin:qoder-cn",
+      "again": true
+    },
+    "checkinKey": "qoder-cn|qoder-cn"
+  },
+  {
+    "provider": "qoder-cn",
+    "name": "Qoder CN",
+    "icon": "qoder",
+    "plan": "personal_standard",
+    "user": "01a1473f-b29a-7cf1-a9a7-b7c02641e416",
+    "windows": [
+      {
+        "name": "Add-on credits",
+        "used": 96.15384615384616,
+        "display": "2500 / 2600 credits",
+        "amount": 2500,
+        "limit": 2600,
+        "unit": "credits",
+        "holdsWhy": "clock",
+        "trayKind": "name:add-on credits"
+      }
+    ],
+    "until": "9999-12-31T00:00:00Z",
+    "readAt": "2026-11-11T00:35:19.080697905Z",
+    "daily": {
+      "since": "2026-10-27",
+      "days": [
+        {
+          "day": "2026-11-07",
+          "used": 2300
+        },
+        {
+          "day": "2026-11-08",
+          "used": 100
+        },
+        {
+          "day": "2026-11-09",
+          "used": 100
+        }
+      ],
+      "window": "Add-on credits"
+    },
+    "checkins": true,
+    "checkinBy": "plugin:qoder-cn",
+    "checkin": {
+      "user": "01a1473f-b29a-7cf1-a9a7-b7c02641e416",
+      "day": "2026-11-11",
+      "at": "2026-11-11T00:30:56.487147399Z",
+      "outcome": "done",
+      "credit": 100,
+      "until": "2026-11-11T02:01:00Z",
+      "by": "plugin:qoder-cn",
+      "again": true
+    },
+    "checkinKey": "qoder-cn|qoder-cn#0t04nw"
+  }
+]

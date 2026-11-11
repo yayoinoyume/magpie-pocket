@@ -73,6 +73,23 @@ class RequestTimestampsTest {
     }
 
     @Test
+    fun quotaResetTimesReadAsDistanceThenDate() {
+        val now = RequestTimestamps.parseMillis("2026-11-11T00:00:00Z", shanghai)!!
+        fun reset(raw: String) = RequestTimestamps.formatResetAt(raw, now, shanghai, Locale.US)
+
+        assertEquals("3 小时后", reset("2026-11-11T03:00:00Z"))
+        assertEquals("1 小时后", reset("2026-11-11T00:30:00Z"))
+        assertEquals("1 天后", reset("2026-11-12T00:00:00Z"))
+        assertEquals("3 天后", reset("2026-11-14T00:00:00Z"))
+        assertEquals("11月16日", reset("2026-11-16T00:00:00Z"))
+        // A deadline that already passed shows its date rather than counting backwards.
+        assertEquals("11月10日", reset("2026-11-10T00:00:00Z"))
+        assertEquals("not-a-date", reset("not-a-date"))
+        assertNull(RequestTimestamps.formatResetAt(null, now, shanghai, Locale.US))
+        assertNull(RequestTimestamps.formatResetAt("   ", now, shanghai, Locale.US))
+    }
+
+    @Test
     fun utcNowIsTrulyUtc() {
         val value = RequestTimestamps.nowUtcIso(0L)
         assertEquals("1970-01-01T00:00:00.000Z", value)

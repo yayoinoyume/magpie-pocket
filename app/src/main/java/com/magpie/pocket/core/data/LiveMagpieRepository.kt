@@ -451,27 +451,35 @@ class LiveMagpieRepository(
         val resp = pendingRequests.share("quotas") { apiClient.getQuotas(baseUrl) }
         return resp.quotas?.map { q ->
             val windows = q.windows?.map { w ->
-                val hasAbsolute = w.amount != null || w.limit != null
-                val hasPercent = w.used != null
+                // A count and a share are different units; quotaFigureIsCount says which one
+                // this window reports, so a 301-credit window never shows as 301%.
+                val isCount = quotaFigureIsCount(w.used, w.amount, w.limit)
+                val usedCount = if (isCount) w.amount ?: w.used else w.amount
                 QuotaWindow(
                     id = w.name ?: w.id ?: "window",
                     unit = w.unit ?: "",
-                    used = w.amount?.toLong(),
+                    used = usedCount?.toLong(),
                     limit = w.limit?.toLong(),
                     resetsAt = w.resetsAt ?: w.resets,
-                    usedPercent = w.used,
-                    amount = w.amount,
+                    usedPercent = if (isCount) null else w.used,
+                    amount = usedCount,
                     allowanceLimit = w.limit,
                     display = w.display,
                     unlimited = w.unlimited,
-                    known = !w.unlimited && (hasAbsolute || hasPercent)
+                    known = !w.unlimited && (isCount || w.used != null)
                 )
             } ?: emptyList()
 
             AccountQuota(
-                accountId = q.user ?: q.account ?: q.name ?: "unknown",
-                providerId = q.provider,
-                known = q.known && windows.any { it.known },
+                providerId = q.provider?.takeIf { it.isNotBlank() }
+                    ?: q.name?.takeIf { it.isNotBlank() }
+                    ?: "unknown",
+                displayName = q.name?.takeIf { it.isNotBlank() },
+                accountId = (q.user ?: q.account)?.takeIf { it.isNotBlank() },
+                // The answer's own trustworthiness. A window that carries no figure still shows
+                // up in the list, but its own flag says so; a provider is not unknown because its
+                // windows happen to be unlimited.
+                known = q.known,
                 observedAt = q.readAt ?: q.observed ?: RequestTimestamps.nowUtcIso(),
                 windows = windows
             )

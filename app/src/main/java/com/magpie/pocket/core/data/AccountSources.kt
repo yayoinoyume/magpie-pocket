@@ -13,7 +13,8 @@ import com.magpie.pocket.core.model.UsageBreakdownItem
  *
  * Rows are keyed by account id and keep the first source that names them. Usage rows carry no
  * availability and quota rows carry no alias beyond the id, so both say UNKNOWN instead of
- * claiming a state the server never reported.
+ * claiming a state the server never reported. A quota answer that names no account adds no row;
+ * the provider it belongs to is a provider, not an account.
  */
 internal fun mergeAccountSources(
     groups: List<Account>,
@@ -34,11 +35,13 @@ internal fun mergeAccountSources(
         )
     }
     quotas.forEach { quota ->
-        if (byId.containsKey(quota.accountId)) return@forEach
-        byId[quota.accountId] = Account(
-            id = quota.accountId,
-            providerId = quota.providerId ?: "unknown",
-            alias = quota.accountId,
+        // Most quota answers name no account; the few that do are real accounts.
+        val id = quota.accountId ?: return@forEach
+        if (byId.containsKey(id)) return@forEach
+        byId[id] = Account(
+            id = id,
+            providerId = quota.providerId,
+            alias = id,
             availability = "UNKNOWN"
         )
     }

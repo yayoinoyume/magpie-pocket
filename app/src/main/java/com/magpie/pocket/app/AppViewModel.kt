@@ -52,6 +52,7 @@ import com.magpie.pocket.core.network.ResourceNotFoundException
 import com.magpie.pocket.core.network.UnexpectedResponseException
 import com.magpie.pocket.core.security.CredentialStore
 import com.magpie.pocket.core.security.PreferencesManager
+import com.magpie.pocket.core.util.AppLog
 import com.magpie.pocket.core.util.MetricCalculators
 import com.magpie.pocket.core.util.RequestTimestamps
 import kotlinx.coroutines.CancellationException
@@ -65,6 +66,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
@@ -287,11 +289,11 @@ class AppViewModel(
         .map { CostDisplay(value = it?.cost, unpriced = it?.unpriced ?: 0L) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, CostDisplay(value = null, unpriced = 0L))
 
-    /** Every account with exactly one deciding window, masked and alias-first. */
+    /** One row per provider with exactly one deciding window; an empty provider is dropped. */
     val accountQuotas: StateFlow<List<AccountQuotaView>> = combine(
         _quotas, _accounts, _displayPreferences
     ) { quotas, accounts, preferences ->
-        quotas.map { it.toView(accounts, preferences.maskAccountNames) }
+        providerQuotaViews(quotas, accounts, preferences.maskAccountNames)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /** Windows already in the warning zone, worst first. */
@@ -302,7 +304,7 @@ class AppViewModel(
                 val ratio = view.ratio ?: return@mapNotNull null
                 if (!MetricCalculators.isQuotaWarning(window)) return@mapNotNull null
                 QuotaAlert(
-                    accountLabel = view.label,
+                    providerLabel = view.label,
                     ratio = ratio,
                     windowId = window.id,
                     resetsAt = window.resetsAt
@@ -1672,8 +1674,18 @@ class AppViewModel(
         viewModelScope.launch { preferencesManager.updateReduceMotion(enabled) }
     }
 
+    /**
+     * The masking switch renders the stored preference, so a rejected write must not leave the
+     * page claiming a state the disk refused: record the failure and re-read what is stored.
+     */
     fun updateMaskAccounts(enabled: Boolean) {
-        viewModelScope.launch { preferencesManager.updateMaskAccounts(enabled) }
+        viewModelScope.launch {
+            val saved = runCatching { preferencesManager.updateMaskAccounts(enabled) }
+            val error = saved.exceptionOrNull() ?: return@launch
+            AppLog.warn("mask account names was not saved", error)
+            runCatching { preferencesManager.displayPreferencesFlow.first() }
+                .onSuccess { stored -> _displayPreferences.value = stored }
+        }
     }
 
     /**
@@ -1708,28 +1720,6 @@ class AppViewModel(
         return SimpleDateFormat("MM-dd", Locale.US)
             .apply { timeZone = TimeZone.getTimeZone(zoneId) }
             .format(Date(millis))
-    }
-
-    /** Alias first, then the account id, then the user's masking preference. */
-    private fun AccountQuota.toView(
-        accounts: List<Account>,
-        maskAccountNames: Boolean
-    ): AccountQuotaView {
-        val alias = accounts.firstOrNull { it.id == accountId }?.alias
-        val tightest = windows
-            .mapNotNull { window ->
-                val ratio = MetricCalculators.calculateQuotaUsedRatio(window)
-                    ?: return@mapNotNull null
-                window to ratio
-            }
-            .maxByOrNull { it.second }
-        return AccountQuotaView(
-            accountId = accountId,
-            label = MetricCalculators.maskAccountName(alias ?: accountId, maskAccountNames),
-            known = known,
-            tightestWindow = tightest?.first,
-            ratio = tightest?.second
-        )
     }
 
     fun updateKeepLiveConnectionInBackground(enabled: Boolean) {

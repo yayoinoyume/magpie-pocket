@@ -15,6 +15,13 @@ import java.util.TimeZone
 object RequestTimestamps {
     const val MISSING = "—"
 
+    private const val HOUR_MILLIS = 3_600_000L
+    private const val DAY_MILLIS = 86_400_000L
+    private const val DAY_HOURS = 24L
+
+    /** Resets this close keep their distance; anything further out reads as a date. */
+    private const val NEAR_DAYS = 3L
+
     private val isoPattern = Regex(
         "^(\\d{4})[-/](\\d{1,2})[-/](\\d{1,2})" +
             "(?:[T ](\\d{1,2}):(\\d{2})(?::(\\d{2})(?:[.,](\\d{1,9}))?)?(Z|[+-]\\d{2}:?\\d{2})?)?$",
@@ -102,6 +109,31 @@ object RequestTimestamps {
         return String.format(Locale.US, "UTC%s%02d:%02d", sign, absolute / 60, absolute % 60)
     }
 
+    /**
+     * Distance to a quota window reset: a deadline within three days keeps its distance
+     * ("3 小时后", "2 天后") and anything further out shows the local date ("11月16日"). A blank
+     * value has nothing to show; an unparsable one keeps its raw text; a deadline already behind
+     * us shows its date instead of counting backwards.
+     */
+    fun formatResetAt(
+        raw: String?,
+        nowMillis: Long = System.currentTimeMillis(),
+        zone: TimeZone = TimeZone.getDefault(),
+        locale: Locale = Locale.getDefault()
+    ): String? {
+        val value = raw?.trim().orEmpty()
+        if (value.isEmpty()) return null
+        val millis = parseMillis(value, zone) ?: return value
+        val remaining = millis - nowMillis
+        if (remaining > 0L) {
+            val hours = ceilDiv(remaining, HOUR_MILLIS)
+            if (hours < DAY_HOURS) return "$hours 小时后"
+            val days = ceilDiv(remaining, DAY_MILLIS)
+            if (days <= NEAR_DAYS) return "$days 天后"
+        }
+        return SimpleDateFormat("M月d日", locale).apply { timeZone = zone }.format(Date(millis))
+    }
+
     /** Always emits a true UTC instant; never formats a local clock with a literal Z. */
     fun nowUtcIso(nowMillis: Long = System.currentTimeMillis()): String = formatUtcIso(nowMillis)
 
@@ -109,6 +141,8 @@ object RequestTimestamps {
         SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
             .apply { timeZone = TimeZone.getTimeZone("UTC") }
             .format(Date(millis))
+
+    private fun ceilDiv(value: Long, divisor: Long): Long = (value + divisor - 1) / divisor
 
     private fun fractionMillis(raw: String): Int {
         if (raw.isEmpty()) return 0
