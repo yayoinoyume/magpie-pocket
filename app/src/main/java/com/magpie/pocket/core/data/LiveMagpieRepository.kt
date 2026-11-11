@@ -976,8 +976,12 @@ private class PendingRequests {
                     synchronized(lock) { if (inFlight[key] === slot) inFlight.remove(key) }
                     value
                 } catch (e: Throwable) {
-                    slot.completeExceptionally(e)
+                    // Remove before waking waiters. An Unconfined waiter resumes inline
+                    // inside completeExceptionally, sees the still-registered failed slot,
+                    // re-awaits it and spins on this thread; the leader then never reaches
+                    // its own removal. Unregistering first lets waiters re-register safely.
                     synchronized(lock) { if (inFlight[key] === slot) inFlight.remove(key) }
+                    slot.completeExceptionally(e)
                     throw e
                 }
             }
