@@ -1204,16 +1204,32 @@ internal fun windowUsageLabel(totalTokens: Long, windowLimit: Long?): String = w
     }
 }
 
+/**
+ * Shares for the bar. A known window makes the bar show how full the window is, so 4.3K
+ * of 1M is a sliver instead of a full bar; without a window the parts can only be read
+ * against each other, which fills it.
+ */
+internal fun contextBarRatios(
+    segments: List<ContextSegment>,
+    totalTokens: Long,
+    windowLimit: Long?
+): List<Float> {
+    if (segments.isEmpty()) return emptyList()
+    val window = windowLimit?.takeIf { it > 0L }
+    val base = window?.toFloat() ?: totalTokens.toFloat()
+    if (base <= 0f) return emptyList()
+    return segments.map { (it.tokens.toFloat() / base).coerceIn(0f, 1f) }
+}
+
 /** Three-segment context bar; the window limit stays beside the legend. */
 @Composable
 private fun ContextSection(context: ContextBreakdown) {
     val colors = MagpieTheme.colors
     val segments = contextSegments(context.parts, context.totalTokens)
     val palette = listOf(colors.accent, colors.accent.copy(alpha = 0.58f), colors.textTertiary.copy(alpha = 0.55f))
-    fun targetRatio(index: Int): Float {
-        val tokens = segments.getOrNull(index)?.tokens ?: 0L
-        return if (context.totalTokens > 0L) tokens.toFloat() / context.totalTokens.toFloat() else 0f
-    }
+    val barRatios = contextBarRatios(segments, context.totalTokens, context.windowLimit)
+    val fillsWindow = context.windowLimit != null && context.windowLimit > 0L
+    fun targetRatio(index: Int): Float = barRatios.getOrNull(index) ?: 0f
     // Ratios animate on every data change; the entrance multiplies them once, so the first
     // reading grows out of zero while later readings only slide their boundaries.
     val ratio0 = animateFloatAsState(
@@ -1275,9 +1291,24 @@ private fun ContextSection(context: ContextBreakdown) {
                         }
                     }
                     if (total <= 0f) return@drawBehind
-                    val available = (size.width - gap * (activeCount - 1)).coerceAtLeast(0f)
                     val progress = entrance.value
                     var x = 0f
+                    if (fillsWindow) {
+                        // The window is the base, so the free space stays visible and the
+                        // bar can never read as full while the share says 0.4%.
+                        ratios.forEachIndexed { index, ratio ->
+                            if (ratio <= 0f) return@forEachIndexed
+                            val width = size.width * ratio.coerceIn(0f, 1f) * progress
+                            drawRect(
+                                color = palette[index % palette.size],
+                                topLeft = Offset(x, 0f),
+                                size = Size(width, size.height)
+                            )
+                            x += width
+                        }
+                        return@drawBehind
+                    }
+                    val available = (size.width - gap * (activeCount - 1)).coerceAtLeast(0f)
                     ratios.forEachIndexed { index, ratio ->
                         if (ratio <= 0f) return@forEachIndexed
                         val width = available * (ratio / total) * progress

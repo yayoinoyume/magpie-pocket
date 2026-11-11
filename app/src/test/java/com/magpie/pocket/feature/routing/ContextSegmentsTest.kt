@@ -141,5 +141,30 @@ class ContextSegmentsTest {
         assertEquals("窗口上限未知", windowUsageLabel(totalTokens = 4_300, windowLimit = 0))
     }
 
+    @Test
+    fun theBarShowsTheWindowShareWhenOneIsKnown() {
+        val segments = listOf(ContextSegment("会话", 4_300, merged = false))
+        val ratios = contextBarRatios(segments, totalTokens = 4_300, windowLimit = 1_000_000)
+        assertEquals(1, ratios.size)
+        assertEquals(0.0043f, ratios.single(), 0.000001f)
+    }
+
+    @Test
+    fun withoutAWindowTheBarShowsThePartsAgainstEachOther() {
+        val segments = listOf(
+            ContextSegment("会话", 3_000, merged = false),
+            ContextSegment("工具", 1_000, merged = false)
+        )
+        val ratios = contextBarRatios(segments, totalTokens = 4_000, windowLimit = null)
+        assertEquals(0.75f, ratios[0], 0.000001f)
+        assertEquals(0.25f, ratios[1], 0.000001f)
+    }
+
+    @Test
+    fun aZeroWindowFallsBackToThePartsAgainstEachOther() {
+        val segments = listOf(ContextSegment("会话", 4_300, merged = false))
+        assertEquals(1f, contextBarRatios(segments, totalTokens = 4_300, windowLimit = 0L).single(), 0.000001f)
+    }
+
     private fun part(kind: String, tokens: Long) = ContextPart(kind = kind, tokens = tokens)
 }
