@@ -13,6 +13,8 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.lifecycle.Lifecycle
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
@@ -53,6 +55,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.geometry.Offset
 import com.magpie.pocket.core.design.AppChrome
@@ -62,6 +65,8 @@ import com.magpie.pocket.core.design.MagpieColors
 import com.magpie.pocket.core.design.MagpieDimensions
 import com.magpie.pocket.core.design.MagpiePocketTheme
 import com.magpie.pocket.core.design.MagpieTheme
+import com.magpie.pocket.core.design.motionDuration
+import com.magpie.pocket.core.design.rememberEntranceProgress
 import com.magpie.pocket.core.model.DataMode
 import com.magpie.pocket.core.model.ThemeMode
 import com.magpie.pocket.feature.connect.ConnectBottomSheet
@@ -275,8 +280,22 @@ fun MainAppRoot(viewModel: AppViewModel) {
         ) {
         // Tab content keeps each LazyColumn's scroll state while switching tabs.
         val tabStateHolder = rememberSaveableStateHolder()
-        tabStateHolder.SaveableStateProvider(activeTab.name) {
-        when (activeTab) {
+        val tabMotionMillis = motionDuration(220)
+        Crossfade(
+            targetState = activeTab,
+            animationSpec = tween(tabMotionMillis),
+            label = "appTab"
+        ) { tab ->
+        tabStateHolder.SaveableStateProvider(tab.name) {
+        // The incoming page settles up from 8dp while the crossfade fades it in, so a switch
+        // reads as a move rather than a swap.
+        val pageEntrance = rememberEntranceProgress(tabMotionMillis)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { translationY = (1f - pageEntrance.value) * 8.dp.toPx() }
+        ) {
+        when (tab) {
             AppTab.OVERVIEW -> {
                 val runningRequests by viewModel.runningRequests.collectAsState()
                 val quotaAlerts by viewModel.quotaAlerts.collectAsState()
@@ -387,6 +406,8 @@ fun MainAppRoot(viewModel: AppViewModel) {
                     }
                 )
             }
+        }
+        }
         }
         }
         }

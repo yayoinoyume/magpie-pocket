@@ -78,8 +78,10 @@ class QuotaCardsTest {
         assertEquals(16, workbuddy.windowCount)
         assertEquals(4, workbuddy.mergedWindows.size)
         val secondAccount = workbuddy.accounts.first { it.accountId == "153****8998" }
+        // The page prints remaining by default, so an untouched window shows its whole
+        // allowance as still available.
         assertEquals(
-            "0 / 500 credits",
+            "500 / 500 credits",
             secondAccount.windows.first { it.name == "Credits" }.countText
         )
 
@@ -106,7 +108,9 @@ class QuotaCardsTest {
 
     @Test
     fun workBuddyMergedWindowsAddAmountAndAllowancePerWindowName() = runBlocking {
-        val workbuddy = realCards(QuotaDisplayMode.REMAINING)
+        // The sums are used amounts, so this test reads them in the used direction, the one
+        // that prints the sum as it was added up.
+        val workbuddy = realCards(QuotaDisplayMode.USED)
             .first { it.providerId == "workbuddy" }
         val merged = workbuddy.mergedWindows.associateBy { it.name }
 
@@ -161,7 +165,8 @@ class QuotaCardsTest {
         // the one actually closest to its limit and therefore the one the account line prints.
         val second = workbuddy.accounts.first { it.accountId == "153****8998" }
         val credits = second.windows.first { it.name == "Credits" }
-        assertEquals("0 / 500 credits", credits.countText)
+        // Untouched, so in the remaining direction the whole 500 is still there.
+        assertEquals("500 / 500 credits", credits.countText)
         assertEquals(100.0, credits.percent ?: -1.0, 0.01)
         val secondTightest = quotaAccountTightest(second, QuotaDisplayMode.REMAINING)
         assertEquals("deepseek-v4.1-flash tokens (est.)", secondTightest?.name)
@@ -180,6 +185,25 @@ class QuotaCardsTest {
             "deepseek-v4.1-flash tokens (est.)",
             quotaAccountTightest(usedSecond, QuotaDisplayMode.USED)?.name
         )
+    }
+
+    @Test
+    fun aCountWindowReadsTheDirectionThePagePrints() = runBlocking {
+        // 180***201 has spent its whole Credits allowance, so the one window reads "500 / 500"
+        // used and "0 / 500" remaining: a spent count never sits under a "0% remaining" caption.
+        val spentRemaining = realCards(QuotaDisplayMode.REMAINING)
+            .first { it.providerId == "workbuddy" }
+            .accounts.first { it.label == "180***201" }
+            .windows.first { it.name == "Credits" }
+        assertEquals("0 / 500 credits", spentRemaining.countText)
+        assertEquals(0.0, spentRemaining.percent ?: -1.0, 0.01)
+
+        val spentUsed = realCards(QuotaDisplayMode.USED)
+            .first { it.providerId == "workbuddy" }
+            .accounts.first { it.label == "180***201" }
+            .windows.first { it.name == "Credits" }
+        assertEquals("500 / 500 credits", spentUsed.countText)
+        assertEquals(100.0, spentUsed.percent ?: -1.0, 0.01)
     }
 
     @Test
