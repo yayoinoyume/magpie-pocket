@@ -115,18 +115,18 @@ object MetricCalculators {
 
     /**
      * Quota ratio normalized across legacy absolute counts and upstream percentages.
-     * Unknown or unlimited windows have no ratio rather than a fake full bar.
+     * Unknown, unlimited and display-only windows have no ratio rather than a fake full bar.
      */
     fun calculateQuotaUsedRatio(window: QuotaWindow): Double? {
-        if (!window.known || window.unlimited) return null
-        window.usedPercent?.let { return (it / 100.0).coerceAtLeast(0.0) }
+        if (!window.known || window.unlimited || window.text) return null
         // Counts can be fractional, so the pair the answer actually reported wins over the
-        // truncated Long fields.
+        // truncated Long fields and over the share the same answer rounded.
         val amount = window.amount
         val allowance = window.allowanceLimit
         if (amount != null && allowance != null && allowance > 0.0) {
             return (amount / allowance).coerceAtLeast(0.0)
         }
+        window.usedPercent?.let { return (it / 100.0).coerceAtLeast(0.0) }
         val limit = window.limit ?: return null
         if (limit <= 0L) return null
         val used = window.used ?: return null

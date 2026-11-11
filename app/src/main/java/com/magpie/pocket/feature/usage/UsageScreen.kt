@@ -49,6 +49,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.magpie.pocket.core.design.ChipGrid
 import com.magpie.pocket.core.design.DataPanel
 import com.magpie.pocket.core.design.DualLineChart
@@ -62,6 +63,7 @@ import com.magpie.pocket.core.design.springPress
 import com.magpie.pocket.core.model.AccountQuotaView
 import com.magpie.pocket.core.model.CostDisplay
 import com.magpie.pocket.core.model.Period
+import com.magpie.pocket.core.model.QuotaDisplayMode
 import com.magpie.pocket.core.model.QuotaWindow
 import com.magpie.pocket.core.model.TokenUsage
 import com.magpie.pocket.core.model.UsageBreakdownItem
@@ -92,6 +94,8 @@ private val periodOptions = listOf(
 fun UsageScreen(
     usage: UsageSnapshot?,
     accountQuotas: List<AccountQuotaView>,
+    quotaDisplayMode: QuotaDisplayMode,
+    onQuotaDisplayModeChange: (QuotaDisplayMode) -> Unit,
     usageCost: CostDisplay,
     usageDecodeSpeed: Double?,
     selectedPeriod: Period,
@@ -290,6 +294,8 @@ fun UsageScreen(
             QuotaPanel(
                 rows = accountQuotas,
                 allUnlimited = allUnlimited,
+                displayMode = quotaDisplayMode,
+                onDisplayModeChange = onQuotaDisplayModeChange,
                 expanded = accountsExpanded,
                 onToggleExpanded = { accountsExpanded = !accountsExpanded },
                 onOpenDetail = { selectedQuotaKey = it.providerId },
@@ -311,6 +317,7 @@ fun UsageScreen(
     if (detailProvider != null) {
         QuotaDetailSheet(
             view = detailProvider,
+            displayMode = quotaDisplayMode,
             onDismiss = { selectedQuotaKey = null }
         )
     }
@@ -736,6 +743,8 @@ private fun DetailRow(row: UsageRow, sort: UsageSort) {
 private fun QuotaPanel(
     rows: List<AccountQuotaView>,
     allUnlimited: Boolean,
+    displayMode: QuotaDisplayMode,
+    onDisplayModeChange: (QuotaDisplayMode) -> Unit,
     expanded: Boolean,
     onToggleExpanded: () -> Unit,
     onOpenDetail: (AccountQuotaView) -> Unit,
@@ -754,7 +763,11 @@ private fun QuotaPanel(
             ) {
                 val ringRatio = tightestProvider?.ratio
                 if (ringRatio != null) {
-                    QuotaHealthRing(ratio = ringRatio, color = quotaRatioColor(ringRatio))
+                    QuotaHealthRing(
+                        ratio = ringRatio,
+                        displayMode = displayMode,
+                        color = quotaRatioColor(ringRatio)
+                    )
                 } else {
                     Box(
                         modifier = Modifier
@@ -788,7 +801,7 @@ private fun QuotaPanel(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = quotaStateText(tightestProvider),
+                            text = quotaStateText(tightestProvider, displayMode),
                             style = MagpieTypography.LabelStyle,
                             color = colors.textSecondary,
                             maxLines = 1,
@@ -817,17 +830,39 @@ private fun QuotaPanel(
             }
             Spacer(modifier = Modifier.height(10.dp))
             Text(
-                text = "85% 起提示，100% 为超限。",
+                text = if (displayMode == QuotaDisplayMode.REMAINING) {
+                    "数字是剩余比例，越少越危险"
+                } else {
+                    "数字是已用比例，越满越危险"
+                },
                 style = MagpieTypography.LabelStyle,
                 color = colors.textTertiary
             )
             if (rows.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 HorizontalDivider(color = colors.divider)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 40.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "全部供应商",
+                        style = MagpieTypography.LabelStyle,
+                        color = colors.textSecondary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    QuotaDisplayModeSwitch(
+                        mode = displayMode,
+                        onChange = onDisplayModeChange
+                    )
+                }
                 val shown = if (expanded) rows else rows.take(4)
                 shown.forEach { row ->
                     QuotaRowView(
                         row = row,
+                        displayMode = displayMode,
                         onClick = { onOpenDetail(row) }
                     )
                 }
@@ -856,8 +891,17 @@ private fun QuotaPanel(
 }
 
 @Composable
-private fun QuotaRowView(row: AccountQuotaView, onClick: () -> Unit) {
+private fun QuotaRowView(
+    row: AccountQuotaView,
+    displayMode: QuotaDisplayMode,
+    onClick: () -> Unit
+) {
     val colors = MagpieTheme.colors
+    // The printed share follows the preference; the colour and the sort key never do.
+    val ratio = row.ratio
+    val share = quotaFraction(row, displayMode)
+    // One colour for both the number and its line, off the used ratio in either mode.
+    val danger = if (ratio != null && ratio >= WarningRatio) quotaRatioColor(ratio) else null
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -881,28 +925,23 @@ private fun QuotaRowView(row: AccountQuotaView, onClick: () -> Unit) {
                         modifier = Modifier.weight(1f, fill = false)
                     )
                 }
-                val quotaRatio = row.ratio
                 Text(
-                    text = quotaStateText(row),
+                    text = quotaStateText(row, displayMode),
                     style = MagpieTypography.LabelStyle,
-                    color = if (quotaRatio != null && quotaRatio >= 0.85) {
-                        colors.warning
-                    } else {
-                        colors.textSecondary
-                    },
+                    color = danger ?: colors.textSecondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = MetricCalculators.formatPercent(row.ratio),
+                text = MetricCalculators.formatPercent(share),
                 style = MagpieTypography.SubheadStyle,
-                color = colors.textPrimary
+                color = danger ?: colors.textPrimary
             )
         }
-        val ratio = row.ratio
-        if (ratio != null) {
+        // The bar mirrors the printed share: a remaining row must not look full at 3.8% left.
+        if (share != null && ratio != null) {
             Spacer(modifier = Modifier.height(6.dp))
             Box(
                 modifier = Modifier
@@ -913,7 +952,7 @@ private fun QuotaRowView(row: AccountQuotaView, onClick: () -> Unit) {
             ) {
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth(ratio.coerceIn(0.0, 1.0).toFloat())
+                        .fillMaxWidth(share.coerceIn(0.0, 1.0).toFloat())
                         .fillMaxSize()
                         .clip(RoundedCornerShape(4.dp))
                         .background(quotaRatioColor(ratio))
@@ -925,16 +964,85 @@ private fun QuotaRowView(row: AccountQuotaView, onClick: () -> Unit) {
     }
 }
 
+/**
+ * Two small pills naming the two readings of the same share. Each pill is 28dp tall but keeps a
+ * 40dp touch target, and the switch renders the stored preference, never a local guess.
+ */
 @Composable
-private fun QuotaHealthRing(ratio: Double, color: Color) {
+private fun QuotaDisplayModeSwitch(
+    mode: QuotaDisplayMode,
+    onChange: (QuotaDisplayMode) -> Unit
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+        QuotaDisplayModePill(
+            label = "已用",
+            option = QuotaDisplayMode.USED,
+            mode = mode,
+            onChange = onChange
+        )
+        QuotaDisplayModePill(
+            label = "剩余",
+            option = QuotaDisplayMode.REMAINING,
+            mode = mode,
+            onChange = onChange
+        )
+    }
+}
+
+@Composable
+private fun QuotaDisplayModePill(
+    label: String,
+    option: QuotaDisplayMode,
+    mode: QuotaDisplayMode,
+    onChange: (QuotaDisplayMode) -> Unit
+) {
     val colors = MagpieTheme.colors
+    val selected = option == mode
+    Box(
+        modifier = Modifier
+            .heightIn(min = 40.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .selectable(
+                selected = selected,
+                role = Role.RadioButton,
+                onClick = { if (!selected) onChange(option) }
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .height(28.dp)
+                .clip(RoundedCornerShape(14.dp))
+                .background(if (selected) colors.accentSurface else Color.Transparent)
+                .padding(horizontal = 10.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = label,
+                style = MagpieTypography.LabelStyle.copy(fontSize = 12.sp),
+                color = if (selected) colors.accent else colors.textSecondary
+            )
+        }
+    }
+}
+
+/**
+ * The ring reads the share the page prints, and its caption names that share. Colour stays on the
+ * used ratio, so the provider closest to its limit is red in both modes.
+ */
+@Composable
+private fun QuotaHealthRing(ratio: Double, displayMode: QuotaDisplayMode, color: Color) {
+    val colors = MagpieTheme.colors
+    val shown = if (displayMode == QuotaDisplayMode.REMAINING) 1.0 - ratio else ratio
+    // A spent provider is an empty ring in remaining mode: the track carries the alarm instead.
+    val track = if (ratio >= ErrorRatio) colors.error.copy(alpha = 0.18f) else colors.divider
     Box(modifier = Modifier.size(64.dp), contentAlignment = Alignment.Center) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val strokeWidth = 6.dp.toPx()
             val arcSize = Size(size.width - strokeWidth, size.height - strokeWidth)
             val topLeft = Offset(strokeWidth / 2f, strokeWidth / 2f)
             drawArc(
-                color = colors.divider,
+                color = track,
                 startAngle = -90f,
                 sweepAngle = 360f,
                 useCenter = false,
@@ -945,18 +1053,25 @@ private fun QuotaHealthRing(ratio: Double, color: Color) {
             drawArc(
                 color = color,
                 startAngle = -90f,
-                sweepAngle = (360f * ratio.coerceIn(0.0, 1.0)).toFloat(),
+                sweepAngle = (360f * shown.coerceIn(0.0, 1.0)).toFloat(),
                 useCenter = false,
                 topLeft = topLeft,
                 size = arcSize,
                 style = Stroke(width = strokeWidth, cap = StrokeCap.Round)
             )
         }
-        Text(
-            text = MetricCalculators.formatPercent(ratio),
-            style = MagpieTypography.LabelStyle.copy(fontWeight = FontWeight.SemiBold),
-            color = colors.textPrimary
-        )
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = MetricCalculators.formatPercent(shown.coerceIn(0.0, 1.0)),
+                style = MagpieTypography.LabelStyle.copy(fontWeight = FontWeight.SemiBold),
+                color = colors.textPrimary
+            )
+            Text(
+                text = if (displayMode == QuotaDisplayMode.USED) "已用" else "剩余",
+                style = MagpieTypography.LabelStyle.copy(fontSize = 10.sp),
+                color = colors.textTertiary
+            )
+        }
     }
 }
 
@@ -964,6 +1079,7 @@ private fun QuotaHealthRing(ratio: Double, color: Color) {
 @Composable
 private fun QuotaDetailSheet(
     view: AccountQuotaView,
+    displayMode: QuotaDisplayMode,
     onDismiss: () -> Unit
 ) {
     val colors = MagpieTheme.colors
@@ -1027,7 +1143,7 @@ private fun QuotaDetailSheet(
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = quotaWindowText(window, ratio),
+                            text = quotaWindowText(window, ratio, displayMode),
                             style = MagpieTypography.SubheadStyle,
                             color = colors.textSecondary,
                             maxLines = 1
@@ -1204,11 +1320,16 @@ private fun secondaryText(row: UsageRow, sort: UsageSort): String? {
  * A provider row reads its windows, not the answer's trust flag: unlimited is a known answer, so
  * "无限额" must win before anything says the figures are missing.
  */
-private fun quotaStateText(view: AccountQuotaView): String {
+private fun quotaStateText(view: AccountQuotaView, displayMode: QuotaDisplayMode): String {
     val window = view.tightestWindow
     if (window != null) {
         val reset = RequestTimestamps.formatResetAt(window.resetsAt)
-        return window.id + (reset?.let { " · 重置 " + it } ?: "")
+        val parts = listOfNotNull(
+            window.id,
+            quotaRowFigure(view, displayMode),
+            reset?.let { "重置 " + it }
+        )
+        return parts.joinToString(" · ")
     }
     return when {
         view.windows.isEmpty() -> "暂无额度窗口"
@@ -1218,32 +1339,94 @@ private fun quotaStateText(view: AccountQuotaView): String {
     }
 }
 
+/**
+ * Danger colour off the used ratio, never off the printed share: in remaining mode the smallest
+ * number is the most dangerous, so the colour cannot follow the number.
+ */
 @Composable
 private fun quotaRatioColor(ratio: Double): Color {
     val colors = MagpieTheme.colors
     return when {
-        ratio >= 1.0 -> colors.error
-        ratio >= 0.85 -> colors.warning
+        ratio >= ErrorRatio -> colors.error
+        ratio >= WarningRatio -> colors.warning
         else -> colors.accent
     }
 }
 
-private fun quotaWindowText(window: QuotaWindow, ratio: Double?): String {
+/** A quota at or past this used share is in the warning zone; at or past the next one, red. */
+private const val WarningRatio = 0.7
+private const val ErrorRatio = 0.9
+
+/** The share one provider prints in the chosen mode, 0..1; a row without a number has none. */
+private fun quotaFraction(view: AccountQuotaView, displayMode: QuotaDisplayMode): Double? {
+    val percent = when (displayMode) {
+        QuotaDisplayMode.USED -> view.usedPercent
+        QuotaDisplayMode.REMAINING -> view.remainingPercent
+    } ?: return null
+    return (percent / 100.0).coerceIn(0.0, 1.0)
+}
+
+/**
+ * The row's own figure line: the absolute pair when the answer reported one, the share
+ * otherwise, the upstream's text for a display-only window, and nothing for an unknown one.
+ */
+private fun quotaRowFigure(view: AccountQuotaView, displayMode: QuotaDisplayMode): String? {
+    val window = view.tightestWindow ?: return null
+    if (window.text) return view.displayText
+    if (!window.known) return null
+    val used = displayMode == QuotaDisplayMode.USED
+    val label = if (used) "已用 " else "剩余 "
+    val amount = if (used) view.usedAmount else view.remainingAmount
+    val allowance = window.allowanceLimit
+    if (amount != null && allowance != null) {
+        val unit = view.unitLabel?.let { " " + it }.orEmpty()
+        return label + formatQuotaFigure(amount) + " / " + formatQuotaFigure(allowance) + unit
+    }
+    val share = if (used) view.usedPercent else view.remainingPercent
+    return share?.let { label + MetricCalculators.formatPercent(it / 100.0) }
+}
+
+/**
+ * One window in the sheet, in the same words the provider row uses. The upstream's own rendering
+ * wins when it sent one; a display-only window has nothing else to show.
+ */
+private fun quotaWindowText(
+    window: QuotaWindow,
+    ratio: Double?,
+    displayMode: QuotaDisplayMode
+): String {
     if (window.unlimited) return "无限额"
-    // The upstream's own rendering wins when it sent one; an unknown window has nothing else.
     val reported = window.display?.takeIf { it.isNotBlank() }
     if (reported != null) return reported
-    if (!window.known) return "—"
-    val percent = ratio?.let { MetricCalculators.formatPercent(it) } ?: "—"
+    if (window.text || !window.known) return "—"
+    val used = displayMode == QuotaDisplayMode.USED
+    val label = if (used) "已用 " else "剩余 "
+    val share = ratio?.let { if (used) it else (1.0 - it).coerceAtLeast(0.0) }
+    val percent = MetricCalculators.formatPercent(share)
     val amount = window.amount
     val allowance = window.allowanceLimit
     return if (amount != null && allowance != null) {
-        formatQuotaNumber(amount) + " / " + formatQuotaNumber(allowance) +
+        val value = if (used) amount else (allowance - amount).coerceAtLeast(0.0)
+        label + formatQuotaFigure(value) + " / " + formatQuotaFigure(allowance) +
             " " + window.unit + " · " + percent
     } else {
-        percent + if (window.unit.isNotBlank()) " " + window.unit else ""
+        label + percent + if (window.unit.isNotBlank()) " " + window.unit else ""
     }
 }
+
+/**
+ * A quota figure keeps a decimal while it is small and turns compact once it is a token count:
+ * a row can say "已用 200.0M / 200.0M" but never "已用 200029738 / 200000000".
+ */
+private fun formatQuotaFigure(value: Double): String =
+    if (value >= CompactFigureThreshold) {
+        MetricCalculators.formatCompactNumber(value.toLong())
+    } else {
+        formatQuotaNumber(value)
+    }
+
+/** Past this a raw figure stops fitting a single row line. */
+private const val CompactFigureThreshold = 10_000.0
 
 private fun formatQuotaNumber(value: Double): String =
     if (value == value.toLong().toDouble()) {

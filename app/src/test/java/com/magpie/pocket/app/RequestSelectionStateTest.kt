@@ -5,6 +5,7 @@ import com.magpie.pocket.core.data.DemoRepository
 import com.magpie.pocket.core.model.Attempt
 import com.magpie.pocket.core.model.ConnectionConfig
 import com.magpie.pocket.core.model.DisplayPreferences
+import com.magpie.pocket.core.model.QuotaDisplayMode
 import com.magpie.pocket.core.model.FinalState
 import com.magpie.pocket.core.model.RequestKey
 import com.magpie.pocket.core.model.RequestSummary
@@ -442,6 +443,10 @@ private class FakePreferencesManager : DisplayPreferencesSource {
 
     override suspend fun updateMaskAccounts(enabled: Boolean) {
         state.value = state.value.copy(maskAccountNames = enabled)
+    }
+
+    override suspend fun updateQuotaDisplayMode(mode: QuotaDisplayMode) {
+        state.value = state.value.copy(quotaDisplayMode = mode)
     }
 
     override suspend fun updateKeepLiveConnectionInBackground(enabled: Boolean) {

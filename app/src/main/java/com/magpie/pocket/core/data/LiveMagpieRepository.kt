@@ -452,8 +452,9 @@ class LiveMagpieRepository(
         return resp.quotas?.map { q ->
             val windows = q.windows?.map { w ->
                 // A count and a share are different units; quotaFigureIsCount says which one
-                // this window reports, so a 301-credit window never shows as 301%.
-                val isCount = quotaFigureIsCount(w.used, w.amount, w.limit)
+                // this window reports, so a 301-credit window never shows as 301%. A display-only
+                // window has no reading at all: its used value is text, not a share.
+                val isCount = quotaFigureIsCount(w.used)
                 val usedCount = if (isCount) w.amount ?: w.used else w.amount
                 QuotaWindow(
                     id = w.name ?: w.id ?: "window",
@@ -461,12 +462,13 @@ class LiveMagpieRepository(
                     used = usedCount?.toLong(),
                     limit = w.limit?.toLong(),
                     resetsAt = w.resetsAt ?: w.resets,
-                    usedPercent = if (isCount) null else w.used,
+                    usedPercent = if (isCount || w.text) null else w.used,
                     amount = usedCount,
                     allowanceLimit = w.limit,
                     display = w.display,
+                    text = w.text,
                     unlimited = w.unlimited,
-                    known = !w.unlimited && (isCount || w.used != null)
+                    known = !w.unlimited && (w.text || isCount || w.used != null)
                 )
             } ?: emptyList()
 

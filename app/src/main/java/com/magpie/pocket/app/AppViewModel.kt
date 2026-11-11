@@ -27,6 +27,7 @@ import com.magpie.pocket.core.model.OverviewSnapshot
 import com.magpie.pocket.core.model.Period
 import com.magpie.pocket.core.model.PrivacyState
 import com.magpie.pocket.core.model.QuotaAlert
+import com.magpie.pocket.core.model.QuotaDisplayMode
 import com.magpie.pocket.core.model.ProviderCatalogState
 import com.magpie.pocket.core.model.RequestDetail
 import com.magpie.pocket.core.model.RequestFilter
@@ -96,6 +97,7 @@ interface DisplayPreferencesSource {
     suspend fun updateGlassTier(tier: GlassTier)
     suspend fun updateReduceMotion(enabled: Boolean)
     suspend fun updateMaskAccounts(enabled: Boolean)
+    suspend fun updateQuotaDisplayMode(mode: QuotaDisplayMode)
     suspend fun updateKeepLiveConnectionInBackground(enabled: Boolean)
 }
 
@@ -113,6 +115,8 @@ class PreferencesManagerDisplaySource(private val manager: PreferencesManager) :
     override suspend fun updateGlassTier(tier: GlassTier) = manager.updateGlassTier(tier)
     override suspend fun updateReduceMotion(enabled: Boolean) = manager.updateReduceMotion(enabled)
     override suspend fun updateMaskAccounts(enabled: Boolean) = manager.updateMaskAccounts(enabled)
+    override suspend fun updateQuotaDisplayMode(mode: QuotaDisplayMode) =
+        manager.updateQuotaDisplayMode(mode)
     override suspend fun updateKeepLiveConnectionInBackground(enabled: Boolean) =
         manager.updateKeepLiveConnectionInBackground(enabled)
 }
@@ -1683,6 +1687,20 @@ class AppViewModel(
             val saved = runCatching { preferencesManager.updateMaskAccounts(enabled) }
             val error = saved.exceptionOrNull() ?: return@launch
             AppLog.warn("mask account names was not saved", error)
+            runCatching { preferencesManager.displayPreferencesFlow.first() }
+                .onSuccess { stored -> _displayPreferences.value = stored }
+        }
+    }
+
+    /**
+     * The used/remaining switch renders rows from the stored preference, so a rejected write
+     * re-reads the disk instead of leaving the page on a value nothing saved.
+     */
+    fun updateQuotaDisplayMode(mode: QuotaDisplayMode) {
+        viewModelScope.launch {
+            val saved = runCatching { preferencesManager.updateQuotaDisplayMode(mode) }
+            val error = saved.exceptionOrNull() ?: return@launch
+            AppLog.warn("quota display mode was not saved", error)
             runCatching { preferencesManager.displayPreferencesFlow.first() }
                 .onSuccess { stored -> _displayPreferences.value = stored }
         }

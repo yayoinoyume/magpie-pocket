@@ -8,6 +8,7 @@ import com.magpie.pocket.core.model.Coverage
 import com.magpie.pocket.core.model.ConnectionConfig
 import com.magpie.pocket.core.model.DataMode
 import com.magpie.pocket.core.model.DisplayPreferences
+import com.magpie.pocket.core.model.QuotaDisplayMode
 import com.magpie.pocket.core.model.FinalState
 import com.magpie.pocket.core.model.GlassTier
 import com.magpie.pocket.core.model.RequestFilter
@@ -125,6 +126,35 @@ class DashboardDerivedStateTest {
             assertTrue(viewModel.displayPreferences.value.maskAccountNames)
             assertEquals("Vendor · wor***ary", viewModel.quotaView("vendor").label)
             assertEquals(listOf("mask account names was not saved"), logged)
+        } finally {
+            AppLog.logger = null
+        }
+    }
+
+    @Test
+    fun theQuotaDisplayModeStartsOnRemainingAndFollowsTheStoredWrite() = runBlocking {
+        val viewModel = newViewModel()
+
+        assertEquals(QuotaDisplayMode.REMAINING, viewModel.displayPreferences.value.quotaDisplayMode)
+
+        viewModel.updateQuotaDisplayMode(QuotaDisplayMode.USED)
+
+        val switched = viewModel.displayPreferences.first { it.quotaDisplayMode == QuotaDisplayMode.USED }
+        assertEquals(QuotaDisplayMode.USED, switched.quotaDisplayMode)
+        // The rows themselves do not depend on the preference, only on the window they read.
+        assertEquals(0.9, viewModel.quotaView("vendor").ratio ?: 0.0, 0.0001)
+    }
+
+    @Test
+    fun aRejectedQuotaDisplayModeWriteKeepsTheStoredPreferenceAndLogsIt() = runBlocking {
+        val viewModel = newViewModel(preferences = DashboardFakePreferencesManager(failWrites = true))
+        val logged = mutableListOf<String>()
+        AppLog.logger = { message, _ -> logged += message }
+        try {
+            viewModel.updateQuotaDisplayMode(QuotaDisplayMode.USED)
+
+            assertEquals(QuotaDisplayMode.REMAINING, viewModel.displayPreferences.value.quotaDisplayMode)
+            assertEquals(listOf("quota display mode was not saved"), logged)
         } finally {
             AppLog.logger = null
         }
@@ -340,6 +370,10 @@ private class DashboardFakePreferencesManager(
     override suspend fun updateMaskAccounts(enabled: Boolean) {
         if (failWrites) throw java.io.IOException("preferences are read-only")
         state.value = state.value.copy(maskAccountNames = enabled)
+    }
+    override suspend fun updateQuotaDisplayMode(mode: QuotaDisplayMode) {
+        if (failWrites) throw java.io.IOException("preferences are read-only")
+        state.value = state.value.copy(quotaDisplayMode = mode)
     }
     override suspend fun updateKeepLiveConnectionInBackground(enabled: Boolean) {
         state.value = state.value.copy(keepLiveConnectionInBackground = enabled)

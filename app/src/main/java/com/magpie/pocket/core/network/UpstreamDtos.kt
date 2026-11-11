@@ -452,6 +452,8 @@ data class UpstreamQuotaWindow(
     @SerialName("amount") val amount: Double? = null,
     @SerialName("limit") val limit: Double? = null,
     @SerialName("display") val display: String? = null,
+    /** The window only carries display text; its used value is not a reading. */
+    @SerialName("text") val text: Boolean = false,
     @SerialName("unlimited") val unlimited: Boolean = false,
     @SerialName("resetsAt") val resetsAt: String? = null,
     @SerialName("resets") val resets: String? = null

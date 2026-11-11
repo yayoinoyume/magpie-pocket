@@ -4,6 +4,7 @@ import com.magpie.pocket.core.data.LiveMagpieRepository
 import com.magpie.pocket.core.data.mergeAccountSources
 import com.magpie.pocket.core.model.Account
 import com.magpie.pocket.core.model.AccountQuota
+import com.magpie.pocket.core.model.AccountQuotaView
 import com.magpie.pocket.core.model.QuotaWindow
 import com.magpie.pocket.core.network.MagpieApiClient
 import com.magpie.pocket.core.util.MetricCalculators
@@ -15,6 +16,7 @@ import okhttp3.mockwebserver.RecordedRequest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -199,6 +201,103 @@ class QuotaProviderViewsTest {
     }
 
     @Test
+    fun theLiveAnswerReadsBothWaysOffTheOneUsedShare() = runBlocking {
+        val views = providerQuotaViews(realGatewayQuotas(), emptyList(), maskAccountNames = true)
+
+        // WorkBuddy's deciding window is the token window that went over its allowance:
+        // 200,029,738 / 200,000,000, read as a full 100% and nothing left.
+        val workbuddy = views.first { it.providerId == "workbuddy" }
+        assertEquals(100.0, workbuddy.usedPercent ?: 0.0, 0.0001)
+        assertEquals(0.0, workbuddy.remainingPercent ?: -1.0, 0.0001)
+        assertEquals("100.0%", percentText(workbuddy.usedPercent))
+        assertEquals("0.0%", percentText(workbuddy.remainingPercent))
+        assertEquals(200029738.0, workbuddy.usedAmount ?: 0.0, 0.001)
+        assertEquals(0.0, workbuddy.remainingAmount ?: -1.0, 0.001)
+        // The over-spent window reports no unit, so the row prints no unit instead of guessing.
+        assertNull(workbuddy.unitLabel)
+
+        // Qoder spent 2500 of 2600 credits: 96.2% used, 3.8% left.
+        val qoder = views.first { it.providerId == "qoder-cn" }
+        assertEquals(96.1538, qoder.usedPercent ?: 0.0, 0.001)
+        assertEquals(3.8461, qoder.remainingPercent ?: 0.0, 0.001)
+        assertEquals("96.2%", percentText(qoder.usedPercent))
+        assertEquals("3.8%", percentText(qoder.remainingPercent))
+        assertEquals(2500.0, qoder.usedAmount ?: 0.0, 0.0001)
+        assertEquals(100.0, qoder.remainingAmount ?: 0.0, 0.0001)
+        assertEquals("credits", qoder.unitLabel)
+
+        // OpenCode Go reports shares only: 23% used, 77% left, and no absolute pair either way.
+        val opencode = views.first { it.providerId == "opencode-go" }
+        assertEquals(23.0, opencode.usedPercent ?: 0.0, 0.0001)
+        assertEquals(77.0, opencode.remainingPercent ?: 0.0, 0.0001)
+        assertEquals("23.0%", percentText(opencode.usedPercent))
+        assertEquals("77.0%", percentText(opencode.remainingPercent))
+        assertNull(opencode.usedAmount)
+        assertNull(opencode.remainingAmount)
+        assertNull(opencode.unitLabel)
+
+        // Every row is one number read two ways, never two independent readings.
+        views.forEach { view ->
+            val used = view.usedPercent
+            val remaining = view.remainingPercent
+            if (used != null && remaining != null) {
+                assertEquals(100.0, used + remaining, 0.0001)
+            }
+        }
+    }
+
+    @Test
+    fun bothReadingsKeepTheSameWorstProviderFirst() = runBlocking {
+        val views = providerQuotaViews(realGatewayQuotas(), emptyList(), maskAccountNames = true)
+        val order = views.map { it.providerId }
+
+        // The list is ordered by the used share, so the spent provider is first in both modes.
+        assertEquals("workbuddy", order.first())
+        assertTrue(views.zipWithNext().all { (worse, better) ->
+            (worse.usedPercent ?: -1.0) >= (better.usedPercent ?: -1.0)
+        })
+        // Ordering by what is left would bury the same provider last; that is the bug this keeps.
+        assertNotEquals(
+            views.sortedWith(
+                compareByDescending<AccountQuotaView> { it.remainingPercent ?: -1.0 }
+                    .thenBy { it.providerId }
+            ).map { it.providerId },
+            order
+        )
+    }
+
+    @Test
+    fun aDisplayOnlyWindowPrintsItsTextAndNeverAPercentage() {
+        val rows = listOf(
+            AccountQuota(
+                providerId = "balance-vendor",
+                displayName = "Balance vendor",
+                known = true,
+                windows = listOf(
+                    QuotaWindow(
+                        id = "Balance",
+                        unit = "CNY",
+                        display = "¥3.57",
+                        text = true
+                    )
+                )
+            )
+        )
+
+        val view = providerQuotaViews(rows, emptyList(), maskAccountNames = false).single()
+
+        // The answer is readable, it just has no reading: no share, no count, only its own text.
+        assertTrue(view.known)
+        assertNull(view.ratio)
+        assertNull(view.usedPercent)
+        assertNull(view.remainingPercent)
+        assertNull(view.usedAmount)
+        assertNull(view.remainingAmount)
+        assertEquals("Balance", view.tightestWindow?.id)
+        assertEquals("¥3.57", view.displayText)
+    }
+
+    @Test
     fun anUnlimitedOnlyProviderHasNoRatioRatherThanAFullBar() {
         val rows = listOf(
             AccountQuota(
@@ -216,6 +315,12 @@ class QuotaProviderViewsTest {
         assertNull(view.ratio)
         assertNull(view.tightestWindow)
         assertEquals("Vendor", view.label)
+        // Neither reading invents a number for an allowance that has no limit.
+        assertNull(view.usedPercent)
+        assertNull(view.remainingPercent)
+        assertNull(view.usedAmount)
+        assertNull(view.remainingAmount)
+        assertNull(view.displayText)
     }
 
     private suspend fun realGatewayQuotas(): List<AccountQuota> {
@@ -231,6 +336,10 @@ class QuotaProviderViewsTest {
         QuotaWindow(id = id, unit = "", usedPercent = used)
 
     private fun blankWindow(id: String) = QuotaWindow(id = id, unit = "")
+
+    /** What the row prints for a 0..100 share: the same one-decimal formatter the page uses. */
+    private fun percentText(percent: Double?): String =
+        MetricCalculators.formatPercent(percent?.let { it / 100.0 })
 
     private fun fixtureText(name: String): String =
         javaClass.classLoader!!.getResource("upstream/$name")!!.readText()

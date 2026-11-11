@@ -338,6 +338,8 @@ fun MainAppRoot(viewModel: AppViewModel) {
                 UsageScreen(
                     usage = usage,
                     accountQuotas = accountQuotas,
+                    quotaDisplayMode = preferences.quotaDisplayMode,
+                    onQuotaDisplayModeChange = { viewModel.updateQuotaDisplayMode(it) },
                     usageCost = usageCost,
                     usageDecodeSpeed = usageDecodeSpeed,
                     selectedPeriod = selectedPeriod,
