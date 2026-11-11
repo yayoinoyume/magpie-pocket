@@ -137,7 +137,7 @@ object MagpieSession {
         onTraceProbed: (UpstreamTraceResponse?) -> Unit = {},
         loadGroups: suspend () -> UpstreamGroupsResponse = { client.getGroups(baseUrl) }
     ): Pair<UpstreamGroupsResponse?, UpstreamTraceResponse?> = coroutineScope {
-        val groupsAsync = async { optional { loadGroups() } }
+        val groupsAsync = async { optional(client) { loadGroups() } }
         val trace = optional(client) { it.getTraceSnapshot(baseUrl, 0L) }
         // The trace answer seeds the live loop; hand it over before waiting for groups.
         onTraceProbed(trace)
