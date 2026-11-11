@@ -4,8 +4,37 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.GregorianCalendar
+import java.util.LinkedHashMap
 import java.util.Locale
 import java.util.TimeZone
+
+/** The identity of one [RequestTimestamps.formatTime] answer. */
+private data class FormatTimeCacheKey(
+    val raw: String,
+    val zoneId: String,
+    val localeTag: String
+)
+
+/**
+ * A tiny access-ordered LRU for formatted clock times. The request list asks the same few
+ * timestamps again on every scroll, and the formatter is far more expensive than a lookup.
+ */
+private class FormatTimeCache(private val capacity: Int = 256) {
+    private val entries = object : LinkedHashMap<FormatTimeCacheKey, String>(capacity, 0.75f, true) {
+        override fun removeEldestEntry(
+            eldest: MutableMap.MutableEntry<FormatTimeCacheKey, String>?
+        ): Boolean = size > capacity
+    }
+
+    var hits: Long = 0L
+        private set
+
+    fun get(key: FormatTimeCacheKey): String? = entries[key]?.also { hits++ }
+
+    fun put(key: FormatTimeCacheKey, value: String) {
+        entries[key] = value
+    }
+}
 
 /**
  * RFC3339/legacy request timestamp handling that works on Android 7 (API 24)
@@ -28,6 +57,13 @@ object RequestTimestamps {
         RegexOption.IGNORE_CASE
     )
     private val timeOnlyPattern = Regex("^(\\d{1,2}):(\\d{2})(?::(\\d{2})(?:[.,](\\d{1,9}))?)?$")
+
+    private val formatTimeCache = FormatTimeCache()
+    private val formatTimeCacheLock = Any()
+
+    /** Visible to the unit test that proves a repeated timestamp is served from the cache. */
+    internal val formatTimeCacheHits: Long
+        get() = synchronized(formatTimeCacheLock) { formatTimeCache.hits }
 
     fun parseMillis(raw: String?, zone: TimeZone = TimeZone.getDefault()): Long? {
         val value = raw?.trim().orEmpty()
@@ -67,6 +103,14 @@ object RequestTimestamps {
         locale: Locale = Locale.getDefault()
     ): String {
         val value = raw?.trim().orEmpty()
+        val key = FormatTimeCacheKey(value, zone.id, locale.toLanguageTag())
+        synchronized(formatTimeCacheLock) { formatTimeCache.get(key) }?.let { return it }
+        val formatted = formatTimeUncached(value, zone, locale)
+        synchronized(formatTimeCacheLock) { formatTimeCache.put(key, formatted) }
+        return formatted
+    }
+
+    private fun formatTimeUncached(value: String, zone: TimeZone, locale: Locale): String {
         timeOnlyPattern.matchEntire(value)?.let { match ->
             val hour = match.groupValues[1].toIntOrNull() ?: return MISSING
             val minute = match.groupValues[2].toIntOrNull() ?: return MISSING

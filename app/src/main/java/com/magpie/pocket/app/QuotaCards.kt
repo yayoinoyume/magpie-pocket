@@ -1,5 +1,6 @@
 package com.magpie.pocket.app
 
+import androidx.compose.runtime.Immutable
 import com.magpie.pocket.core.model.Account
 import com.magpie.pocket.core.model.AccountQuota
 import com.magpie.pocket.core.model.QuotaDisplayMode
@@ -15,6 +16,7 @@ import kotlin.math.roundToInt
 import kotlin.math.roundToLong
 
 /** One window row in a provider card, already read in the page's chosen direction. */
+@Immutable
 data class QuotaWindowRow(
     /** Stable identity for the expanded-state set: provider, window name and occurrence. */
     val key: String,
@@ -38,6 +40,7 @@ data class QuotaWindowRow(
 )
 
 /** One account inside a provider card; its windows are already numbered for repeated names. */
+@Immutable
 data class QuotaAccountView(
     val accountId: String?,
     val label: String,
@@ -51,6 +54,7 @@ data class QuotaAccountView(
  * single account's window is never shown twice. [tightestPercent] is the printed share of the
  * provider's tightest window, in the page's display mode.
  */
+@Immutable
 data class QuotaProviderCard(
     val providerId: String,
     val displayName: String,

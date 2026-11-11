@@ -90,6 +90,18 @@ class RequestTimestampsTest {
     }
 
     @Test
+    fun repeatedFormatTimeHitsTheCacheAndKeepsTheFormat() {
+        val raw = "2026-11-11T04:05:06+08:00"
+        val first = RequestTimestamps.formatTime(raw, shanghai, Locale.US)
+        val hitsAfterFirst = RequestTimestamps.formatTimeCacheHits
+        val second = RequestTimestamps.formatTime(raw, shanghai, Locale.US)
+
+        assertEquals("04:05:06", first)
+        assertEquals(first, second)
+        assertEquals(hitsAfterFirst + 1, RequestTimestamps.formatTimeCacheHits)
+    }
+
+    @Test
     fun utcNowIsTrulyUtc() {
         val value = RequestTimestamps.nowUtcIso(0L)
         assertEquals("1970-01-01T00:00:00.000Z", value)

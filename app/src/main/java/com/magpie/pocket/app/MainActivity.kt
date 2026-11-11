@@ -218,7 +218,6 @@ fun MainAppRoot(viewModel: AppViewModel) {
     val isOnline by viewModel.isOnline.collectAsState()
     val connectionStatus by viewModel.connectionStatus.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
-    val trace by viewModel.trace.collectAsState()
     val overview by viewModel.overview.collectAsState()
     val groups by viewModel.groups.collectAsState()
     val accounts by viewModel.accounts.collectAsState()
@@ -226,8 +225,6 @@ fun MainAppRoot(viewModel: AppViewModel) {
     val usage by viewModel.usage.collectAsState()
     val requestsPage by viewModel.requestsPage.collectAsState()
     val selectedRequest by viewModel.selectedRequest.collectAsState()
-    val routingRequest by viewModel.routingRequest.collectAsState()
-    val routingDetail by viewModel.routingDetail.collectAsState()
     val isFollowingLive by viewModel.isFollowingLive.collectAsState()
     val routeSettle by viewModel.routeSettle.collectAsState()
     val selectedRequestDetail by viewModel.selectedRequestDetail.collectAsState()
@@ -330,13 +327,18 @@ fun MainAppRoot(viewModel: AppViewModel) {
                 )
             }
             AppTab.ROUTING -> {
+                // Trace and routing selection change on their own clock; collect them here so a
+                // tick only invalidates the routing page instead of the whole tab host.
+                val traceState = viewModel.trace.collectAsState()
+                val routingRequestState = viewModel.routingRequest.collectAsState()
+                val routingDetailState = viewModel.routingDetail.collectAsState()
                 RoutingScreen(
-                    trace = trace,
+                    traceState = traceState,
                     groups = groups,
                     accounts = accounts,
                     selectedGroupId = selectedGroupId,
-                    selectedRequest = routingRequest,
-                    requestDetail = routingDetail,
+                    selectedRequestState = routingRequestState,
+                    requestDetailState = routingDetailState,
                     onSelectRequest = { viewModel.selectRoutingRequest(it) },
                     onResetToLatest = { viewModel.resetToLatest() },
                     onOpenRequestDetail = { viewModel.selectRequest(it) },

@@ -38,6 +38,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,7 +48,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -194,19 +197,6 @@ fun UsageScreen(
 
     val dimension = UsageDimension.values().firstOrNull { it.name == dimensionKey }
         ?: UsageDimension.MODELS
-    val rows = usageRows(usage, dimension, maskAccountNames)
-    // A sort key no row carries cannot order anything: its chip stays disabled, and a
-    // remembered selection falls back to a default sort that has data.
-    val fallbackSort = defaultSort(dimension, rows)
-    val sortOptions = availableUsageSorts(rows, fallbackSort)
-    val requestedSort = UsageSort.values().firstOrNull { it.name == sortKey }
-    val activeSort = when {
-        requestedSort != null && requestedSort in sortOptions -> requestedSort
-        fallbackSort in sortOptions -> fallbackSort
-        else -> sortOptions.firstOrNull() ?: fallbackSort
-    }
-    val sortedRows = sortRows(rows, activeSort)
-
     val cacheHitRate = MetricCalculators.formatPercent(
         MetricCalculators.calculateCacheHitRate(usage?.tokens)
     )
@@ -283,112 +273,136 @@ fun UsageScreen(
             label = "usageSubPage"
         ) { section ->
             when (section) {
-                UsageTab.USAGE -> Crossfade(
-                    targetState = selectedPeriod,
-                    animationSpec = tween(motionDuration(180)),
-                    label = "usagePeriod"
-                ) { period ->
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        state = usageListState,
-                        contentPadding = listPadding
-                    ) {
-                        item {
-                            CostCard(
-                                usage = usage,
-                                usageCost = usageCost,
-                                period = period,
-                                modifier = Modifier.padding(horizontal = MagpieDimensions.PagePadding)
-                            )
+                UsageTab.USAGE -> {
+                    // Only the usage sub-page derives these rows; the quota sub-page never pays
+                    // for them, and each input change recomputes the set once.
+                    val rows = remember(usage, dimension, maskAccountNames) {
+                        usageRows(usage, dimension, maskAccountNames)
+                    }
+                    // A sort key no row carries cannot order anything: its chip stays disabled, and
+                    // a remembered selection falls back to a default sort that has data.
+                    val fallbackSort = remember(dimension, rows) { defaultSort(dimension, rows) }
+                    val sortOptions = remember(rows, fallbackSort) {
+                        availableUsageSorts(rows, fallbackSort)
+                    }
+                    val requestedSort = remember(sortKey) {
+                        UsageSort.values().firstOrNull { it.name == sortKey }
+                    }
+                    val activeSort = remember(requestedSort, sortOptions, fallbackSort) {
+                        when {
+                            requestedSort != null && requestedSort in sortOptions -> requestedSort
+                            fallbackSort in sortOptions -> fallbackSort
+                            else -> sortOptions.firstOrNull() ?: fallbackSort
                         }
+                    }
+                    val sortedRows = remember(rows, activeSort) { sortRows(rows, activeSort) }
+                    Crossfade(
+                        targetState = selectedPeriod,
+                        animationSpec = tween(motionDuration(180)),
+                        label = "usagePeriod"
+                    ) { period ->
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            state = usageListState,
+                            contentPadding = listPadding
+                        ) {
+                            item {
+                                CostCard(
+                                    usage = usage,
+                                    usageCost = usageCost,
+                                    period = period,
+                                    modifier = Modifier.padding(horizontal = MagpieDimensions.PagePadding)
+                                )
+                            }
 
-                        item {
-                            TokenCard(
-                                usage = usage,
-                                cacheHitRate = cacheHitRate,
-                                usageDecodeSpeed = usageDecodeSpeed,
-                                modifier = Modifier
-                                    .padding(horizontal = MagpieDimensions.PagePadding)
-                                    .padding(top = 12.dp)
-                            )
+                            item {
+                                TokenCard(
+                                    usage = usage,
+                                    cacheHitRate = cacheHitRate,
+                                    usageDecodeSpeed = usageDecodeSpeed,
+                                    modifier = Modifier
+                                        .padding(horizontal = MagpieDimensions.PagePadding)
+                                        .padding(top = 12.dp)
+                                )
+                            }
+
+                            item {
+                                SectionHeader(
+                                    title = "趋势",
+                                    note = "按日",
+                                    modifier = Modifier
+                                        .padding(horizontal = MagpieDimensions.PagePadding)
+                                        .padding(top = 20.dp)
+                                )
+                            }
+
+                            item {
+                                TrendBlock(
+                                    usage = usage,
+                                    modifier = Modifier.padding(horizontal = MagpieDimensions.PagePadding)
+                                )
+                            }
+
+                            item {
+                                SectionHeader(
+                                    title = "明细",
+                                    modifier = Modifier
+                                        .padding(horizontal = MagpieDimensions.PagePadding)
+                                        .padding(top = 20.dp)
+                                )
+                            }
+
+                            item {
+                                ChipGrid(
+                                    options = UsageDimension.values().map { it.label },
+                                    selectedIndex = dimension.ordinal,
+                                    onSelect = { index ->
+                                        val next = UsageDimension.values().getOrNull(index)
+                                        if (next != null && next != dimension) {
+                                            dimensionKey = next.name
+                                            sortKey = defaultSort(
+                                                next,
+                                                usageRows(usage, next, maskAccountNames)
+                                            ).name
+                                            breakdownExpanded = false
+                                        }
+                                    },
+                                    modifier = Modifier.padding(horizontal = MagpieDimensions.PagePadding)
+                                )
+                            }
+
+                            item {
+                                SortSelector(
+                                    selected = activeSort,
+                                    options = sortOptions,
+                                    onSelect = { next ->
+                                        if (next != activeSort) {
+                                            sortKey = next.name
+                                            breakdownExpanded = false
+                                        }
+                                    },
+                                    modifier = Modifier
+                                        .padding(horizontal = MagpieDimensions.PagePadding)
+                                        .padding(top = 10.dp)
+                                )
+                            }
+
+                            item {
+                                DetailSection(
+                                    usage = usage,
+                                    sort = activeSort,
+                                    rows = sortedRows,
+                                    expanded = breakdownExpanded,
+                                    isLoading = isLoading,
+                                    onToggleExpanded = { breakdownExpanded = !breakdownExpanded },
+                                    modifier = Modifier
+                                        .padding(horizontal = MagpieDimensions.PagePadding)
+                                        .padding(top = 10.dp)
+                                )
+                            }
+
+                            item { Spacer(modifier = Modifier.height(8.dp)) }
                         }
-
-                        item {
-                            SectionHeader(
-                                title = "趋势",
-                                note = "按日",
-                                modifier = Modifier
-                                    .padding(horizontal = MagpieDimensions.PagePadding)
-                                    .padding(top = 20.dp)
-                            )
-                        }
-
-                        item {
-                            TrendBlock(
-                                usage = usage,
-                                modifier = Modifier.padding(horizontal = MagpieDimensions.PagePadding)
-                            )
-                        }
-
-                        item {
-                            SectionHeader(
-                                title = "明细",
-                                modifier = Modifier
-                                    .padding(horizontal = MagpieDimensions.PagePadding)
-                                    .padding(top = 20.dp)
-                            )
-                        }
-
-                        item {
-                            ChipGrid(
-                                options = UsageDimension.values().map { it.label },
-                                selectedIndex = dimension.ordinal,
-                                onSelect = { index ->
-                                    val next = UsageDimension.values().getOrNull(index)
-                                    if (next != null && next != dimension) {
-                                        dimensionKey = next.name
-                                        sortKey = defaultSort(
-                                            next,
-                                            usageRows(usage, next, maskAccountNames)
-                                        ).name
-                                        breakdownExpanded = false
-                                    }
-                                },
-                                modifier = Modifier.padding(horizontal = MagpieDimensions.PagePadding)
-                            )
-                        }
-
-                        item {
-                            SortSelector(
-                                selected = activeSort,
-                                options = sortOptions,
-                                onSelect = { next ->
-                                    if (next != activeSort) {
-                                        sortKey = next.name
-                                        breakdownExpanded = false
-                                    }
-                                },
-                                modifier = Modifier
-                                    .padding(horizontal = MagpieDimensions.PagePadding)
-                                    .padding(top = 10.dp)
-                            )
-                        }
-
-                        item {
-                            DetailSection(
-                                usage = usage,
-                                sort = activeSort,
-                                rows = sortedRows,
-                                expanded = breakdownExpanded,
-                                isLoading = isLoading,
-                                onToggleExpanded = { breakdownExpanded = !breakdownExpanded },
-                                modifier = Modifier
-                                    .padding(horizontal = MagpieDimensions.PagePadding)
-                                    .padding(top = 10.dp)
-                            )
-                        }
-
-                        item { Spacer(modifier = Modifier.height(8.dp)) }
                     }
                 }
 
@@ -997,7 +1011,7 @@ private fun QuotaOverviewRing(remaining: Double?, color: Color) {
         animationSpec = tween(motionDuration(760), easing = motionEaseOutCubic),
         label = "quotaRingSweep"
     )
-    val percent by animateFloatAsState(
+    val percent = animateFloatAsState(
         targetValue = if (entered && remaining != null) remaining.toFloat() else 0f,
         animationSpec = tween(motionDuration(760), easing = motionEaseOutCubic),
         label = "quotaRingPercent"
@@ -1034,15 +1048,10 @@ private fun QuotaOverviewRing(remaining: Double?, color: Color) {
             }
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = if (remaining == null) "—" else formatQuotaPercent(percent.toDouble()),
-                style = MagpieTypography.SubheadStyle.copy(
-                    fontSize = 22.sp,
-                    lineHeight = 26.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFeatureSettings = "tnum"
-                ),
-                color = if (remaining != null) color else colors.textTertiary
+            QuotaRingPercentText(
+                percent = percent,
+                remaining = remaining,
+                textColor = if (remaining != null) color else colors.textTertiary
             )
             Text(
                 text = "平均剩余",
@@ -1051,6 +1060,21 @@ private fun QuotaOverviewRing(remaining: Double?, color: Color) {
             )
         }
     }
+}
+
+/** Reads the animated share in its own scope, so a ring frame recomposes one text, not the arc. */
+@Composable
+private fun QuotaRingPercentText(percent: State<Float>, remaining: Double?, textColor: Color) {
+    Text(
+        text = if (remaining == null) "—" else formatQuotaPercent(percent.value.toDouble()),
+        style = MagpieTypography.SubheadStyle.copy(
+            fontSize = 22.sp,
+            lineHeight = 26.sp,
+            fontWeight = FontWeight.SemiBold,
+            fontFeatureSettings = "tnum"
+        ),
+        color = textColor
+    )
 }
 
 /** "全部供应商" and the switch that names how every card under it reads its number. */
@@ -1556,8 +1580,9 @@ private fun QuotaBar(
     val shape = RoundedCornerShape(height)
     val entered = rememberEntered()
     // A bar grows out of its track on entry and keeps animating later readings, so switching
-    // used/remaining slides the fill rather than jumping it.
-    val fraction by animateFloatAsState(
+    // used/remaining slides the fill rather than jumping it. The fill is drawn, not measured:
+    // the animated share is read in the draw pass, so a frame never re-lays out the row.
+    val fraction = animateFloatAsState(
         targetValue = if (entered && percent != null) {
             (percent / 100.0).coerceIn(0.0, 1.0).toFloat()
         } else {
@@ -1576,10 +1601,17 @@ private fun QuotaBar(
         if (percent != null) {
             Box(
                 modifier = Modifier
-                    .fillMaxWidth(fraction)
                     .fillMaxSize()
-                    .clip(shape)
-                    .background(color)
+                    .drawBehind {
+                        val filledWidth = size.width * fraction.value
+                        if (filledWidth > 0f) {
+                            drawRoundRect(
+                                color = color,
+                                size = Size(filledWidth, size.height),
+                                cornerRadius = CornerRadius(min(filledWidth, size.height) / 2f)
+                            )
+                        }
+                    }
             )
         }
     }
