@@ -325,10 +325,6 @@ fun MainAppRoot(viewModel: AppViewModel) {
                     isOnline = isOnline,
                     connectionStatus = connectionStatus,
                     isDemo = connectionConfig.mode == DataMode.DEMO,
-                    onToggleTheme = {
-                        val nextTheme = if (colors.isDark) ThemeMode.LIGHT else ThemeMode.DARK
-                        viewModel.updateTheme(nextTheme)
-                    },
                     onOpenMore = { viewModel.selectTab(AppTab.MORE) },
                     onOpenQuota = {
                         usageInitialSection = "quota"

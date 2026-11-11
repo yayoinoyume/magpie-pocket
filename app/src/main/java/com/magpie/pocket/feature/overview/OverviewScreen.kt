@@ -73,7 +73,6 @@ fun OverviewScreen(
     isOnline: Boolean,
     connectionStatus: ConnectionStatus,
     isDemo: Boolean,
-    onToggleTheme: () -> Unit,
     onOpenMore: () -> Unit,
     onOpenQuota: () -> Unit,
     onOpenRequest: (String) -> Unit,
