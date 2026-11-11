@@ -1,6 +1,7 @@
 package com.magpie.pocket.app
 
 import com.magpie.pocket.core.data.LiveMagpieRepository
+import com.magpie.pocket.core.data.mergeAccountSources
 import com.magpie.pocket.core.model.Account
 import com.magpie.pocket.core.model.AccountQuota
 import com.magpie.pocket.core.model.QuotaWindow
@@ -102,6 +103,20 @@ class QuotaProviderViewsTest {
             .first { it.providerId == "opencode-go" }
         assertEquals("OpenCode Go", providerOnly.label)
         assertFalse(providerOnly.label.contains("***"))
+    }
+
+    @Test
+    fun theRealGatewayAnswerNeverTurnsAProviderNameIntoAnAccount() = runBlocking {
+        val merged = mergeAccountSources(
+            groups = emptyList(),
+            usage = emptyList(),
+            quotas = realGatewayQuotas()
+        )
+
+        // Only the 13 rows that name a user become accounts; the six provider-only rows add none.
+        assertEquals(13, merged.size)
+        assertTrue(merged.none { it.alias == "OpenCode Go" })
+        assertTrue(merged.none { it.id == "opencode-go" })
     }
 
     @Test

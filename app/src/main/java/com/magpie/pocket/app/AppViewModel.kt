@@ -52,6 +52,7 @@ import com.magpie.pocket.core.network.ResourceNotFoundException
 import com.magpie.pocket.core.network.UnexpectedResponseException
 import com.magpie.pocket.core.security.CredentialStore
 import com.magpie.pocket.core.security.PreferencesManager
+import com.magpie.pocket.core.util.AppLog
 import com.magpie.pocket.core.util.MetricCalculators
 import com.magpie.pocket.core.util.RequestTimestamps
 import kotlinx.coroutines.CancellationException
@@ -65,6 +66,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
@@ -1672,8 +1674,18 @@ class AppViewModel(
         viewModelScope.launch { preferencesManager.updateReduceMotion(enabled) }
     }
 
+    /**
+     * The masking switch renders the stored preference, so a rejected write must not leave the
+     * page claiming a state the disk refused: record the failure and re-read what is stored.
+     */
     fun updateMaskAccounts(enabled: Boolean) {
-        viewModelScope.launch { preferencesManager.updateMaskAccounts(enabled) }
+        viewModelScope.launch {
+            val saved = runCatching { preferencesManager.updateMaskAccounts(enabled) }
+            val error = saved.exceptionOrNull() ?: return@launch
+            AppLog.warn("mask account names was not saved", error)
+            runCatching { preferencesManager.displayPreferencesFlow.first() }
+                .onSuccess { stored -> _displayPreferences.value = stored }
+        }
     }
 
     /**

@@ -8,6 +8,7 @@ import com.magpie.pocket.core.network.MagpieApiClient
 import com.magpie.pocket.core.network.MagpieTiming
 import com.magpie.pocket.core.security.CredentialStore
 import com.magpie.pocket.core.security.PreferencesManager
+import com.magpie.pocket.core.util.AppLog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -49,6 +50,7 @@ class MagpieApplication : Application() {
         // debuggable builds so a release APK stays quiet.
         if ((applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
             MagpieTiming.logger = { line -> Log.d(TIMING_TAG, line) }
+            AppLog.logger = { message, error -> Log.w(LOG_TAG, message, error) }
         }
 
         credentialStore = CredentialStore(this)
@@ -63,6 +65,7 @@ class MagpieApplication : Application() {
 
     companion object {
         private const val TIMING_TAG = "MagpieTiming"
+        private const val LOG_TAG = "MagpiePocket"
 
         lateinit var instance: MagpieApplication
             private set

@@ -106,7 +106,9 @@ fun UsageScreen(
     val maskAccountNames = MagpieTheme.preferences.maskAccountNames
     val listState = rememberLazyListState()
 
-    var selectedQuotaDetail by remember { mutableStateOf<AccountQuotaView?>(null) }
+    // Only the key is held: the sheet renders the row from the latest list, so a masking change
+    // or a refresh lands while it stays open.
+    var selectedQuotaKey by remember { mutableStateOf<String?>(null) }
     var dimensionKey by rememberSaveable { mutableStateOf(UsageDimension.MODELS.name) }
     var sortKey by rememberSaveable { mutableStateOf("") }
     var breakdownExpanded by rememberSaveable { mutableStateOf(false) }
@@ -289,7 +291,7 @@ fun UsageScreen(
                 allUnlimited = allUnlimited,
                 expanded = accountsExpanded,
                 onToggleExpanded = { accountsExpanded = !accountsExpanded },
-                onOpenDetail = { selectedQuotaDetail = it },
+                onOpenDetail = { selectedQuotaKey = it.providerId },
                 modifier = Modifier.padding(horizontal = MagpieDimensions.PagePadding)
             )
         }
@@ -297,11 +299,18 @@ fun UsageScreen(
         item { Spacer(modifier = Modifier.height(8.dp)) }
     }
 
-    val detailProvider = selectedQuotaDetail
+    val detailProvider = selectedQuotaKey?.let { key ->
+        accountQuotas.firstOrNull { it.providerId == key }
+    }
+    // A provider that left the list has no row left to show: close the sheet instead of
+    // keeping a snapshot of a number the page no longer reports.
+    LaunchedEffect(selectedQuotaKey, detailProvider) {
+        if (selectedQuotaKey != null && detailProvider == null) selectedQuotaKey = null
+    }
     if (detailProvider != null) {
         QuotaDetailSheet(
             view = detailProvider,
-            onDismiss = { selectedQuotaDetail = null }
+            onDismiss = { selectedQuotaKey = null }
         )
     }
 }
