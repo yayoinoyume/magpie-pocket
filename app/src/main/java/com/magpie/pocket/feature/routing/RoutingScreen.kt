@@ -177,11 +177,14 @@ fun RoutingScreen(
         if (settle != null && !settleMotion) onConsumeSettle(settle.token)
     }
 
+    // A delegated property cannot be smart cast: hold the reading once so the branches below
+    // narrow it like any other local.
+    val traceSnapshot = trace
     val presentation = when {
         !isOnline -> Triple("离线", colors.warning, colors.warningSurface)
-        trace == null && isLoading -> Triple("同步中", colors.textSecondary, colors.surfaceSubtle)
-        trace == null -> Triple("未连接", colors.warning, colors.warningSurface)
-        trace.observable == false -> Triple("不可观测", colors.warning, colors.warningSurface)
+        traceSnapshot == null && isLoading -> Triple("同步中", colors.textSecondary, colors.surfaceSubtle)
+        traceSnapshot == null -> Triple("未连接", colors.warning, colors.warningSurface)
+        traceSnapshot.observable == false -> Triple("不可观测", colors.warning, colors.warningSurface)
         isDemo -> Triple("演示", colors.success, colors.successSurface)
         else -> Triple("实时", colors.success, colors.successSurface)
     }
