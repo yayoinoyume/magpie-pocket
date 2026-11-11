@@ -83,5 +83,34 @@ class ContextSegmentsTest {
         assertEquals(listOf("会话", "文件", "工具"), segments.map { it.label })
     }
 
+    @Test
+    fun fourPartsFoldOnlyTheSmallestIntoOneMergedSegment() {
+        val segments = contextSegments(
+            listOf(part("system", 40), part("tools", 30), part("chat", 20), part("files", 10)),
+            totalTokens = 100
+        )
+        assertEquals(3, segments.size)
+        assertEquals(listOf("系统提示", "工具", "其他"), segments.map { it.label })
+        assertEquals(listOf(40L, 30L, 30L), segments.map { it.tokens })
+        assertFalse(segments[0].merged)
+        assertFalse(segments[1].merged)
+        assertTrue(segments[2].merged)
+    }
+
+    @Test
+    fun zeroTotalTokensMeansNoSegments() {
+        assertTrue(contextSegments(listOf(part("system", 10)), totalTokens = 0).isEmpty())
+    }
+
+    @Test
+    fun mergedTailUsesAnotherLabelWhenOtherIsAlreadyShown() {
+        val segments = contextSegments(
+            listOf(part("other", 50), part("system", 30), part("tools", 15), part("chat", 5)),
+            totalTokens = 100
+        )
+        assertEquals(listOf("其他", "系统提示", "其余"), segments.map { it.label })
+        assertTrue(segments[2].merged)
+    }
+
     private fun part(kind: String, tokens: Long) = ContextPart(kind = kind, tokens = tokens)
 }

@@ -1158,7 +1158,7 @@ private fun DecisionRow(evidence: List<String>, summary: RequestSummary?, onOpen
     }
 }
 
-/** One bar segment; [merged] marks the folded tail shown as "其他". */
+/** One bar segment; [merged] marks the folded tail shown as "其他" or "其余". */
 internal data class ContextSegment(
     val label: String,
     val tokens: Long,
@@ -1168,6 +1168,7 @@ internal data class ContextSegment(
 /**
  * Keeps the bar readable: the two largest parts stay separate and every remaining
  * part folds into one merged slice, so a five-part context still shows three segments.
+ * Exactly three parts stay separate; only four or more fold their tail.
  */
 internal fun contextSegments(parts: List<ContextPart>, totalTokens: Long): List<ContextSegment> {
     if (parts.isEmpty() || totalTokens <= 0L) return emptyList()
@@ -1177,11 +1178,12 @@ internal fun contextSegments(parts: List<ContextPart>, totalTokens: Long): List<
     if (ranked.size <= 3) {
         return ranked.map { ContextSegment(it.kind.contextLabel(), it.tokens, merged = false) }
     }
-    return listOf(
-        ContextSegment(ranked[0].kind.contextLabel(), ranked[0].tokens, merged = false),
-        ContextSegment(ranked[1].kind.contextLabel(), ranked[1].tokens, merged = false),
-        ContextSegment("其他", ranked.drop(2).sumOf { it.tokens }, merged = true)
-    )
+    val head = ranked.take(2).map {
+        ContextSegment(it.kind.contextLabel(), it.tokens, merged = false)
+    }
+    // A kind named "other" also labels as "其他"; the merged slice must not shadow it.
+    val mergedLabel = if (head.any { it.label == "其他" }) "其余" else "其他"
+    return head + ContextSegment(mergedLabel, ranked.drop(2).sumOf { it.tokens }, merged = true)
 }
 
 /** Three-segment context bar; the window limit stays beside the legend. */
@@ -1216,7 +1218,29 @@ private fun ContextSection(context: ContextBreakdown) {
         animationSpec = tween(motionDuration(700), easing = motionEaseOutCubic),
         label = "contextEntrance"
     )
+    val windowLabel = if (context.windowLimit != null) {
+        "窗口 ${MetricCalculators.formatCompactNumber(context.windowLimit)}"
+    } else {
+        "窗口上限未知"
+    }
     Column(modifier = Modifier.fillMaxWidth()) {
+        if (segments.isEmpty()) {
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    text = "暂无构成明细",
+                    style = MagpieTypography.LabelStyle,
+                    color = colors.textSecondary,
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = windowLabel,
+                    fontSize = MagpieTypography.CaptionStyle.fontSize,
+                    color = colors.textSecondary
+                )
+            }
+            return@Column
+        }
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1264,11 +1288,7 @@ private fun ContextSection(context: ContextBreakdown) {
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = if (context.windowLimit != null) {
-                    "窗口 ${MetricCalculators.formatCompactNumber(context.windowLimit)}"
-                } else {
-                    "窗口上限未知"
-                },
+                text = windowLabel,
                 fontSize = MagpieTypography.CaptionStyle.fontSize,
                 color = colors.textSecondary
             )
