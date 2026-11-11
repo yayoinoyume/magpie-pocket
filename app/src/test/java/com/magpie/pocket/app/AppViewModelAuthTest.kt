@@ -45,7 +45,9 @@ import java.util.concurrent.atomic.AtomicInteger
 class AppViewModelAuthTest {
 
     @get:org.junit.Rule
-    val testTimeout = org.junit.rules.Timeout.seconds(10)
+    // A full-suite rerun on a cold JVM is slower than an isolated class: the MockWebServer
+    // handshakes and the Unconfined dispatcher warm-up pushed this class past ten seconds.
+    val testTimeout = org.junit.rules.Timeout.seconds(30)
 
     private val testDispatcher = UnconfinedTestDispatcher()
     private lateinit var server: MockWebServer
@@ -223,14 +225,14 @@ class AppViewModelAuthTest {
 
         val status = viewModel.connectionStatus.first { it.health != ConnectionHealth.CONNECTING }
         assertEquals(ConnectionHealth.CONNECTED, status.health)
-        kotlinx.coroutines.withTimeout(5000) {
+        kotlinx.coroutines.withTimeout(20_000) {
             viewModel.requestsPage.first { it != null }
         }
         // The optional probe answers after the panels now; wait for its 404 verdict.
-        val caps = kotlinx.coroutines.withTimeout(5000) {
+        val caps = kotlinx.coroutines.withTimeout(20_000) {
             viewModel.capabilities.first { it?.groups == false && it?.trace == false }
         }!!
-        val trace = kotlinx.coroutines.withTimeout(5000) {
+        val trace = kotlinx.coroutines.withTimeout(20_000) {
             viewModel.trace.first { it != null }
         }!!
         assertFalse(trace.observable)
@@ -261,7 +263,7 @@ class AppViewModelAuthTest {
         assertEquals(ConnectionHealth.CONNECTING, viewModel.connectionStatus.value.health)
         assertFalse(viewModel.isOnline.value)
         gate.countDown()
-        kotlinx.coroutines.withTimeout(5000) {
+        kotlinx.coroutines.withTimeout(20_000) {
             viewModel.connectionStatus.first { it.health == ConnectionHealth.CONNECTED }
         }
         Unit
@@ -330,7 +332,7 @@ class AppViewModelAuthTest {
 
             server.dispatcher = currentDispatcher()
             viewModel.saveConnection(liveConfig("new"))
-            kotlinx.coroutines.withTimeout(5000) {
+            kotlinx.coroutines.withTimeout(20_000) {
                 viewModel.connectionStatus.first { it.health == ConnectionHealth.CONNECTED }
             }
             oldGate.countDown()
@@ -369,21 +371,21 @@ class AppViewModelAuthTest {
         }
         val viewModel = newViewModel(AuthFakeCredentialStore(liveConfig("early-connected")))
         try {
-            kotlinx.coroutines.withTimeout(5000) {
+            kotlinx.coroutines.withTimeout(20_000) {
                 viewModel.connectionStatus.first { it.health == ConnectionHealth.CONNECTED }
             }
             // The trace is seeded from the probe, so it does not wait for the blocked
             // group list either.
-            kotlinx.coroutines.withTimeout(5000) { viewModel.trace.first { it != null } }
+            kotlinx.coroutines.withTimeout(20_000) { viewModel.trace.first { it != null } }
             assertTrue(viewModel.isOnline.value)
             // Panels now start on `/api/state`; only the group-backed rows are still absent.
-            kotlinx.coroutines.withTimeout(5000) { viewModel.requestsPage.first { it != null } }
+            kotlinx.coroutines.withTimeout(20_000) { viewModel.requestsPage.first { it != null } }
             assertTrue(viewModel.groups.value.isEmpty())
         } finally {
             groupsGate.countDown()
         }
         // Releasing the probe still fills the rest of the snapshot.
-        kotlinx.coroutines.withTimeout(5000) { viewModel.requestsPage.first { it != null } }
+        kotlinx.coroutines.withTimeout(20_000) { viewModel.requestsPage.first { it != null } }
         assertEquals(ConnectionHealth.CONNECTED, viewModel.connectionStatus.value.health)
     }
 
@@ -412,12 +414,12 @@ class AppViewModelAuthTest {
         }
         val viewModel = newViewModel(AuthFakeCredentialStore(liveConfig("early-panels")))
         try {
-            kotlinx.coroutines.withTimeout(5000) {
+            kotlinx.coroutines.withTimeout(20_000) {
                 viewModel.connectionStatus.first { it.health == ConnectionHealth.CONNECTED }
             }
             // The ledger does not depend on the group list and must land while groups is held.
-            kotlinx.coroutines.withTimeout(5000) { viewModel.requestsPage.first { it != null } }
-            kotlinx.coroutines.withTimeout(5000) {
+            kotlinx.coroutines.withTimeout(20_000) { viewModel.requestsPage.first { it != null } }
+            kotlinx.coroutines.withTimeout(20_000) {
                 while ((reads["/api/groups"]?.get() ?: 0) == 0) kotlinx.coroutines.delay(10)
             }
             assertTrue(viewModel.groups.value.isEmpty())
@@ -426,7 +428,7 @@ class AppViewModelAuthTest {
         } finally {
             groupsGate.countDown()
         }
-        val groups = kotlinx.coroutines.withTimeout(5000) {
+        val groups = kotlinx.coroutines.withTimeout(20_000) {
             viewModel.groups.first { it.isNotEmpty() }
         }
         assertEquals("coding", groups.single().id)
@@ -454,9 +456,9 @@ class AppViewModelAuthTest {
         val viewModel = newViewModel(AuthFakeCredentialStore(liveConfig("one-broken")))
 
         // The group list and the ledger land even though the quota panel is broken.
-        kotlinx.coroutines.withTimeout(5000) { viewModel.groups.first { it.isNotEmpty() } }
-        kotlinx.coroutines.withTimeout(5000) { viewModel.requestsPage.first { it != null } }
-        val caps = kotlinx.coroutines.withTimeout(5000) {
+        kotlinx.coroutines.withTimeout(20_000) { viewModel.groups.first { it.isNotEmpty() } }
+        kotlinx.coroutines.withTimeout(20_000) { viewModel.requestsPage.first { it != null } }
+        val caps = kotlinx.coroutines.withTimeout(20_000) {
             viewModel.capabilities.first { it?.usage != null }
         }!!
         assertEquals(true, caps.usage)
@@ -481,7 +483,7 @@ class AppViewModelAuthTest {
         }
         val viewModel = newViewModel(AuthFakeCredentialStore(liveConfig("no-quotas")))
 
-        val caps = kotlinx.coroutines.withTimeout(5000) {
+        val caps = kotlinx.coroutines.withTimeout(20_000) {
             viewModel.capabilities.first { it?.quotas == false }
         }!!
         assertEquals(true, caps.usage)
@@ -521,7 +523,7 @@ class AppViewModelAuthTest {
         }
         val viewModel = newViewModel(AuthFakeCredentialStore(liveConfig("unknown-panels")))
         try {
-            val probed = kotlinx.coroutines.withTimeout(5000) {
+            val probed = kotlinx.coroutines.withTimeout(20_000) {
                 viewModel.capabilities.first { it != null }
             }!!
             assertNull(probed.usage)
@@ -533,7 +535,7 @@ class AppViewModelAuthTest {
             usageGate.countDown()
         }
 
-        val resolved = kotlinx.coroutines.withTimeout(5000) {
+        val resolved = kotlinx.coroutines.withTimeout(20_000) {
             viewModel.capabilities.first { it?.usage == true }
         }!!
         assertEquals(true, resolved.ledger)
@@ -564,8 +566,8 @@ class AppViewModelAuthTest {
             }
         }
         val viewModel = newViewModel(AuthFakeCredentialStore(liveConfig("one-each")))
-        kotlinx.coroutines.withTimeout(5000) { viewModel.requestsPage.first { it != null } }
-        kotlinx.coroutines.withTimeout(5000) { viewModel.quotas.first { it.isNotEmpty() } }
+        kotlinx.coroutines.withTimeout(20_000) { viewModel.requestsPage.first { it != null } }
+        kotlinx.coroutines.withTimeout(20_000) { viewModel.quotas.first { it.isNotEmpty() } }
 
         assertEquals(1, reads["/api/state"]?.get() ?: 0)
         assertEquals(1, reads["/api/groups"]?.get() ?: 0)
@@ -614,8 +616,8 @@ class AppViewModelAuthTest {
 
         viewModel.saveConnection(liveConfig("seeded"), probeClient, probe)
 
-        kotlinx.coroutines.withTimeout(5000) { viewModel.groups.first { it.isNotEmpty() } }
-        kotlinx.coroutines.withTimeout(5000) { viewModel.requestsPage.first { it != null } }
+        kotlinx.coroutines.withTimeout(20_000) { viewModel.groups.first { it.isNotEmpty() } }
+        kotlinx.coroutines.withTimeout(20_000) { viewModel.requestsPage.first { it != null } }
         // The sheet already read these bodies; the first refresh must not ask again.
         assertEquals(0, reads["/api/state"]?.get() ?: 0)
         assertEquals(0, reads["/api/groups"]?.get() ?: 0)
@@ -633,7 +635,7 @@ class AppViewModelAuthTest {
         assertEquals(AppTab.USAGE, viewModel.activeTab.first { it == AppTab.USAGE })
 
         viewModel.selectTab(AppTab.REQUESTS)
-        kotlinx.coroutines.withTimeout(5000) {
+        kotlinx.coroutines.withTimeout(20_000) {
             preferences.savedTabState.first { it == "REQUESTS" }
         }
         assertEquals("REQUESTS", preferences.savedTab)
@@ -661,7 +663,7 @@ class AppViewModelAuthTest {
             }
         }
         val viewModel = newViewModel(AuthFakeCredentialStore(liveConfig("period-switch")))
-        kotlinx.coroutines.withTimeout(5000) {
+        kotlinx.coroutines.withTimeout(20_000) {
             viewModel.overview.first { it != null }
             viewModel.usage.first { it != null }
         }
@@ -670,7 +672,7 @@ class AppViewModelAuthTest {
 
         viewModel.setPeriod(com.magpie.pocket.core.model.Period.SEVEN_DAYS)
 
-        kotlinx.coroutines.withTimeout(5000) {
+        kotlinx.coroutines.withTimeout(20_000) {
             viewModel.usage.first {
                 it?.period == com.magpie.pocket.core.model.Period.SEVEN_DAYS
             }
@@ -699,7 +701,7 @@ class AppViewModelAuthTest {
         }
         val viewModel = newViewModel(AuthFakeCredentialStore(liveConfig("accounts-merge")))
 
-        val accounts = kotlinx.coroutines.withTimeout(5000) {
+        val accounts = kotlinx.coroutines.withTimeout(20_000) {
             viewModel.accounts.first { it.isNotEmpty() }
         }
         // The group answer names no account; the usage breakdown names the one with traffic.
@@ -776,7 +778,7 @@ class AppViewModelAuthTest {
                 )
             )
             val viewModel = newViewModel(store, clients)
-            kotlinx.coroutines.withTimeout(5000) {
+            kotlinx.coroutines.withTimeout(20_000) {
                 viewModel.connectionStatus.first { it.health == ConnectionHealth.CONNECTED }
             }
             assertTrue(clients.single().cookieJar.loadForRequest(firstServer.url("/")).isNotEmpty())
