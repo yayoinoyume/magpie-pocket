@@ -160,6 +160,15 @@ class LiveMagpieRepository(
                     onTraceProbed = { snapshot ->
                         // Store the snapshot before waking the loop so the loop can seed from it.
                         traceSeed = snapshot
+                        // Wake the loop on the trace answer itself, not after the group list:
+                        // a slow `/api/groups` must not postpone the live feed.
+                        if (snapshot == null) {
+                            traceWaiter.completeExceptionally(
+                                ResourceNotFoundException("路由追踪不可用")
+                            )
+                        } else {
+                            traceWaiter.complete(snapshot)
+                        }
                         if (snapshot?.mine == true) onTraceProbeReady()
                     },
                     loadGroups = {
@@ -169,15 +178,8 @@ class LiveMagpieRepository(
                         }.also { probeGroups = it }
                     }
                 )
-                // Null means the probe's trace read answered 404. Report that directly so
-                // the loop does not pay for a second `after=0` read just to learn the same.
-                if (trace == null) {
-                    traceWaiter.completeExceptionally(
-                        ResourceNotFoundException("路由追踪不可用")
-                    )
-                } else {
-                    traceWaiter.complete(trace)
-                }
+                // The trace waiter was already woken inside onTraceProbed; this callback
+                // only needs both bodies so the capability rows can settle.
                 onProbePanelsReady(groups != null, trace?.mine == true)
             } catch (e: CancellationException) {
                 traceWaiter.complete(null)
