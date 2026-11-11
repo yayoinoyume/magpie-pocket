@@ -34,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -53,6 +54,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.magpie.pocket.core.model.DisplayPreferences
 import com.magpie.pocket.core.model.ThemeMode
 
@@ -433,6 +435,63 @@ fun SegmentedControl(
                         modifier = Modifier.padding(horizontal = 4.dp)
                     )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * Text tabs with a 2dp underline under the selected label. Each slot is 44dp tall, so the label
+ * carries its own touch target, and the underline follows the text, not the slot.
+ */
+@Composable
+fun UnderlineTabs(
+    options: List<String>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    if (options.isEmpty()) return
+    val colors = MagpieTheme.colors
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .padding(start = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(22.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        options.forEachIndexed { index, label ->
+            val selected = index == selectedIndex
+            Box(
+                modifier = Modifier
+                    .height(44.dp)
+                    .selectable(
+                        selected = selected,
+                        role = Role.RadioButton,
+                        onClick = { onSelect(index) }
+                    )
+                    .drawBehind {
+                        if (selected) {
+                            val y = size.height - 3.dp.toPx()
+                            drawLine(
+                                color = colors.accent,
+                                start = Offset(0f, y),
+                                end = Offset(size.width, y),
+                                strokeWidth = 2.dp.toPx(),
+                                cap = StrokeCap.Round
+                            )
+                        }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = label,
+                    style = MagpieTypography.SubheadStyle.copy(fontSize = 14.sp),
+                    color = if (selected) colors.textPrimary else colors.textSecondary,
+                    fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
+                    maxLines = 1
+                )
             }
         }
     }
@@ -1033,6 +1092,37 @@ private fun SegmentedControlDarkPreview() {
     PatternPreview(dark = true) {
         SegmentedControl(
             options = listOf("7 天", "30 天", "90 天", "全部"),
+            selectedIndex = 1,
+            onSelect = {},
+            modifier = Modifier.padding(horizontal = 16.dp)
+        )
+    }
+}
+
+@Preview(name = "UnderlineTabs light", showBackground = true, widthDp = 390)
+@Composable
+private fun UnderlineTabsLightPreview() {
+    PatternPreview(dark = false) {
+        UnderlineTabs(
+            options = listOf("今日", "近 7 天", "近 30 天", "全部"),
+            selectedIndex = 1,
+            onSelect = {},
+            modifier = Modifier.padding(horizontal = 16.dp)
+        )
+    }
+}
+
+@Preview(
+    name = "UnderlineTabs dark",
+    showBackground = true,
+    widthDp = 390,
+    uiMode = Configuration.UI_MODE_NIGHT_YES
+)
+@Composable
+private fun UnderlineTabsDarkPreview() {
+    PatternPreview(dark = true) {
+        UnderlineTabs(
+            options = listOf("今日", "近 7 天", "近 30 天", "全部"),
             selectedIndex = 1,
             onSelect = {},
             modifier = Modifier.padding(horizontal = 16.dp)

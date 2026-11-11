@@ -59,6 +59,7 @@ import com.magpie.pocket.core.design.MagpieTheme
 import com.magpie.pocket.core.design.MagpieTypography
 import com.magpie.pocket.core.design.SectionHeader
 import com.magpie.pocket.core.design.SegmentedControl
+import com.magpie.pocket.core.design.UnderlineTabs
 import com.magpie.pocket.core.design.springPress
 import com.magpie.pocket.core.model.AccountQuotaView
 import com.magpie.pocket.core.model.CostDisplay
@@ -72,8 +73,10 @@ import com.magpie.pocket.core.util.MetricCalculators
 import com.magpie.pocket.core.util.RequestTimestamps
 import java.util.Locale
 
-/** Fixed LazyColumn row of the "额度健康" header; the "quota" anchor scrolls to it. */
-private const val QuotaSectionItemIndex = 11
+/** The two sub-pages of the usage page; the capsule under the title switches between them. */
+enum class UsageTab { USAGE, QUOTA }
+
+private val usageTabOptions = listOf("用量", "额度")
 
 private val periodOptions = listOf(
     Period.TODAY to "今日",
@@ -83,11 +86,42 @@ private val periodOptions = listOf(
 )
 
 /**
- * Usage page: one period at a time -> spend and tokens -> daily trend -> ranked detail ->
- * quota health. Quotas are a snapshot of now and never follow the selected period.
+ * The sub-page a deep link asks for: only "quota" names one, and every other value lands on
+ * usage, which is the page's own default.
+ */
+internal fun usageTabFor(section: String?): UsageTab =
+    if (section == "quota") UsageTab.QUOTA else UsageTab.USAGE
+
+/**
+ * What the header says the numbers below cover: the selected period and the requests behind it.
+ * A period with no buckets yet names itself alone, so a missing answer never reads as "0 次请求".
+ */
+internal fun usageSubtitle(period: Period, usage: UsageSnapshot?): String {
+    val label = periodOptions.firstOrNull { it.first == period }?.second ?: return ""
+    val buckets = usage?.dailyTrends.orEmpty()
+    if (buckets.isEmpty()) return label
+    return label + " · " + buckets.sumOf { it.completedRequests } + " 次请求"
+}
+
+/** Quotas are a snapshot of now: only providers that answered with a window are counted. */
+internal fun quotaSubtitle(accountQuotas: List<AccountQuotaView>): String {
+    val reporting = providersWithWindows(accountQuotas)
+    return if (reporting > 0) "实时快照 · " + reporting + " 个供应商" else "实时快照"
+}
+
+/** Providers that reported at least one window; a provider without one is counted nowhere. */
+private fun providersWithWindows(rows: List<AccountQuotaView>): Int =
+    rows.count { it.windows.isNotEmpty() }
+
+/**
+ * Usage page in two sub-pages, switched by the capsule under the title.
  *
- * The LazyColumn item order is fixed so [initialSection] == "quota" can scroll to
- * [QuotaSectionItemIndex]; keep both in sync when adding a section.
+ * 用量: one period at a time -> spend and tokens -> daily trend -> ranked detail. The period
+ * tabs sit above the list, so they stay where they are while the numbers scroll.
+ * 额度: a snapshot of now that never follows the selected period.
+ *
+ * Each sub-page owns its LazyColumn and its offset, so switching never moves the other list.
+ * [initialSection] == "quota" opens the quota sub-page directly.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -109,7 +143,11 @@ fun UsageScreen(
 ) {
     val colors = MagpieTheme.colors
     val maskAccountNames = MagpieTheme.preferences.maskAccountNames
-    val listState = rememberLazyListState()
+    // Both offsets are declared here and always composed: a sub-page that leaves the screen has
+    // to keep its own for the trip back.
+    val usageListState = rememberLazyListState()
+    val quotaListState = rememberLazyListState()
+    var tab by rememberSaveable { mutableStateOf(usageTabFor(initialSection)) }
 
     // Only the key is held: the sheet renders the row from the latest list, so a masking change
     // or a refresh lands while it stays open.
@@ -145,165 +183,215 @@ fun UsageScreen(
         MetricCalculators.calculateCacheHitRate(usage?.tokens)
     )
 
+    // The anchor opens the quota sub-page once, then reports itself consumed.
     LaunchedEffect(initialSection) {
-        if (initialSection == "quota") {
-            listState.animateScrollToItem(QuotaSectionItemIndex)
+        if (usageTabFor(initialSection) == UsageTab.QUOTA) {
+            tab = UsageTab.QUOTA
             onSectionConsumed()
         }
     }
 
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        state = listState,
-        contentPadding = contentPadding,
-        verticalArrangement = Arrangement.spacedBy(0.dp)
-    ) {
-        item {
+    Column(modifier = modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = contentPadding.calculateTopPadding())
+        ) {
             MagpiePageHeader(
                 title = "用量",
-                subtitle = "一段时间",
+                subtitle = when (tab) {
+                    UsageTab.USAGE -> usageSubtitle(selectedPeriod, usage)
+                    UsageTab.QUOTA -> quotaSubtitle(accountQuotas)
+                },
                 actions = {
                     if (isDemo) DemoBadge()
                 }
             )
-        }
-
-        item {
             SegmentedControl(
-                options = periodOptions.map { it.second },
-                selectedIndex = periodOptions.indexOfFirst { it.first == selectedPeriod },
+                options = usageTabOptions,
+                selectedIndex = tab.ordinal,
                 onSelect = { index ->
-                    periodOptions.getOrNull(index)?.first?.let(onPeriodChange)
+                    UsageTab.values().getOrNull(index)?.let { tab = it }
                 },
-                modifier = Modifier
-                    .padding(horizontal = MagpieDimensions.PagePadding)
-                    .padding(top = 16.dp)
-            )
-        }
-
-        item {
-            CostCard(
-                usage = usage,
-                usageCost = usageCost,
-                period = selectedPeriod,
-                modifier = Modifier
-                    .padding(horizontal = MagpieDimensions.PagePadding)
-                    .padding(top = 16.dp)
-            )
-        }
-
-        item {
-            TokenCard(
-                usage = usage,
-                cacheHitRate = cacheHitRate,
-                usageDecodeSpeed = usageDecodeSpeed,
-                modifier = Modifier
-                    .padding(horizontal = MagpieDimensions.PagePadding)
-                    .padding(top = 12.dp)
-            )
-        }
-
-        item {
-            SectionHeader(
-                title = "趋势",
-                note = "按日",
-                modifier = Modifier
-                    .padding(horizontal = MagpieDimensions.PagePadding)
-                    .padding(top = 20.dp)
-            )
-        }
-
-        item {
-            TrendBlock(
-                usage = usage,
                 modifier = Modifier.padding(horizontal = MagpieDimensions.PagePadding)
             )
+            if (tab == UsageTab.USAGE) {
+                UnderlineTabs(
+                    options = periodOptions.map { it.second },
+                    selectedIndex = periodOptions.indexOfFirst { it.first == selectedPeriod },
+                    onSelect = { index ->
+                        periodOptions.getOrNull(index)?.first?.let(onPeriodChange)
+                    },
+                    modifier = Modifier
+                        .padding(horizontal = MagpieDimensions.PagePadding)
+                        .padding(top = 14.dp)
+                )
+            }
         }
 
-        item {
-            SectionHeader(
-                title = "明细",
-                modifier = Modifier
-                    .padding(horizontal = MagpieDimensions.PagePadding)
-                    .padding(top = 20.dp)
-            )
-        }
+        // Whatever stays fixed over a list ends 14dp above it, and the list keeps the page's
+        // bottom inset so the floating navigation never covers a last row.
+        val listPadding = PaddingValues(
+            top = 14.dp,
+            bottom = contentPadding.calculateBottomPadding()
+        )
 
-        item {
-            ChipGrid(
-                options = UsageDimension.values().map { it.label },
-                selectedIndex = dimension.ordinal,
-                onSelect = { index ->
-                    val next = UsageDimension.values().getOrNull(index)
-                    if (next != null && next != dimension) {
-                        dimensionKey = next.name
-                        sortKey = defaultSort(
-                            next,
-                            usageRows(usage, next, maskAccountNames)
-                        ).name
-                        breakdownExpanded = false
+        when (tab) {
+            UsageTab.USAGE -> LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                state = usageListState,
+                contentPadding = listPadding
+            ) {
+                item {
+                    CostCard(
+                        usage = usage,
+                        usageCost = usageCost,
+                        period = selectedPeriod,
+                        modifier = Modifier.padding(horizontal = MagpieDimensions.PagePadding)
+                    )
+                }
+
+                item {
+                    TokenCard(
+                        usage = usage,
+                        cacheHitRate = cacheHitRate,
+                        usageDecodeSpeed = usageDecodeSpeed,
+                        modifier = Modifier
+                            .padding(horizontal = MagpieDimensions.PagePadding)
+                            .padding(top = 12.dp)
+                    )
+                }
+
+                item {
+                    SectionHeader(
+                        title = "趋势",
+                        note = "按日",
+                        modifier = Modifier
+                            .padding(horizontal = MagpieDimensions.PagePadding)
+                            .padding(top = 20.dp)
+                    )
+                }
+
+                item {
+                    TrendBlock(
+                        usage = usage,
+                        modifier = Modifier.padding(horizontal = MagpieDimensions.PagePadding)
+                    )
+                }
+
+                item {
+                    SectionHeader(
+                        title = "明细",
+                        modifier = Modifier
+                            .padding(horizontal = MagpieDimensions.PagePadding)
+                            .padding(top = 20.dp)
+                    )
+                }
+
+                item {
+                    ChipGrid(
+                        options = UsageDimension.values().map { it.label },
+                        selectedIndex = dimension.ordinal,
+                        onSelect = { index ->
+                            val next = UsageDimension.values().getOrNull(index)
+                            if (next != null && next != dimension) {
+                                dimensionKey = next.name
+                                sortKey = defaultSort(
+                                    next,
+                                    usageRows(usage, next, maskAccountNames)
+                                ).name
+                                breakdownExpanded = false
+                            }
+                        },
+                        modifier = Modifier.padding(horizontal = MagpieDimensions.PagePadding)
+                    )
+                }
+
+                item {
+                    SortSelector(
+                        selected = activeSort,
+                        options = sortOptions,
+                        onSelect = { next ->
+                            if (next != activeSort) {
+                                sortKey = next.name
+                                breakdownExpanded = false
+                            }
+                        },
+                        modifier = Modifier
+                            .padding(horizontal = MagpieDimensions.PagePadding)
+                            .padding(top = 10.dp)
+                    )
+                }
+
+                item {
+                    DetailSection(
+                        usage = usage,
+                        sort = activeSort,
+                        rows = sortedRows,
+                        expanded = breakdownExpanded,
+                        isLoading = isLoading,
+                        onToggleExpanded = { breakdownExpanded = !breakdownExpanded },
+                        modifier = Modifier
+                            .padding(horizontal = MagpieDimensions.PagePadding)
+                            .padding(top = 10.dp)
+                    )
+                }
+
+                item { Spacer(modifier = Modifier.height(8.dp)) }
+            }
+
+            UsageTab.QUOTA -> LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                state = quotaListState,
+                contentPadding = listPadding
+            ) {
+                item {
+                    QuotaOverviewCard(
+                        rows = accountQuotas,
+                        allUnlimited = allUnlimited,
+                        displayMode = quotaDisplayMode,
+                        modifier = Modifier.padding(horizontal = MagpieDimensions.PagePadding)
+                    )
+                }
+
+                // No provider row means no switch to explain and nothing to count.
+                if (accountQuotas.isNotEmpty()) {
+                    item {
+                        QuotaSupplierHeader(
+                            displayMode = quotaDisplayMode,
+                            onDisplayModeChange = onQuotaDisplayModeChange,
+                            modifier = Modifier
+                                .padding(horizontal = MagpieDimensions.PagePadding)
+                                .padding(top = 16.dp)
+                        )
                     }
-                },
-                modifier = Modifier.padding(horizontal = MagpieDimensions.PagePadding)
-            )
-        }
 
-        item {
-            SortSelector(
-                selected = activeSort,
-                options = sortOptions,
-                onSelect = { next ->
-                    if (next != activeSort) {
-                        sortKey = next.name
-                        breakdownExpanded = false
+                    item {
+                        QuotaSupplierList(
+                            rows = accountQuotas,
+                            displayMode = quotaDisplayMode,
+                            expanded = accountsExpanded,
+                            onToggleExpanded = { accountsExpanded = !accountsExpanded },
+                            onOpenDetail = { selectedQuotaKey = it.providerId },
+                            modifier = Modifier
+                                .padding(horizontal = MagpieDimensions.PagePadding)
+                                .padding(top = 9.dp)
+                        )
                     }
-                },
-                modifier = Modifier
-                    .padding(horizontal = MagpieDimensions.PagePadding)
-                    .padding(top = 10.dp)
-            )
+                }
+
+                item {
+                    QuotaModeNote(
+                        displayMode = quotaDisplayMode,
+                        modifier = Modifier
+                            .padding(horizontal = MagpieDimensions.PagePadding)
+                            .padding(top = 14.dp)
+                    )
+                }
+
+                item { Spacer(modifier = Modifier.height(8.dp)) }
+            }
         }
-
-        item {
-            DetailSection(
-                usage = usage,
-                sort = activeSort,
-                rows = sortedRows,
-                expanded = breakdownExpanded,
-                isLoading = isLoading,
-                onToggleExpanded = { breakdownExpanded = !breakdownExpanded },
-                modifier = Modifier
-                    .padding(horizontal = MagpieDimensions.PagePadding)
-                    .padding(top = 10.dp)
-            )
-        }
-
-        item { Spacer(modifier = Modifier.height(8.dp)) }
-
-        item {
-            SectionHeader(
-                title = "额度健康",
-                note = "实时快照",
-                modifier = Modifier
-                    .padding(horizontal = MagpieDimensions.PagePadding)
-                    .padding(top = 12.dp)
-            )
-        }
-
-        item {
-            QuotaPanel(
-                rows = accountQuotas,
-                allUnlimited = allUnlimited,
-                displayMode = quotaDisplayMode,
-                onDisplayModeChange = onQuotaDisplayModeChange,
-                expanded = accountsExpanded,
-                onToggleExpanded = { accountsExpanded = !accountsExpanded },
-                onOpenDetail = { selectedQuotaKey = it.providerId },
-                modifier = Modifier.padding(horizontal = MagpieDimensions.PagePadding)
-            )
-        }
-
-        item { Spacer(modifier = Modifier.height(8.dp)) }
     }
 
     val detailProvider = selectedQuotaKey?.let { key ->
@@ -739,20 +827,24 @@ private fun DetailRow(row: UsageRow, sort: UsageSort) {
     }
 }
 
+/**
+ * The sub-page overview: the ring of the tightest provider, what that provider still has left and
+ * how many providers the page is counting. Rows arrive worst first, so the first row carrying a
+ * ratio is the tightest one.
+ */
 @Composable
-private fun QuotaPanel(
+private fun QuotaOverviewCard(
     rows: List<AccountQuotaView>,
     allUnlimited: Boolean,
     displayMode: QuotaDisplayMode,
-    onDisplayModeChange: (QuotaDisplayMode) -> Unit,
-    expanded: Boolean,
-    onToggleExpanded: () -> Unit,
-    onOpenDetail: (AccountQuotaView) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = MagpieTheme.colors
-    // Rows arrive worst first, so the first row with a ratio is also the tightest provider.
     val tightestProvider = rows.firstOrNull { it.ratio != null }
+    val reporting = providersWithWindows(rows)
+    val nearLimit = rows.count { view ->
+        view.windows.any { MetricCalculators.isQuotaWarning(it) }
+    }
     DataPanel(modifier = modifier.fillMaxWidth(), contentPadding = PaddingValues(18.dp)) {
         Column {
             Row(
@@ -828,66 +920,118 @@ private fun QuotaPanel(
                     }
                 }
             }
-            Spacer(modifier = Modifier.height(10.dp))
-            Text(
-                text = if (displayMode == QuotaDisplayMode.REMAINING) {
-                    "数字是剩余比例，越少越危险"
-                } else {
-                    "数字是已用比例，越满越危险"
-                },
-                style = MagpieTypography.LabelStyle,
-                color = colors.textTertiary
-            )
             if (rows.isNotEmpty()) {
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(14.dp))
                 HorizontalDivider(color = colors.divider)
+                Spacer(modifier = Modifier.height(12.dp))
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 40.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "全部供应商",
+                        text = reporting.toString() + " 个供应商",
                         style = MagpieTypography.LabelStyle,
-                        color = colors.textSecondary,
-                        modifier = Modifier.weight(1f)
+                        color = colors.textTertiary
                     )
-                    QuotaDisplayModeSwitch(
-                        mode = displayMode,
-                        onChange = onDisplayModeChange
+                    Text(
+                        text = nearLimit.toString() + " 个接近上限",
+                        style = MagpieTypography.LabelStyle,
+                        color = colors.textTertiary
                     )
-                }
-                val shown = if (expanded) rows else rows.take(4)
-                shown.forEach { row ->
-                    QuotaRowView(
-                        row = row,
-                        displayMode = displayMode,
-                        onClick = { onOpenDetail(row) }
-                    )
-                }
-                if (rows.size > 4) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(MagpieDimensions.TouchTargetMinimum)
-                            .springPress(scaleDown = 0.98f, onClick = onToggleExpanded),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = if (expanded) {
-                                "收起"
-                            } else {
-                                "展开全部 " + rows.size + " 个供应商"
-                            },
-                            style = MagpieTypography.SubheadStyle,
-                            color = colors.accent
-                        )
-                    }
                 }
             }
         }
     }
+}
+
+/** "全部供应商" and the switch that names how every row under it reads its number. */
+@Composable
+private fun QuotaSupplierHeader(
+    displayMode: QuotaDisplayMode,
+    onDisplayModeChange: (QuotaDisplayMode) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = MagpieTheme.colors
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .heightIn(min = 40.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "全部供应商",
+            style = MagpieTypography.SectionTitleStyle,
+            color = colors.textPrimary,
+            maxLines = 1,
+            modifier = Modifier.weight(1f)
+        )
+        QuotaDisplayModeSwitch(mode = displayMode, onChange = onDisplayModeChange)
+    }
+}
+
+/** The provider rows; four at a time until the page asks for the rest. */
+@Composable
+private fun QuotaSupplierList(
+    rows: List<AccountQuotaView>,
+    displayMode: QuotaDisplayMode,
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit,
+    onOpenDetail: (AccountQuotaView) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val colors = MagpieTheme.colors
+    val shown = if (expanded) rows else rows.take(4)
+    DataPanel(
+        modifier = modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 2.dp)
+    ) {
+        Column {
+            // Only between rows: a line under the last one would read as a panel edge.
+            shown.forEachIndexed { index, row ->
+                if (index > 0) HorizontalDivider(color = colors.divider)
+                QuotaRowView(
+                    row = row,
+                    displayMode = displayMode,
+                    onClick = { onOpenDetail(row) }
+                )
+            }
+            if (rows.size > 4) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(MagpieDimensions.TouchTargetMinimum)
+                        .springPress(scaleDown = 0.98f, onClick = onToggleExpanded),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (expanded) {
+                            "收起"
+                        } else {
+                            "展开全部 " + rows.size + " 个供应商"
+                        },
+                        style = MagpieTypography.SubheadStyle,
+                        color = colors.accent
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** One line naming what the numbers mean, under the switch that changes the reading. */
+@Composable
+private fun QuotaModeNote(displayMode: QuotaDisplayMode, modifier: Modifier = Modifier) {
+    val colors = MagpieTheme.colors
+    Text(
+        text = if (displayMode == QuotaDisplayMode.REMAINING) {
+            "数字是剩余比例，越少越危险"
+        } else {
+            "数字是已用比例，越满越危险"
+        },
+        style = MagpieTypography.LabelStyle,
+        color = colors.textTertiary,
+        modifier = modifier.fillMaxWidth()
+    )
 }
 
 @Composable
@@ -960,7 +1104,6 @@ private fun QuotaRowView(
             }
         }
         Spacer(modifier = Modifier.height(10.dp))
-        HorizontalDivider(color = colors.divider)
     }
 }
 
@@ -1036,9 +1179,9 @@ private fun QuotaHealthRing(ratio: Double, displayMode: QuotaDisplayMode, color:
     val shown = if (displayMode == QuotaDisplayMode.REMAINING) 1.0 - ratio else ratio
     // A spent provider is an empty ring in remaining mode: the track carries the alarm instead.
     val track = if (ratio >= ErrorRatio) colors.error.copy(alpha = 0.18f) else colors.divider
-    Box(modifier = Modifier.size(64.dp), contentAlignment = Alignment.Center) {
+    Box(modifier = Modifier.size(92.dp), contentAlignment = Alignment.Center) {
         Canvas(modifier = Modifier.fillMaxSize()) {
-            val strokeWidth = 6.dp.toPx()
+            val strokeWidth = 8.dp.toPx()
             val arcSize = Size(size.width - strokeWidth, size.height - strokeWidth)
             val topLeft = Offset(strokeWidth / 2f, strokeWidth / 2f)
             drawArc(
@@ -1063,12 +1206,12 @@ private fun QuotaHealthRing(ratio: Double, displayMode: QuotaDisplayMode, color:
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 text = MetricCalculators.formatPercent(shown.coerceIn(0.0, 1.0)),
-                style = MagpieTypography.LabelStyle.copy(fontWeight = FontWeight.SemiBold),
+                style = MagpieTypography.InlineMetricStyle,
                 color = colors.textPrimary
             )
             Text(
                 text = if (displayMode == QuotaDisplayMode.USED) "已用" else "剩余",
-                style = MagpieTypography.LabelStyle.copy(fontSize = 10.sp),
+                style = MagpieTypography.LabelStyle.copy(fontSize = MagpieTypography.Caption),
                 color = colors.textTertiary
             )
         }
