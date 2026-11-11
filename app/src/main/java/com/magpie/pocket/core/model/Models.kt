@@ -148,6 +148,8 @@ data class QuotaWindow(
     val used: Long? = null,
     val limit: Long? = null,
     val resetsAt: String? = null,
+    /** When the current allowance window started; the reset/pace comparison needs both ends. */
+    val startsAt: String? = null,
     /** Upstream's used share, 0..100, when the server reports a percentage. */
     val usedPercent: Double? = null,
     /** Upstream's own count and allowance, which can be fractional. */
@@ -168,6 +170,14 @@ data class AccountQuota(
     val displayName: String? = null,
     /** Present only when the answer names an account (a phone, an email, a key). */
     val accountId: String? = null,
+    /** The plan the provider reports for this account, e.g. "Free plan"; null when unnamed. */
+    val plan: String? = null,
+    /** A provider-level balance rendered by the upstream, e.g. "¥3.57"; never parsed as a share. */
+    val balance: String? = null,
+    /** When the current subscription or allowance ends, when the provider says so. */
+    val until: String? = null,
+    /** The last time this account served a request; the newest account opens by default. */
+    val lastServedAt: String? = null,
     /** Whether the answer itself is trustworthy; each window carries its own trust flag. */
     val known: Boolean,
     val observedAt: String? = null,
