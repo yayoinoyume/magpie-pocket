@@ -41,6 +41,17 @@ class MagpieApiClientTest {
     }
 
     @Test
+    fun testEndpointReadTimeoutsStayIndependent() {
+        // One shared pool must not flatten the per-request-class timeouts: quotas gets a
+        // little longer than a normal read, and the trace long poll keeps the longest.
+        val timeouts = client.readTimeouts()
+        assertEquals(20_000L, timeouts.standardMs)
+        assertEquals(25_000L, timeouts.quotasMs)
+        assertEquals(45_000L, timeouts.longPollMs)
+        assertTrue(client.sharesOneConnectionPool())
+    }
+
+    @Test
     fun testSuccessfulGetState() = runBlocking {
         val json = """{"version":"Magpie 2.4","timezone":"Asia/Shanghai","read_only":false}"""
         server.enqueue(MockResponse().setResponseCode(200).setHeader("Content-Type", "application/json").setBody(json))

@@ -69,8 +69,8 @@ fun ConnectBottomSheet(
     currentConfig: ConnectionConfig,
     sheetState: SheetState,
     onDismiss: () -> Unit,
-    // Receives the config plus the client the verification already signed in on.
-    onConnectSuccess: (ConnectionConfig, MagpieApiClient) -> Unit,
+    // Receives the config plus the client and probe the verification already paid for.
+    onConnectSuccess: (ConnectionConfig, MagpieApiClient, MagpieSession.ProbeResult) -> Unit,
     onSwitchToDemo: () -> Unit
 ) {
     val colors = MagpieTheme.colors
@@ -309,9 +309,9 @@ fun ConnectBottomSheet(
                                 cfAccessClientId = cfClientIdInput.ifBlank { null },
                                 cfAccessClientSecret = cfClientSecretInput.ifBlank { null }
                             )
-                            // Hand over the verified client: the first refresh reuses this
-                            // session instead of signing in again on an empty cookie jar.
-                            onConnectSuccess(newConfig, client)
+                            // Hand over the verified client and its probe bodies: the first
+                            // refresh reuses both instead of reading state and groups again.
+                            onConnectSuccess(newConfig, client, result)
                         } catch (e: CancellationException) {
                             throw e
                         } catch (e: Exception) {

@@ -51,11 +51,16 @@ import com.magpie.pocket.core.network.UpstreamUsageBreakdown
 import com.magpie.pocket.core.network.UpstreamUsageResponse
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import com.magpie.pocket.core.util.RequestTimestamps
@@ -71,7 +76,17 @@ class LiveMagpieRepository(
     /** Runs as soon as the session answers, before the capability and panel loads. */
     private val onSessionReady: () -> Unit = {},
     /** Runs when the probe's trace snapshot is known, still before the group list lands. */
-    private val onTraceProbeReady: () -> Unit = {}
+    private val onTraceProbeReady: () -> Unit = {},
+    /** Runs when the optional probe settles, so the capability rows can stop saying unknown. */
+    private val onProbePanelsReady: (groupsSupported: Boolean, traceSupported: Boolean) -> Unit =
+        { _, _ -> },
+    /** Runs when the optional probe fails with something other than a 404. */
+    private val onProbePanelsFailed: (Throwable) -> Unit = {},
+    /**
+     * The connection sheet already read state, groups and trace on this exact client. The
+     * first refresh seeds from it instead of asking every one of them again.
+     */
+    initialProbe: MagpieSession.ProbeResult? = null
 ) : MagpieRepository {
 
     private val cachedRoutes = ConcurrentHashMap<String, UpstreamRoute>()
@@ -79,30 +94,51 @@ class LiveMagpieRepository(
     private var lastEpoch: String = ""
     private var lastSeq: Long = 0L
     private var hasObservedTrace: Boolean = false
-    private var sessionReady: Boolean = verifiedSession
+    private var sessionReady: Boolean = verifiedSession || initialProbe != null
+    private var seededProbe: MagpieSession.ProbeResult? = initialProbe
+
+    /**
+     * The optional probe is not part of the session: it must not hold back the panels.
+     * This scope lets `/api/state` return immediately while groups and trace keep loading.
+     */
+    private val probeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var probePanelsJob: Job? = null
 
     /** Probe bodies reused by this refresh's data stage instead of a second read. */
-    private var probeGroups: UpstreamGroupsResponse? = null
-    private var traceSeed: UpstreamTraceResponse? = null
+    @Volatile private var probeGroups: UpstreamGroupsResponse? = null
+    @Volatile private var traceSeed: UpstreamTraceResponse? = null
+
+    /**
+     * The trace loop may start before the optional probe answers. It waits on this slot
+     * instead of opening a second `after=0` read, so the probe's snapshot stays the seed.
+     */
+    @Volatile private var probeTrace: CompletableDeferred<UpstreamTraceResponse?>? = null
 
     override suspend fun probe(): Capabilities {
+        probePanelsJob?.cancel()
+        // Release a loop that may still be waiting on the previous probe's trace.
+        probeTrace?.complete(null)
+        probeTrace = null
         probeGroups = null
         traceSeed = null
-        val result = try {
-            MagpieSession.connect(
+
+        // The connection sheet's own probe is still the freshest answer; serve it once.
+        seededProbe?.let { seed ->
+            seededProbe = null
+            sessionReady = true
+            probeGroups = seed.groups
+            traceSeed = seed.trace
+            onSessionReady()
+            if (seed.trace?.mine == true) onTraceProbeReady()
+            return seed.capabilities
+        }
+
+        val state = try {
+            MagpieSession.readState(
                 client = apiClient,
                 baseUrl = baseUrl,
                 webKey = webKey,
-                signInRequired = !sessionReady,
-                onStateReady = {
-                    sessionReady = true
-                    onSessionReady()
-                },
-                onTraceProbed = { trace ->
-                    // Store the snapshot before waking the loop so the loop can seed from it.
-                    traceSeed = trace
-                    if (trace?.mine == true) onTraceProbeReady()
-                }
+                signInRequired = !sessionReady
             )
         } catch (e: AuthenticationRequiredException) {
             // The cookie this client held was rejected; the next probe must sign in again.
@@ -110,8 +146,51 @@ class LiveMagpieRepository(
             throw e
         }
         sessionReady = true
-        probeGroups = result.groups
-        return result.capabilities
+        onSessionReady()
+
+        // Groups and trace continue behind a scope that outlives this probe, but they share
+        // the repository's in-flight slots so a panel that starts now joins the same read.
+        val traceWaiter = CompletableDeferred<UpstreamTraceResponse?>()
+        probeTrace = traceWaiter
+        probePanelsJob = probeScope.launch {
+            try {
+                val (groups, trace) = MagpieSession.probeOptional(
+                    client = apiClient,
+                    baseUrl = baseUrl,
+                    onTraceProbed = { snapshot ->
+                        // Store the snapshot before waking the loop so the loop can seed from it.
+                        traceSeed = snapshot
+                        if (snapshot?.mine == true) onTraceProbeReady()
+                    },
+                    loadGroups = {
+                        // A panel may have won the race and already cached the body.
+                        probeGroups ?: pendingRequests.share("groups") {
+                            apiClient.getGroups(baseUrl)
+                        }.also { probeGroups = it }
+                    }
+                )
+                // Null means the probe's trace read answered 404. Report that directly so
+                // the loop does not pay for a second `after=0` read just to learn the same.
+                if (trace == null) {
+                    traceWaiter.completeExceptionally(
+                        ResourceNotFoundException("路由追踪不可用")
+                    )
+                } else {
+                    traceWaiter.complete(trace)
+                }
+                onProbePanelsReady(groups != null, trace?.mine == true)
+            } catch (e: CancellationException) {
+                traceWaiter.complete(null)
+                throw e
+            } catch (e: Throwable) {
+                traceWaiter.completeExceptionally(e)
+                onProbePanelsFailed(e)
+            }
+        }
+
+        // The evidence is already sufficient for a session; the two optional bodies land
+        // later and only refine capabilities. Panels still load on their own proof (200/404).
+        return MagpieSession.capabilities(state, groupsSupported = true, traceSupported = true)
     }
 
     override suspend fun probeLight() {
@@ -125,7 +204,9 @@ class LiveMagpieRepository(
      * both callers for the same refresh; a read outside a probe shares in-flight work.
      */
     private suspend fun groupsResponse(): UpstreamGroupsResponse =
-        probeGroups ?: pendingRequests.share("groups") { apiClient.getGroups(baseUrl) }
+        probeGroups ?: pendingRequests.share("groups") {
+            apiClient.getGroups(baseUrl).also { probeGroups = it }
+        }
 
     private suspend fun usageResponse(period: Period): UpstreamUsageResponse {
         val param = periodParam(period)
@@ -211,10 +292,22 @@ class LiveMagpieRepository(
     override fun observeTrace(): Flow<TraceSnapshot> = flow {
         ensureSession()
         var currentSeq = 0L
-        // The probe already read the current snapshot. Emit it and continue from its
-        // sequence instead of opening a second `after=0` read. A loop that runs again
-        // after a failure keeps the old behaviour and re-reads from the start.
-        var pending = if (hasObservedTrace) null else traceSeed.also { traceSeed = null }
+        // The probe already read (or is reading) the current snapshot. Emit it and continue
+        // from its sequence instead of opening a second `after=0` read. A loop that runs
+        // again after a failure keeps the old behaviour and re-reads from the start.
+        val probeWaiter = probeTrace
+        var pending = if (hasObservedTrace) {
+            null
+        } else {
+            traceSeed.also { traceSeed = null } ?: probeWaiter?.let { waiter ->
+                try {
+                    waiter.await()
+                } finally {
+                    // A failed probe answer must not poison every retry in this loop.
+                    if (probeTrace === waiter) probeTrace = null
+                }
+            }
+        }
 
         while (true) {
             try {

@@ -17,7 +17,6 @@ import com.magpie.pocket.core.model.RequestSummary
 import com.magpie.pocket.core.model.SourceMeta
 import com.magpie.pocket.core.model.ThemeMode
 import com.magpie.pocket.core.model.TraceSnapshot
-import com.magpie.pocket.core.network.MagpieApiClient
 import com.magpie.pocket.core.util.AppLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -269,8 +268,7 @@ class DashboardDerivedStateTest {
         return AppViewModel(
             credentialStore = DashboardFakeCredentialStore(),
             preferencesManager = preferences,
-            demoRepo = repo,
-            apiClient = MagpieApiClient()
+            demoRepo = repo
         ).also { viewModels += it }
     }
 

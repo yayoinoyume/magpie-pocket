@@ -43,9 +43,12 @@ import org.json.JSONObject
 
 class DemoRepository(private val context: Context? = null, initialJsonString: String? = null) : MagpieRepository {
 
-    private val jsonContent: String = initialJsonString ?: run {
-        context?.assets?.open("normalized-demo.json")?.bufferedReader().use { it?.readText() }
-            ?: FALLBACK_DEMO_JSON
+    // A LIVE process builds this repository but never reads the bundled demo asset.
+    private val jsonContent: String by lazy {
+        initialJsonString ?: run {
+            context?.assets?.open("normalized-demo.json")?.bufferedReader().use { it?.readText() }
+                ?: FALLBACK_DEMO_JSON
+        }
     }
 
     private var activeScenario: String = "normal"

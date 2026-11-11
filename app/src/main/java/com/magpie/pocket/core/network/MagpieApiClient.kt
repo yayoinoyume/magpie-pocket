@@ -11,6 +11,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import okhttp3.Call
 import okhttp3.Callback
+import okhttp3.Dispatcher
 import okhttp3.EventListener
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -35,6 +36,13 @@ class NetworkUnavailableException(message: String, cause: Throwable? = null) :
 class ResourceNotFoundException(message: String) : MagpieApiException(message, 404)
 class UnexpectedResponseException(message: String) : MagpieApiException(message)
 
+/** Per-endpoint read timeouts; the three clients share everything else. */
+internal data class ClientReadTimeouts(
+    val standardMs: Long,
+    val quotasMs: Long,
+    val longPollMs: Long
+)
+
 class MagpieApiClient(
     val cookieJar: MagpieCookieJar = MagpieCookieJar(),
     var cfAccessClientId: String? = null,
@@ -46,11 +54,23 @@ class MagpieApiClient(
         coerceInputValues = true
     }
 
-    private val standardClient = httpClient(readTimeoutSeconds = 20)
+    /**
+     * One connection pool and one cookie jar for every request class. Quotas and the trace
+     * long poll only override their own read timeout and dispatcher: a long poll that holds
+     * a dispatcher slot must not delay a state read, and the shared pool still lets the
+     * first warm connection serve the whole screen.
+     */
+    private val baseClient = httpClient(readTimeoutSeconds = 20)
 
-    private val quotasClient = httpClient(readTimeoutSeconds = 25)
+    private val quotasClient = baseClient.newBuilder()
+        .readTimeout(25, TimeUnit.SECONDS)
+        .dispatcher(Dispatcher())
+        .build()
 
-    private val longPollClient = httpClient(readTimeoutSeconds = 45)
+    private val longPollClient = baseClient.newBuilder()
+        .readTimeout(45, TimeUnit.SECONDS)
+        .dispatcher(Dispatcher())
+        .build()
 
     /** One builder for every request class; the listener times each call by path. */
     private fun httpClient(readTimeoutSeconds: Long): OkHttpClient = OkHttpClient.Builder()
@@ -62,6 +82,18 @@ class MagpieApiClient(
             EventListener.Factory { call -> TimingEventListener(call.request().url.encodedPath) }
         )
         .build()
+
+    /** Exposes the per-endpoint read timeouts so a test can prove they stay distinct. */
+    internal fun readTimeouts(): ClientReadTimeouts = ClientReadTimeouts(
+        standardMs = baseClient.readTimeoutMillis.toLong(),
+        quotasMs = quotasClient.readTimeoutMillis.toLong(),
+        longPollMs = longPollClient.readTimeoutMillis.toLong()
+    )
+
+    /** True when a warm TCP/TLS connection can serve every request class. */
+    internal fun sharesOneConnectionPool(): Boolean =
+        quotasClient.connectionPool === baseClient.connectionPool &&
+            longPollClient.connectionPool === baseClient.connectionPool
 
     suspend fun signIn(baseUrl: String, webKey: String): Boolean = withContext(Dispatchers.IO) {
         val cleanUrl = normalizeBaseUrl(baseUrl)
@@ -84,7 +116,7 @@ class MagpieApiClient(
         val request = requestBuilder.build()
 
         awaitCall(
-            client = standardClient,
+            client = baseClient,
             request = request,
             mapIOException = { NetworkUnavailableException("认证请求失败，请检查网络与服务地址", it) }
         ) { response ->
@@ -129,7 +161,7 @@ class MagpieApiClient(
 
     suspend fun getTraceSnapshot(baseUrl: String, afterSeq: Long = 0L): UpstreamTraceResponse {
         val path = if (afterSeq > 0) "/api/gateway/trace?after=$afterSeq&wait=1" else "/api/gateway/trace?after=0"
-        val client = if (afterSeq > 0) longPollClient else standardClient
+        val client = if (afterSeq > 0) longPollClient else baseClient
         return executeGet(baseUrl, path, client)
     }
 
@@ -206,7 +238,7 @@ class MagpieApiClient(
     private suspend inline fun <reified T> executeGet(
         baseUrl: String,
         pathWithQuery: String,
-        client: OkHttpClient = standardClient
+        client: OkHttpClient = baseClient
     ): T = withContext(Dispatchers.IO) {
         val cleanUrl = normalizeBaseUrl(baseUrl)
         val fullUrl = if (pathWithQuery.startsWith("/")) "$cleanUrl$pathWithQuery" else "$cleanUrl/$pathWithQuery"

@@ -3,6 +3,7 @@ package com.magpie.pocket.app
 import android.os.Bundle
 import android.Manifest
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.net.ConnectivityManager
 import android.net.Network
 import android.os.Build
@@ -91,6 +92,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Edge-to-edge must be in place before the first content frame; reading the system
+        // night flag here avoids waiting for DataStore before the window is configured.
+        applyEdgeToEdge(isSystemDark())
 
         val app = application as MagpieApplication
         val sharedViewModel = app.appViewModel
@@ -124,25 +128,36 @@ class MainActivity : ComponentActivity() {
                 ThemeMode.LIGHT -> false
                 ThemeMode.DARK -> true
             }
+            // The first frame already ran the system-theme call; this one follows an
+            // in-app theme switch once the stored preference is known.
             LaunchedEffect(isDark) {
-                enableEdgeToEdge(
-                    statusBarStyle = if (isDark) {
-                        SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
-                    } else {
-                        SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
-                    },
-                    navigationBarStyle = if (isDark) {
-                        SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
-                    } else {
-                        SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT)
-                    }
-                )
+                applyEdgeToEdge(isDark)
             }
 
             MagpiePocketTheme(displayPreferences = preferences) {
                 MainAppRoot(viewModel = viewModel)
             }
         }
+    }
+
+    private fun isSystemDark(): Boolean =
+        (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
+
+    private fun applyEdgeToEdge(isDark: Boolean) {
+        val transparent = android.graphics.Color.TRANSPARENT
+        enableEdgeToEdge(
+            statusBarStyle = if (isDark) {
+                SystemBarStyle.dark(transparent)
+            } else {
+                SystemBarStyle.light(transparent, transparent)
+            },
+            navigationBarStyle = if (isDark) {
+                SystemBarStyle.dark(transparent)
+            } else {
+                SystemBarStyle.light(transparent, transparent)
+            }
+        )
     }
 
     override fun onStart() {
@@ -457,8 +472,8 @@ fun MainAppRoot(viewModel: AppViewModel) {
             currentConfig = connectionConfig,
             sheetState = connectSheetState,
             onDismiss = { showConnectSheet = false },
-            onConnectSuccess = { newCfg, verifiedClient ->
-                viewModel.saveConnection(newCfg, verifiedClient)
+            onConnectSuccess = { newCfg, verifiedClient, probeResult ->
+                viewModel.saveConnection(newCfg, verifiedClient, probeResult)
                 showConnectSheet = false
             },
             onSwitchToDemo = {

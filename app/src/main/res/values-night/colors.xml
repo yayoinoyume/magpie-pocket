@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Same value as MagpieColors.DarkBackground, used before Compose starts. -->
+    <color name="window_background">#101217</color>
+</resources>

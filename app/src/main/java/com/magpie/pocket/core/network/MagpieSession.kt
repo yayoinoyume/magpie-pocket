@@ -44,11 +44,35 @@ object MagpieSession {
     }
 
     /**
-     * Signs in and verifies the protected management API. [signInRequired] is false when the
-     * client already holds a session that was verified moments earlier, so saving a
-     * connection does not repeat the exchange on the same cookie jar.
-     * [onStateReady] runs as soon as `/api/state` answers, before the remaining probes.
-     * [onTraceProbed] runs when the trace snapshot lands, still before the group list.
+     * Signs in and reads the required `/api/state`. [signInRequired] is false when the client
+     * already holds a session that was verified moments earlier, so saving a connection does
+     * not repeat the exchange on the same cookie jar.
+     */
+    suspend fun readState(
+        client: MagpieApiClient,
+        baseUrl: String,
+        webKey: String? = null,
+        signInRequired: Boolean = true
+    ): UpstreamStateResponse {
+        if (signInRequired) initialize(client, baseUrl, webKey)
+        val state = try {
+            client.getState(baseUrl)
+        } catch (e: AuthenticationRequiredException) {
+            if (webKey.isNullOrBlank()) {
+                throw AuthenticationRequiredException(
+                    "需要有效的 Magpie Web Key。请在连接设置中填写服务端 Web Key（不是 Cloudflare Access 凭证）。"
+                )
+            }
+            throw e
+        }
+        MagpieTiming.mark("probe-state")
+        return state
+    }
+
+    /**
+     * Signs in and verifies the protected management API. [onStateReady] runs as soon as
+     * `/api/state` answers, before the remaining probes. [onTraceProbed] runs when the trace
+     * snapshot lands, still before the group list.
      */
     suspend fun connect(
         client: MagpieApiClient,
@@ -58,10 +82,12 @@ object MagpieSession {
         onStateReady: () -> Unit = {},
         onTraceProbed: (UpstreamTraceResponse?) -> Unit = {}
     ): ProbeResult {
-        if (signInRequired) initialize(client, baseUrl, webKey)
-        return try {
-            probe(client, baseUrl, onStateReady, onTraceProbed)
+        val state = readState(client, baseUrl, webKey, signInRequired)
+        onStateReady()
+        val (groups, trace) = try {
+            probeOptional(client, baseUrl, onTraceProbed)
         } catch (e: AuthenticationRequiredException) {
+            // An optional endpoint answering 401 still means the key is missing or rejected.
             if (webKey.isNullOrBlank()) {
                 throw AuthenticationRequiredException(
                     "需要有效的 Magpie Web Key。请在连接设置中填写服务端 Web Key（不是 Cloudflare Access 凭证）。"
@@ -69,6 +95,12 @@ object MagpieSession {
             }
             throw e
         }
+        return ProbeResult(
+            capabilities = capabilities(state, groups != null, trace?.mine == true),
+            state = state,
+            groups = groups,
+            trace = trace
+        )
     }
 
     /**
@@ -84,40 +116,53 @@ object MagpieSession {
         onStateReady: () -> Unit = {},
         onTraceProbed: (UpstreamTraceResponse?) -> Unit = {}
     ): ProbeResult {
-        val state = client.getState(baseUrl)
-        MagpieTiming.mark("probe-state")
+        val state = readState(client, baseUrl, signInRequired = false)
         onStateReady()
-
-        val (groups, trace) = coroutineScope {
-            val groupsAsync = async { optional(client) { it.getGroups(baseUrl) } }
-            val trace = optional(client) { it.getTraceSnapshot(baseUrl, 0L) }
-            // The trace answer seeds the live loop; hand it over before waiting for groups.
-            onTraceProbed(trace)
-            groupsAsync.await() to trace
-        }
-
-        val capabilities = Capabilities(
-            trace = trace?.mine == true,
-            groups = groups != null,
-            // History and request-detail routes need an id/day, so they are not guessed.
-            history = false,
-            requestDetail = false,
-            usage = null,
-            ledger = null,
-            quotas = null,
-            providers = null,
-            masking = null,
-            statisticsTimeZone = state.timezone ?: "Asia/Shanghai",
-            verifiedDeploymentVersion = state.version ?: "Magpie"
-        )
-
+        val (groups, trace) = probeOptional(client, baseUrl, onTraceProbed)
         return ProbeResult(
-            capabilities = capabilities,
+            capabilities = capabilities(state, groups != null, trace?.mine == true),
             state = state,
             groups = groups,
             trace = trace
         )
     }
+
+    /**
+     * Reads the two optional probe bodies concurrently. [loadGroups] lets the repository
+     * route the group read through its in-flight request sharing before a panel asks for it.
+     */
+    suspend fun probeOptional(
+        client: MagpieApiClient,
+        baseUrl: String,
+        onTraceProbed: (UpstreamTraceResponse?) -> Unit = {},
+        loadGroups: suspend () -> UpstreamGroupsResponse = { client.getGroups(baseUrl) }
+    ): Pair<UpstreamGroupsResponse?, UpstreamTraceResponse?> = coroutineScope {
+        val groupsAsync = async { optional { loadGroups() } }
+        val trace = optional(client) { it.getTraceSnapshot(baseUrl, 0L) }
+        // The trace answer seeds the live loop; hand it over before waiting for groups.
+        onTraceProbed(trace)
+        groupsAsync.await() to trace
+    }
+
+    /** Capabilities the probe can prove; panel endpoints stay unknown until they answer. */
+    fun capabilities(
+        state: UpstreamStateResponse,
+        groupsSupported: Boolean,
+        traceSupported: Boolean
+    ): Capabilities = Capabilities(
+        trace = traceSupported,
+        groups = groupsSupported,
+        // History and request-detail routes need an id/day, so they are not guessed.
+        history = false,
+        requestDetail = false,
+        usage = null,
+        ledger = null,
+        quotas = null,
+        providers = null,
+        masking = null,
+        statisticsTimeZone = state.timezone ?: "Asia/Shanghai",
+        verifiedDeploymentVersion = state.version ?: "Magpie"
+    )
 
     private suspend fun <T> optional(
         client: MagpieApiClient,

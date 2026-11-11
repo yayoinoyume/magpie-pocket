@@ -1,6 +1,7 @@
 package com.magpie.pocket.app
 
 import com.magpie.pocket.core.data.DemoRepository
+import com.magpie.pocket.core.design.AppTab
 import com.magpie.pocket.core.model.ConnectionConfig
 import com.magpie.pocket.core.model.ConnectionHealth
 import com.magpie.pocket.core.model.DataMode
@@ -8,6 +9,10 @@ import com.magpie.pocket.core.model.DisplayPreferences
 import com.magpie.pocket.core.model.QuotaDisplayMode
 import com.magpie.pocket.core.model.ThemeMode
 import com.magpie.pocket.core.network.MagpieApiClient
+import com.magpie.pocket.core.network.MagpieSession
+import com.magpie.pocket.core.network.UpstreamGroupsResponse
+import com.magpie.pocket.core.network.UpstreamStateResponse
+import com.magpie.pocket.core.network.UpstreamTraceResponse
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.Job
@@ -221,10 +226,13 @@ class AppViewModelAuthTest {
         kotlinx.coroutines.withTimeout(5000) {
             viewModel.requestsPage.first { it != null }
         }
-        val caps = viewModel.capabilities.value!!
-        assertFalse(caps.groups)
-        assertFalse(caps.trace)
-        val trace = viewModel.trace.value!!
+        // The optional probe answers after the panels now; wait for its 404 verdict.
+        val caps = kotlinx.coroutines.withTimeout(5000) {
+            viewModel.capabilities.first { it?.groups == false && it?.trace == false }
+        }!!
+        val trace = kotlinx.coroutines.withTimeout(5000) {
+            viewModel.trace.first { it != null }
+        }!!
         assertFalse(trace.observable)
         assertTrue(viewModel.groups.value.isEmpty())
         // A successful no-trace connection remains connected after the optional 404.
@@ -368,14 +376,61 @@ class AppViewModelAuthTest {
             // group list either.
             kotlinx.coroutines.withTimeout(5000) { viewModel.trace.first { it != null } }
             assertTrue(viewModel.isOnline.value)
-            // Groups is still blocked, so no panel has been requested yet.
+            // Panels now start on `/api/state`; only the group-backed rows are still absent.
+            kotlinx.coroutines.withTimeout(5000) { viewModel.requestsPage.first { it != null } }
             assertTrue(viewModel.groups.value.isEmpty())
-            assertTrue(viewModel.requestsPage.value == null)
         } finally {
             groupsGate.countDown()
         }
         // Releasing the probe still fills the rest of the snapshot.
         kotlinx.coroutines.withTimeout(5000) { viewModel.requestsPage.first { it != null } }
+        assertEquals(ConnectionHealth.CONNECTED, viewModel.connectionStatus.value.health)
+    }
+
+    @Test
+    fun panelsStartBeforeGroupsAndItsSingleReadFeedsThem() = runBlocking {
+        val groupsGate = CountDownLatch(1)
+        val reads = ConcurrentHashMap<String, AtomicInteger>()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path ?: ""
+                reads.getOrPut(path) { AtomicInteger(0) }.incrementAndGet()
+                if (path == "/api/groups") groupsGate.await(5, TimeUnit.SECONDS)
+                return when {
+                    path == "/_magpie/sign-in" -> signIn()
+                    path == "/api/state" ->
+                        json("""{"version":"Magpie current","timezone":"Asia/Shanghai"}""")
+                    path == "/api/groups" -> fixture("groups-current.json")
+                    path.startsWith("/api/gateway/trace") -> fixture("trace-current.json")
+                    path == "/api/usage/quotas" -> fixture("quotas-current.json")
+                    path.startsWith("/api/usage/requests") -> fixture("ledger-current.json")
+                    path.startsWith("/api/usage") -> fixture("usage-current.json")
+                    path.startsWith("/api/gateway/history") -> json("""{"days":[]}""")
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+        val viewModel = newViewModel(AuthFakeCredentialStore(liveConfig("early-panels")))
+        try {
+            kotlinx.coroutines.withTimeout(5000) {
+                viewModel.connectionStatus.first { it.health == ConnectionHealth.CONNECTED }
+            }
+            // The ledger does not depend on the group list and must land while groups is held.
+            kotlinx.coroutines.withTimeout(5000) { viewModel.requestsPage.first { it != null } }
+            kotlinx.coroutines.withTimeout(5000) {
+                while ((reads["/api/groups"]?.get() ?: 0) == 0) kotlinx.coroutines.delay(10)
+            }
+            assertTrue(viewModel.groups.value.isEmpty())
+            // The probe and both group-backed panels share that one in-flight read.
+            assertEquals(1, reads["/api/groups"]?.get() ?: 0)
+        } finally {
+            groupsGate.countDown()
+        }
+        val groups = kotlinx.coroutines.withTimeout(5000) {
+            viewModel.groups.first { it.isNotEmpty() }
+        }
+        assertEquals("coding", groups.single().id)
+        assertEquals(1, reads["/api/groups"]?.get() ?: 0)
         assertEquals(ConnectionHealth.CONNECTED, viewModel.connectionStatus.value.health)
     }
 
@@ -521,6 +576,112 @@ class AppViewModelAuthTest {
     }
 
     @Test
+    fun savingAProbedConnectionReusesStateAndGroups() = runBlocking {
+        val reads = ConcurrentHashMap<String, AtomicInteger>()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path ?: ""
+                reads.getOrPut(path) { AtomicInteger(0) }.incrementAndGet()
+                return when {
+                    path == "/api/state" ->
+                        json("""{"version":"Magpie current","timezone":"Asia/Shanghai"}""")
+                    path == "/api/groups" -> fixture("groups-current.json")
+                    path.startsWith("/api/gateway/trace") -> fixture("trace-current.json")
+                    path == "/api/usage/quotas" -> fixture("quotas-current.json")
+                    path.startsWith("/api/usage/requests") -> fixture("ledger-current.json")
+                    path.startsWith("/api/usage") -> fixture("usage-current.json")
+                    path.startsWith("/api/gateway/history") -> json("""{"days":[]}""")
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+        val viewModel = newViewModel(
+            AuthFakeCredentialStore(ConnectionConfig("demo-main", "demo", DataMode.DEMO))
+        )
+        val probeClient = MagpieApiClient()
+        val state = UpstreamStateResponse(version = "probed", timezone = "Asia/Shanghai")
+        val groups = probeClient.json.decodeFromString(
+            UpstreamGroupsResponse.serializer(),
+            fixtureText("groups-current.json")
+        )
+        val trace = UpstreamTraceResponse(epoch = "probed", seq = 4L, mine = true)
+        val probe = MagpieSession.ProbeResult(
+            capabilities = MagpieSession.capabilities(state, groupsSupported = true, traceSupported = true),
+            state = state,
+            groups = groups,
+            trace = trace
+        )
+
+        viewModel.saveConnection(liveConfig("seeded"), probeClient, probe)
+
+        kotlinx.coroutines.withTimeout(5000) { viewModel.groups.first { it.isNotEmpty() } }
+        kotlinx.coroutines.withTimeout(5000) { viewModel.requestsPage.first { it != null } }
+        // The sheet already read these bodies; the first refresh must not ask again.
+        assertEquals(0, reads["/api/state"]?.get() ?: 0)
+        assertEquals(0, reads["/api/groups"]?.get() ?: 0)
+        assertEquals("coding", viewModel.groups.value.single().id)
+    }
+
+    @Test
+    fun savedTabIsRestoredAndWritten() = runBlocking {
+        val preferences = AuthFakePreferencesManager(initialSavedTab = "USAGE")
+        val viewModel = newViewModel(
+            AuthFakeCredentialStore(ConnectionConfig("demo-main", "demo", DataMode.DEMO)),
+            preferences = preferences
+        )
+
+        assertEquals(AppTab.USAGE, viewModel.activeTab.first { it == AppTab.USAGE })
+
+        viewModel.selectTab(AppTab.REQUESTS)
+        kotlinx.coroutines.withTimeout(5000) {
+            preferences.savedTabState.first { it == "REQUESTS" }
+        }
+        assertEquals("REQUESTS", preferences.savedTab)
+    }
+
+    @Test
+    fun switchingPeriodReusesTheLoadedTodayOverview() = runBlocking {
+        val reads = ConcurrentHashMap<String, AtomicInteger>()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path ?: ""
+                reads.getOrPut(path) { AtomicInteger(0) }.incrementAndGet()
+                return when {
+                    path == "/_magpie/sign-in" -> signIn()
+                    path == "/api/state" ->
+                        json("""{"version":"Magpie current","timezone":"Asia/Shanghai"}""")
+                    path == "/api/groups" -> fixture("groups-current.json")
+                    path.startsWith("/api/gateway/trace") -> fixture("trace-current.json")
+                    path == "/api/usage/quotas" -> fixture("quotas-current.json")
+                    path.startsWith("/api/usage/requests") -> fixture("ledger-current.json")
+                    path.startsWith("/api/usage") -> fixture("usage-current.json")
+                    path.startsWith("/api/gateway/history") -> json("""{"days":[]}""")
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+        val viewModel = newViewModel(AuthFakeCredentialStore(liveConfig("period-switch")))
+        kotlinx.coroutines.withTimeout(5000) {
+            viewModel.overview.first { it != null }
+            viewModel.usage.first { it != null }
+        }
+        val historyBefore = reads["/api/gateway/history"]?.get() ?: 0
+        val todayBefore = reads["/api/usage?period=today"]?.get() ?: 0
+
+        viewModel.setPeriod(com.magpie.pocket.core.model.Period.SEVEN_DAYS)
+
+        kotlinx.coroutines.withTimeout(5000) {
+            viewModel.usage.first {
+                it?.period == com.magpie.pocket.core.model.Period.SEVEN_DAYS
+            }
+        }
+        // The overview is always today, so a period switch must not read it again.
+        assertEquals(historyBefore, reads["/api/gateway/history"]?.get() ?: 0)
+        assertEquals(todayBefore, reads["/api/usage?period=today"]?.get() ?: 0)
+        assertEquals(1, reads["/api/usage?period=7d"]?.get() ?: 0)
+    }
+
+    @Test
     fun routingAccountsMergeUsageAndQuotaRowsWhenGroupsNameNone() = runBlocking {
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse = when {
@@ -579,9 +740,10 @@ class AppViewModelAuthTest {
         .addHeader("Set-Cookie", "magpie_web_${server.port}=dummy-session; Path=/; HttpOnly")
         .addHeader("Location", "/")
 
-    private fun fixture(name: String) = json(
+    private fun fixtureText(name: String): String =
         javaClass.classLoader!!.getResource("upstream/$name")!!.readText()
-    )
+
+    private fun fixture(name: String) = json(fixtureText(name))
 
     @Test
     fun switchingConnectionClearsPreviousDataAndUsesFreshClient() = runBlocking {
@@ -644,15 +806,15 @@ class AppViewModelAuthTest {
 
     private fun newViewModel(
         store: AuthFakeCredentialStore,
-        clients: MutableList<MagpieApiClient> = CopyOnWriteArrayList()
+        clients: MutableList<MagpieApiClient> = CopyOnWriteArrayList(),
+        preferences: DisplayPreferencesSource = AuthFakePreferencesManager()
     ): AppViewModel {
         val fixture = java.io.File("src/main/assets/normalized-demo.json")
         val json = if (fixture.exists()) fixture.readText() else DemoRepository.FALLBACK_DEMO_JSON
         return AppViewModel(
             credentialStore = store,
-            preferencesManager = AuthFakePreferencesManager(),
+            preferencesManager = preferences,
             demoRepo = DemoRepository(initialJsonString = json),
-            apiClient = MagpieApiClient(),
             clientFactory = { config ->
                 MagpieApiClient(
                     cfAccessClientId = config.cfAccessClientId,
@@ -683,9 +845,20 @@ private class AuthFakeCredentialStore(initial: ConnectionConfig) : ConnectionSta
     }
 }
 
-private class AuthFakePreferencesManager : DisplayPreferencesSource {
+private class AuthFakePreferencesManager(
+    initialSavedTab: String? = null
+) : DisplayPreferencesSource {
     private val state = MutableStateFlow(DisplayPreferences())
     override val displayPreferencesFlow = state
+    val savedTabState = MutableStateFlow(initialSavedTab)
+    override val lastActiveTabFlow = savedTabState
+    var savedTab: String? = initialSavedTab
+        private set
+
+    override suspend fun saveLastActiveTab(tab: String) {
+        savedTab = tab
+        savedTabState.value = tab
+    }
 
     override suspend fun updateThemeMode(mode: ThemeMode) {
         state.value = state.value.copy(themeMode = mode)
