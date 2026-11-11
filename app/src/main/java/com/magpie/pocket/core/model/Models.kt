@@ -505,7 +505,8 @@ data class CostDisplay(
 /**
  * One provider reduced to the single window that decides its health. The ring and the provider
  * row read this, so the same provider can never show two percentages; [windows] keeps every
- * window the provider reported for the detail sheet.
+ * window the provider reported for the detail sheet, with a name the provider repeated numbered
+ * #2, #3 … so no two rows read the same.
  */
 data class AccountQuotaView(
     val providerId: String,

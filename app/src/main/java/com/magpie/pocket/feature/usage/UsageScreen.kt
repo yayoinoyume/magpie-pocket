@@ -67,6 +67,7 @@ import com.magpie.pocket.core.model.TokenUsage
 import com.magpie.pocket.core.model.UsageBreakdownItem
 import com.magpie.pocket.core.model.UsageSnapshot
 import com.magpie.pocket.core.util.MetricCalculators
+import com.magpie.pocket.core.util.RequestTimestamps
 import java.util.Locale
 
 /** Fixed LazyColumn row of the "额度健康" header; the "quota" anchor scrolls to it. */
@@ -741,8 +742,8 @@ private fun QuotaPanel(
     modifier: Modifier = Modifier
 ) {
     val colors = MagpieTheme.colors
-    val tightestProvider = rows.filter { it.ratio != null }
-        .maxByOrNull { it.ratio ?: -1.0 }
+    // Rows arrive worst first, so the first row with a ratio is also the tightest provider.
+    val tightestProvider = rows.firstOrNull { it.ratio != null }
     DataPanel(modifier = modifier.fillMaxWidth(), contentPadding = PaddingValues(18.dp)) {
         Column {
             Row(
@@ -806,7 +807,7 @@ private fun QuotaPanel(
                         if (rows.isNotEmpty() && !allUnlimited) {
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "供应商未提供额度",
+                                text = "无可查询的额度窗口",
                                 style = MagpieTypography.LabelStyle,
                                 color = colors.textSecondary
                             )
@@ -1032,10 +1033,11 @@ private fun QuotaDetailSheet(
                             maxLines = 1
                         )
                     }
-                    if (window.resetsAt != null) {
+                    val reset = RequestTimestamps.formatResetAt(window.resetsAt)
+                    if (reset != null) {
                         Spacer(modifier = Modifier.height(3.dp))
                         Text(
-                            text = "重置 " + window.resetsAt,
+                            text = "重置 " + reset,
                             style = MagpieTypography.LabelStyle,
                             color = colors.textSecondary
                         )
@@ -1201,10 +1203,11 @@ private fun secondaryText(row: UsageRow, sort: UsageSort): String? {
 private fun quotaStateText(view: AccountQuotaView): String {
     val window = view.tightestWindow
     if (window != null) {
-        return window.id + (window.resetsAt?.let { " · 重置 " + it } ?: "")
+        val reset = RequestTimestamps.formatResetAt(window.resetsAt)
+        return window.id + (reset?.let { " · 重置 " + it } ?: "")
     }
     if (view.windows.isNotEmpty() && view.windows.all { it.unlimited }) return "无限额"
-    return if (view.known) "额度未知" else "供应商未提供额度"
+    return if (view.known) "额度未知" else "无可查询的额度窗口"
 }
 
 @Composable

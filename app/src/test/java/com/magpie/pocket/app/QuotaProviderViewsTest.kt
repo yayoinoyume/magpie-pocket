@@ -67,6 +67,18 @@ class QuotaProviderViewsTest {
         assertEquals(1, views.count { it.providerId == "workbuddy" })
         assertEquals(1, views.count { it.providerId == "mistral" })
         assertNull(views.firstOrNull { it.providerId == "yayoiapi" })
+
+        // Worst first, so the ring and the first row name the provider closest to its limit.
+        assertEquals("workbuddy", views.first().providerId)
+        assertTrue(
+            views.zipWithNext().all { (worse, better) ->
+                (worse.ratio ?: -1.0) >= (better.ratio ?: -1.0)
+            }
+        )
+        // workbuddy is four accounts with four windows each: nothing is dropped, names repeat.
+        val workbuddy = views.first { it.providerId == "workbuddy" }
+        assertEquals(16, workbuddy.windows.size)
+        assertEquals(listOf("Credits", "Credits #2", "Credits #3", "Credits #4"), workbuddy.windows.take(4).map { it.id })
     }
 
     @Test
@@ -148,7 +160,7 @@ class QuotaProviderViewsTest {
     }
 
     @Test
-    fun duplicateProviderRowsMergeWindowsByNameAndKeepTheReportedValue() {
+    fun duplicateProviderWindowsKeepEveryValueAndGetNumberedTitles() {
         val rows = listOf(
             AccountQuota(
                 providerId = "workbuddy",
@@ -166,10 +178,14 @@ class QuotaProviderViewsTest {
 
         val view = providerQuotaViews(rows, emptyList(), maskAccountNames = false).single()
 
-        assertEquals(listOf("Credits", "Extra credits"), view.windows.map { it.id })
+        // Same name, same provider: both windows stay, the repeat is numbered instead of merged.
+        assertEquals(
+            listOf("Credits", "Credits #2", "Extra credits", "Extra credits #2"),
+            view.windows.map { it.id }
+        )
         assertEquals(100.0, view.windows.first { it.id == "Credits" }.usedPercent ?: 0.0, 0.0001)
-        val extraCredits = view.windows.first { it.id == "Extra credits" }
-        assertEquals(67.5, extraCredits.usedPercent ?: 0.0, 0.0001)
+        assertEquals(0.0, view.windows.first { it.id == "Credits #2" }.usedPercent ?: -1.0, 0.0001)
+        assertEquals(67.5, view.windows.first { it.id == "Extra credits #2" }.usedPercent ?: 0.0, 0.0001)
         assertEquals(1.0, view.ratio ?: 0.0, 0.0001)
     }
 

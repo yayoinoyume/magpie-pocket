@@ -10,9 +10,10 @@ import com.magpie.pocket.core.util.MetricCalculators
  * Quotas are a provider dimension: /api/usage/quotas names the provider and its display name, and
  * an account only when the answer happens to carry one. It can answer the same provider more than
  * once (one row per window set, plus an empty row for a provider it can only name), so rows merge
- * by provider id and windows merge by window id, keeping the first window that reported a value.
+ * by provider id and every window they reported is kept, in first-seen name order.
  *
- * A provider that reported no window is dropped: it has nothing to show.
+ * A provider that reported no window is dropped: it has nothing to show. The survivors are sorted
+ * worst first, so the ring and the first visible row name the same provider.
  *
  * The provider name is never masked — masking hides credentials, and a provider name is public
  * catalog data. Only an account the upstream actually named is masked and appended.
@@ -27,7 +28,7 @@ internal fun providerQuotaViews(
         rowsByProvider.getOrPut(quota.providerId) { mutableListOf() }.add(quota)
     }
     return rowsByProvider.mapNotNull { (providerId, rows) ->
-        val windows = mergeQuotaWindows(rows.flatMap { it.windows })
+        val windows = rows.flatMap { it.windows }.numberRepeatedTitles()
         if (windows.isEmpty()) return@mapNotNull null
         val tightest = windows
             .mapNotNull { window ->
@@ -44,23 +45,27 @@ internal fun providerQuotaViews(
             ratio = tightest?.second,
             windows = windows
         )
-    }
+    }.sortedWith(
+        // Worst first: the ring reads the first row, and the worst provider must stay visible.
+        // Ties break on the provider id, never on the label, so flipping masking cannot reorder.
+        compareByDescending<AccountQuotaView> { it.ratio ?: Double.NEGATIVE_INFINITY }
+            .thenBy { it.providerId }
+    )
 }
 
-/** The first window per id wins, unless it reported nothing and a later duplicate did. */
-private fun mergeQuotaWindows(windows: List<QuotaWindow>): List<QuotaWindow> {
-    val byId = LinkedHashMap<String, QuotaWindow>()
-    windows.forEach { window ->
-        val existing = byId[window.id]
-        if (existing == null || (!existing.hasReportedValue() && window.hasReportedValue())) {
-            byId[window.id] = window
+/**
+ * Every window a provider reported, grouped by name. A name the provider repeated gets #2, #3 …
+ * so two windows never read the same; the SVC dashboard numbers them the same way.
+ */
+private fun List<QuotaWindow>.numberRepeatedTitles(): List<QuotaWindow> {
+    val byName = LinkedHashMap<String, MutableList<QuotaWindow>>()
+    forEach { window -> byName.getOrPut(window.id) { mutableListOf() }.add(window) }
+    return byName.flatMap { (name, windows) ->
+        windows.mapIndexed { index, window ->
+            if (index == 0) window else window.copy(id = name + " #" + (index + 1))
         }
     }
-    return byId.values.toList()
 }
-
-private fun QuotaWindow.hasReportedValue(): Boolean =
-    unlimited || used != null || usedPercent != null || amount != null || display != null
 
 /** The provider name, plus the masked alias of the first account its rows named. */
 private fun providerLabel(

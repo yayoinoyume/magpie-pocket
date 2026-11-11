@@ -110,6 +110,8 @@ class DashboardDerivedStateTest {
         assertEquals("Vendor · workbuddy-primary", plain.first { it.providerId == "vendor" }.label)
         // A provider the answer never tied to an account has no account part to mask.
         assertEquals("OpenCode Go", plain.first { it.providerId == "opencode-go" }.label)
+        // Worst first, and the masking toggle never reorders the rows.
+        assertEquals(listOf("vendor", "opencode-go"), plain.map { it.providerId })
     }
 
     @Test
