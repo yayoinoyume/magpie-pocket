@@ -112,5 +112,15 @@ class ContextSegmentsTest {
         assertTrue(segments[2].merged)
     }
 
+    @Test
+    fun partsWithoutTokensAreDroppedBeforeSegmentation() {
+        val segments = contextSegments(
+            listOf(part("system", 0), part("tools", 30), part("chat", 70)),
+            totalTokens = 100
+        )
+        assertEquals(listOf("会话", "工具"), segments.map { it.label })
+        assertEquals(listOf(70L, 30L), segments.map { it.tokens })
+    }
+
     private fun part(kind: String, tokens: Long) = ContextPart(kind = kind, tokens = tokens)
 }
