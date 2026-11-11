@@ -1194,8 +1194,14 @@ internal fun contextSegments(parts: List<ContextPart>, totalTokens: Long): List<
  */
 internal fun windowUsageLabel(totalTokens: Long, windowLimit: Long?): String = when {
     windowLimit == null || windowLimit <= 0L -> "窗口上限未知"
-    else -> "窗口 ${MetricCalculators.formatCompactNumber(windowLimit)} · " +
-        MetricCalculators.formatPercent(totalTokens.toDouble() / windowLimit)
+    else -> {
+        val raw = totalTokens.toDouble() / windowLimit
+        // A hair under the window must not round up to a full bar: 999,999 of 1,000,000
+        // is 99.9%, not 100%.
+        val shown = if (totalTokens < windowLimit) raw.coerceAtMost(0.999) else raw
+        "窗口 ${MetricCalculators.formatCompactNumber(windowLimit)} · " +
+            MetricCalculators.formatPercent(shown)
+    }
 }
 
 /** Three-segment context bar; the window limit stays beside the legend. */
@@ -1244,7 +1250,9 @@ private fun ContextSection(context: ContextBreakdown) {
                 Text(
                     text = windowLabel,
                     fontSize = MagpieTypography.CaptionStyle.fontSize,
-                    color = colors.textSecondary
+                    color = colors.textSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
             return@Column
@@ -1300,7 +1308,9 @@ private fun ContextSection(context: ContextBreakdown) {
             Text(
                 text = windowLabel,
                 fontSize = MagpieTypography.CaptionStyle.fontSize,
-                color = colors.textSecondary
+                color = colors.textSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
         }
     }
