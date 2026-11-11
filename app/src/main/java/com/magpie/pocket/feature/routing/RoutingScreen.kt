@@ -1171,10 +1171,12 @@ internal data class ContextSegment(
  * Exactly three parts stay separate; only four or more fold their tail.
  */
 internal fun contextSegments(parts: List<ContextPart>, totalTokens: Long): List<ContextSegment> {
-    if (parts.isEmpty() || totalTokens <= 0L) return emptyList()
-    val ranked = parts.sortedWith(
+    // A part that holds no tokens cannot be drawn; keeping it would print a "0.0%" legend
+    // entry with no matching slice.
+    val ranked = parts.filter { it.tokens > 0L }.sortedWith(
         compareByDescending<ContextPart> { it.tokens }.thenBy { it.kind }
     )
+    if (ranked.isEmpty() || totalTokens <= 0L) return emptyList()
     if (ranked.size <= 3) {
         return ranked.map { ContextSegment(it.kind.contextLabel(), it.tokens, merged = false) }
     }
@@ -1227,7 +1229,7 @@ private fun ContextSection(context: ContextBreakdown) {
         if (segments.isEmpty()) {
             Row(modifier = Modifier.fillMaxWidth()) {
                 Text(
-                    text = "暂无构成明细",
+                    text = "暂无上下文明细",
                     style = MagpieTypography.LabelStyle,
                     color = colors.textSecondary,
                     modifier = Modifier.weight(1f)
