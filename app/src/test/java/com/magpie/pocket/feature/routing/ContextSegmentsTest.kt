@@ -129,6 +129,13 @@ class ContextSegmentsTest {
     }
 
     @Test
+    fun aRequestJustUnderTheWindowNeverRoundsUpToAFullBar() {
+        assertEquals("窗口 1.0M · 99.9%", windowUsageLabel(totalTokens = 999_999, windowLimit = 1_000_000))
+        assertEquals("窗口 1.0M · 0.0%", windowUsageLabel(totalTokens = 0, windowLimit = 1_000_000))
+        assertEquals("窗口 1.0M · 120.0%", windowUsageLabel(totalTokens = 1_200_000, windowLimit = 1_000_000))
+    }
+
+    @Test
     fun unknownWindowDoesNotInventAShare() {
         assertEquals("窗口上限未知", windowUsageLabel(totalTokens = 4_300, windowLimit = null))
         assertEquals("窗口上限未知", windowUsageLabel(totalTokens = 4_300, windowLimit = 0))

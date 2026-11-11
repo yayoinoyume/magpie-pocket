@@ -616,6 +616,9 @@ class AppViewModelAuthTest {
 
         viewModel.saveConnection(liveConfig("seeded"), probeClient, probe)
 
+        // The sheet's own probe is shown at once: a refresh may wait on activity or a
+        // retry backoff, and the group panel must not sit empty until then.
+        assertTrue(viewModel.groups.value.isNotEmpty())
         kotlinx.coroutines.withTimeout(20_000) { viewModel.groups.first { it.isNotEmpty() } }
         kotlinx.coroutines.withTimeout(20_000) { viewModel.requestsPage.first { it != null } }
         // The sheet already read these bodies; the first refresh must not ask again.

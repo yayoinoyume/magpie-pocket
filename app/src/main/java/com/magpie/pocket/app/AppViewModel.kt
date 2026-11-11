@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.magpie.pocket.core.data.DemoRepository
 import com.magpie.pocket.core.data.LiveMagpieRepository
+import com.magpie.pocket.core.data.toRouteGroups
 import com.magpie.pocket.core.data.MagpieRepository
 import com.magpie.pocket.core.data.MaskingQuery
 import com.magpie.pocket.core.data.RequestQuery
@@ -526,6 +527,11 @@ class AppViewModel(
                 },
                 initialProbe = probeResult
             )
+            // The sheet's probe already holds the group rows, so show them now: a refresh
+            // waits on activity state or a backoff, and the panel should not sit empty.
+            probeResult?.groups?.toRouteGroups()?.takeIf { it.isNotEmpty() }?.let {
+                _groups.value = it
+            }
         } else {
             demoRepo
         }

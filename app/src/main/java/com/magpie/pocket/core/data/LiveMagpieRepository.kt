@@ -395,29 +395,7 @@ class LiveMagpieRepository(
         }
     }
 
-    override suspend fun groups(): List<RouteGroup> {
-        val resp = groupsResponse()
-        return resp.groups?.map { g ->
-            val info = g.memberInfo ?: g.members.orEmpty()
-            // A string member is a model id, never an account id. Nested groups
-            // are not providers, so they contribute no provider evidence.
-            val pIds = info
-                .filterNot { it.group }
-                .mapNotNull { it.provider }
-                .distinct()
-            RouteGroup(
-                id = g.id,
-                name = g.name ?: g.id,
-                strategy = g.routing ?: g.strategy,
-                affinity = g.affinity,
-                enabledMemberCount = info.count {
-                    !it.group && it.enabled && it.ready && !it.providerOff
-                },
-                providerIds = pIds,
-                detailsComplete = true
-            )
-        } ?: emptyList()
-    }
+    override suspend fun groups(): List<RouteGroup> = groupsResponse().toRouteGroups()
 
     override suspend fun accounts(): List<Account> {
         val groups = groupsResponse()
@@ -997,3 +975,29 @@ private class PendingRequests {
         }
     }
 }
+
+/**
+ * Maps a group body once, so the connection sheet's own probe can be shown before the
+ * first refresh lands and both paths read the same rows.
+ */
+internal fun UpstreamGroupsResponse.toRouteGroups(): List<RouteGroup> =
+    groups?.map { g ->
+        val info = g.memberInfo ?: g.members.orEmpty()
+        // A string member is a model id, never an account id. Nested groups
+        // are not providers, so they contribute no provider evidence.
+        val pIds = info
+            .filterNot { it.group }
+            .mapNotNull { it.provider }
+            .distinct()
+        RouteGroup(
+            id = g.id,
+            name = g.name ?: g.id,
+            strategy = g.routing ?: g.strategy,
+            affinity = g.affinity,
+            enabledMemberCount = info.count {
+                !it.group && it.enabled && it.ready && !it.providerOff
+            },
+            providerIds = pIds,
+            detailsComplete = true
+        )
+    } ?: emptyList()
