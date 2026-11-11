@@ -146,32 +146,66 @@ class QuotaCardsTest {
     }
 
     @Test
-    fun theNewestAccountOpensByDefault() {
-        val card = cardWithAccounts(
-            listOf(
-                "account-a" to "2026-11-09T00:00:00Z",
-                "account-b" to "2026-11-11T00:00:00Z",
-                "account-c" to "2026-11-10T00:00:00Z"
-            )
-        )
+    fun eachAccountReadsItsMostUsedWindowAsItsTightest() = runBlocking {
+        val workbuddy = realCards(QuotaDisplayMode.REMAINING)
+            .first { it.providerId == "workbuddy" }
 
-        val key = defaultQuotaAccountKey(card)
-        assertNotNull(key)
-        assertTrue(key!!.endsWith("account-b"))
+        // 180***201 has spent its whole Credits allowance: 100% used, 0% remaining.
+        val spent = workbuddy.accounts.first { it.label == "180***201" }
+        val spentTightest = quotaAccountTightest(spent, QuotaDisplayMode.REMAINING)
+        assertEquals("Credits", spentTightest?.name)
+        assertEquals(0.0, spentTightest?.percent ?: -1.0, 0.01)
+
+        // The captured answer has no 180***202. Its second account still reports four windows:
+        // the untouched Credits row reads 100% remaining, but the token window at 99.8% used is
+        // the one actually closest to its limit and therefore the one the account line prints.
+        val second = workbuddy.accounts.first { it.accountId == "153****8998" }
+        val credits = second.windows.first { it.name == "Credits" }
+        assertEquals("0 / 500 credits", credits.countText)
+        assertEquals(100.0, credits.percent ?: -1.0, 0.01)
+        val secondTightest = quotaAccountTightest(second, QuotaDisplayMode.REMAINING)
+        assertEquals("deepseek-v4.1-flash tokens (est.)", secondTightest?.name)
+        assertEquals(0.207, secondTightest?.percent ?: -1.0, 0.01)
+
+        // The same window stays tightest when the page prints used shares instead.
+        val usedWorkbuddy = realCards(QuotaDisplayMode.USED)
+            .first { it.providerId == "workbuddy" }
+        val usedSpent = usedWorkbuddy.accounts.first { it.label == "180***201" }
+        assertEquals(
+            "Credits",
+            quotaAccountTightest(usedSpent, QuotaDisplayMode.USED)?.name
+        )
+        val usedSecond = usedWorkbuddy.accounts.first { it.accountId == "153****8998" }
+        assertEquals(
+            "deepseek-v4.1-flash tokens (est.)",
+            quotaAccountTightest(usedSecond, QuotaDisplayMode.USED)?.name
+        )
     }
 
     @Test
-    fun aWindowWithoutLastServedAtFallsBackToTheFirstAccount() {
-        val card = cardWithAccounts(
-            listOf(
-                "account-a" to null,
-                "account-b" to null
-            )
+    fun anAccountWithOnlyUnreadableWindowsHasNoTightestWindow() {
+        val card = quotaProviderCards(
+            quotas = listOf(
+                AccountQuota(
+                    providerId = "vendor",
+                    displayName = "Vendor",
+                    accountId = "account-a",
+                    known = true,
+                    windows = listOf(
+                        QuotaWindow(id = "Unlimited", unit = "", unlimited = true),
+                        QuotaWindow(id = "Text", unit = "", display = "In use", text = true)
+                    )
+                )
+            ),
+            accounts = emptyList(),
+            maskAccountNames = false,
+            displayMode = QuotaDisplayMode.REMAINING,
+            nowMillis = RequestTimestamps.parseMillis("2026-11-11T00:00:00Z")!!
         )
 
-        val key = defaultQuotaAccountKey(card)
-        assertNotNull(key)
-        assertTrue(key!!.endsWith("account-a"))
+        assertNull(
+            quotaAccountTightest(card.single().accounts.single(), QuotaDisplayMode.REMAINING)
+        )
     }
 
     @Test
@@ -241,24 +275,6 @@ class QuotaCardsTest {
         )
         return card.single().accounts.single().windows.single().paceText
     }
-
-    private fun cardWithAccounts(accounts: List<Pair<String, String?>>): QuotaProviderCard =
-        quotaProviderCards(
-            quotas = accounts.map { (accountId, lastServedAt) ->
-                AccountQuota(
-                    providerId = "vendor",
-                    displayName = "Vendor",
-                    accountId = accountId,
-                    lastServedAt = lastServedAt,
-                    known = true,
-                    windows = listOf(QuotaWindow(id = "Credits", unit = "", usedPercent = 10.0))
-                )
-            },
-            accounts = emptyList(),
-            maskAccountNames = false,
-            displayMode = QuotaDisplayMode.REMAINING,
-            nowMillis = RequestTimestamps.parseMillis("2026-11-11T00:00:00Z")!!
-        ).single()
 
     private fun percentAccounts(vararg planAndUsed: Pair<String, Double>): List<QuotaProviderCard> =
         quotaProviderCards(

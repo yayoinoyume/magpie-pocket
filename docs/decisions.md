@@ -143,9 +143,21 @@ The reusable visual specification is maintained in .agents/skills/magpie-pocket-
 - 额度子页按供应商成卡：卡头供应商名 + 最紧窗口的显示百分比（有余额时显示余额原文），4dp 条，下面是最紧窗口的计数/百分比与重置行；卡底按钮在卡内展开全部窗口，不再打开底部 sheet。
 - 总览卡用全部窗口的剩余比例算术平均（排除 `unlimited` / `text` / 无读数窗口），剩余低于 30% 计数；最低/最高按供应商最紧窗口。
 - 多账号供应商先在卡内给「N 个账号合计」块，再列账号；只有 ≥2 个账号共有的同名窗口才合计：计数窗口 `amount` / `limit` 相加，纯百分比只在同 plan 账号间平均，`text` / `unlimited` 跳过。
-- 账户默认展开 `lastServedAt` 最大的一个，其余用 2 列简略网格；账号行点击切换，卡底可一次展开全部或收成简略。
+- 账户默认展开 `lastServedAt` 最大的一个，其余用 2 列简略网格；账号行点击切换，卡底可一次展开全部或收成简略。（已由下节「额度卡片三层递进」取代）
 - Pace = `used - 100 * (now - startsAt) / (resetsAt - startsAt)`；正数「比均速快」，负数「比均速慢」，窗口两端无效时不显示。
 - 余额卡显示上游给的余额原文且不画条；无限额显示「无限额」；纯文本窗口照抄上游 `display`；纯百分比窗口只显示百分比。
 - 已用/剩余切换继续作用于所有数字和条；切换只改读数方向，不改最紧窗口、排序与颜色。
 
 **影响**：`QuotaWindow` / `AccountQuota` 增加 `startsAt`、`plan`、`balance`、`until`、`lastServedAt`；`app/QuotaCards.kt` 与旧 `QuotaProviderViews.kt` 并存，旧视图仍供概览告警使用。
+
+## 2026-11-11 额度卡片三层递进
+
+**背景**：多账号卡默认把四个账号连同各自的窗口网格一起铺开，首屏信息过载。
+
+**决策**：
+
+- 多账号卡分三层：层 1 只留卡头与「N 个账号合计」块；点合计块（整块可点）进入层 2 的账号列表；再点账号行右侧 chevron 进入层 3，展开该账号的窗口。
+- 合计块按 `mergedWindows` 每个窗口一行显示名称、计数/百分比和 3dp 条；没有可合计窗口时只写「N 个账号」并保留 chevron。
+- 账号行显示账号名与该账号已用比例最大的窗口读数，行本身不响应点击，只有 chevron 触发展开。
+- 两个展开集合默认都为空；单账号卡仍用卡底「查看 N 个窗口 / 收起」展开现有窗口列表。
+- `QuotaCards.kt` 新增 `quotaAccountTightest`，按已用比例最大选账号最紧窗口；删除按 `lastServedAt` 默认展开的 `defaultQuotaAccountKey` / `defaultExpandedQuotaAccounts`。

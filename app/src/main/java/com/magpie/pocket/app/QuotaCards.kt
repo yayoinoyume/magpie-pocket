@@ -505,30 +505,24 @@ internal fun quotaAccountKey(
     index: Int
 ): String = providerId + "\n" + (account.accountId ?: "account-" + index)
 
-/** The account with the newest lastServedAt opens by default; a tie keeps the first one. */
-internal fun defaultQuotaAccountKey(card: QuotaProviderCard): String? {
-    if (card.accounts.isEmpty()) return null
-    var bestIndex = 0
-    var bestMillis = Long.MIN_VALUE
-    card.accounts.forEachIndexed { index, account ->
-        val millis = RequestTimestamps.parseMillis(account.lastServedAt)
-        if (millis != null && millis > bestMillis) {
-            bestMillis = millis
-            bestIndex = index
-        }
-    }
-    return quotaAccountKey(card.providerId, card.accounts[bestIndex], bestIndex)
-}
-
-internal fun defaultExpandedQuotaAccounts(cards: List<QuotaProviderCard>): Set<String> =
-    cards.mapNotNull { defaultQuotaAccountKey(it) }.toSet()
-
 /** The provider's tightest window, printed in the page's chosen direction. */
 internal fun QuotaProviderCard.tightestWindow(displayMode: QuotaDisplayMode): QuotaWindowRow? =
     accounts.asSequence()
         .flatMap { it.windows }
         .filter { it.percent != null }
         .minByOrNull { remainingPercent(it, displayMode) }
+
+/**
+ * The account's tightest window: the one with the smallest remaining share, i.e. the largest
+ * used share, whichever direction the page prints. A window without a reading cannot be
+ * tightest, so an account that only has text or unlimited windows returns null.
+ */
+internal fun quotaAccountTightest(
+    account: QuotaAccountView,
+    displayMode: QuotaDisplayMode
+): QuotaWindowRow? = account.windows
+    .filter { row -> usedPercent(row, displayMode) != null }
+    .minByOrNull { row -> remainingPercent(row, displayMode) }
 
 internal fun quotaOverview(
     cards: List<QuotaProviderCard>,

@@ -63,10 +63,9 @@ import com.magpie.pocket.core.design.springPress
 import com.magpie.pocket.app.QuotaOverview
 import com.magpie.pocket.app.QuotaProviderCard
 import com.magpie.pocket.app.QuotaWindowRow
-import com.magpie.pocket.app.defaultExpandedQuotaAccounts
-import com.magpie.pocket.app.defaultQuotaAccountKey
 import com.magpie.pocket.app.formatQuotaPercent
 import com.magpie.pocket.app.quotaAccountKey
+import com.magpie.pocket.app.quotaAccountTightest
 import com.magpie.pocket.app.quotaOverview
 import com.magpie.pocket.app.tightestWindow
 import com.magpie.pocket.core.model.AccountQuotaView
@@ -160,23 +159,15 @@ fun UsageScreen(
     var tab by rememberSaveable { mutableStateOf(usageTabFor(initialSection)) }
 
     // Expanded state lives here, not in the card, so a refresh or a reorder cannot close a card.
+    // Both layers start closed: a multi-account card opens on its merged total alone.
     var expandedQuotaProviders by rememberSaveable(stateSaver = QuotaStringSetSaver) {
         mutableStateOf(emptySet())
     }
     var expandedQuotaAccounts by rememberSaveable(stateSaver = QuotaStringSetSaver) {
-        mutableStateOf(defaultExpandedQuotaAccounts(quotaCards))
+        mutableStateOf(emptySet())
     }
     val quotaSummary = remember(quotaCards, quotaDisplayMode) {
         quotaOverview(quotaCards, quotaDisplayMode)
-    }
-    var quotaDefaultsSeeded by rememberSaveable {
-        mutableStateOf(quotaCards.any { it.accounts.isNotEmpty() })
-    }
-    LaunchedEffect(quotaCards) {
-        if (!quotaDefaultsSeeded && quotaCards.any { it.accounts.isNotEmpty() }) {
-            expandedQuotaAccounts = defaultExpandedQuotaAccounts(quotaCards)
-            quotaDefaultsSeeded = true
-        }
     }
     var dimensionKey by rememberSaveable { mutableStateOf(UsageDimension.MODELS.name) }
     var sortKey by rememberSaveable { mutableStateOf("") }
@@ -385,9 +376,6 @@ fun UsageScreen(
 
                     items(quotaCards.size, key = { quotaCards[it].providerId }) { index ->
                         val card = quotaCards[index]
-                        val accountKeys = card.accounts.mapIndexed { accountIndex, account ->
-                            quotaAccountKey(card.providerId, account, accountIndex)
-                        }.toSet()
                         QuotaProviderCardView(
                             card = card,
                             displayMode = quotaDisplayMode,
@@ -399,15 +387,6 @@ fun UsageScreen(
                             expandedAccounts = expandedQuotaAccounts,
                             onToggleAccount = { key ->
                                 expandedQuotaAccounts = expandedQuotaAccounts.toggle(key)
-                            },
-                            onToggleAllAccounts = {
-                                val allExpanded = accountKeys.isNotEmpty() &&
-                                    accountKeys.all { it in expandedQuotaAccounts }
-                                expandedQuotaAccounts = if (allExpanded) {
-                                    setOfNotNull(defaultQuotaAccountKey(card))
-                                } else {
-                                    expandedQuotaAccounts + accountKeys
-                                }
                             },
                             modifier = Modifier
                                 .padding(horizontal = MagpieDimensions.PagePadding)
@@ -1040,8 +1019,8 @@ private fun QuotaModeNote(displayMode: QuotaDisplayMode, modifier: Modifier = Mo
 }
 
 /**
- * One provider card. A single-account provider expands its window list in place; a multi-account
- * provider always shows its merged total and its accounts, with one account open by default.
+ * One provider card. A single-account provider expands its window list in place. A multi-account
+ * provider opens in three layers: the merged total, the account list, then one account's windows.
  */
 @Composable
 private fun QuotaProviderCardView(
@@ -1051,7 +1030,6 @@ private fun QuotaProviderCardView(
     onToggleExpanded: () -> Unit,
     expandedAccounts: Set<String>,
     onToggleAccount: (String) -> Unit,
-    onToggleAllAccounts: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = MagpieTheme.colors
@@ -1062,7 +1040,7 @@ private fun QuotaProviderCardView(
     val balanceHeadline = !card.balance.isNullOrBlank()
     val unlimitedOnly = card.windowCount > 0 && allWindows.all { it.unlimited }
     val textOnly = if (tightest == null) allWindows.firstOrNull { it.text != null } else null
-    val multiAccount = card.accounts.size > 1
+    val multiAccount = card.accountCount >= 2
 
     val headlineText = when {
         balanceHeadline -> card.balance.orEmpty()
@@ -1110,11 +1088,8 @@ private fun QuotaProviderCardView(
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
-                    val subtitle = listOfNotNull(
-                        card.plan,
-                        if (multiAccount) card.accountCount.toString() + " 个账号" else null
-                    ).joinToString(" · ")
-                    if (subtitle.isNotEmpty()) {
+                    val subtitle = card.plan?.takeIf { it.isNotBlank() }
+                    if (subtitle != null) {
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = subtitle,
@@ -1148,125 +1123,127 @@ private fun QuotaProviderCardView(
                 }
             }
 
-            val showBar = tightest != null && tightest.hasBar &&
-                !balanceHeadline && !unlimitedOnly && textOnly == null
-            if (showBar && tightest != null) {
-                QuotaBar(
-                    percent = tightest.percent,
-                    color = quotaIndexColor(tightest.color),
-                    height = 4.dp,
-                    modifier = Modifier.padding(top = 9.dp)
-                )
-            }
-
-            val lead = when {
-                balanceHeadline -> "余额 · 不按窗口计"
-                tightest != null -> listOfNotNull(
-                    tightest.name,
-                    tightest.countText ?: tightest.shareText ?: tightest.text
-                ).joinToString(" · ")
-                unlimitedOnly -> "订阅未设上限"
-                textOnly != null -> "上游只给文本，没有数字"
-                else -> "暂无额度窗口"
-            }
-            Text(
-                text = lead,
-                style = MagpieTypography.LabelStyle,
-                color = colors.textSecondary,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(top = 8.dp)
-            )
-            val reset = tightest?.resetText
-            if (reset != null && !balanceHeadline) {
-                Text(
-                    text = reset,
-                    style = MagpieTypography.LabelStyle.copy(fontSize = 11.sp, lineHeight = 15.sp),
-                    color = colors.textTertiary,
-                    modifier = Modifier.padding(top = 3.dp)
-                )
-            }
-
             if (multiAccount) {
-                if (card.mergedWindows.isNotEmpty()) {
-                    QuotaMergedBlock(card = card, modifier = Modifier.padding(top = 11.dp))
-                }
-                card.accounts.forEachIndexed { index, account ->
-                    val accountKey = quotaAccountKey(card.providerId, account, index)
-                    val accountExpanded = accountKey in expandedAccounts
-                    if (index > 0 || card.mergedWindows.isNotEmpty()) {
+                QuotaMergedBlock(
+                    card = card,
+                    expanded = expanded,
+                    onToggle = onToggleExpanded,
+                    modifier = Modifier.padding(top = 11.dp)
+                )
+                if (expanded) {
+                    card.accounts.forEachIndexed { index, account ->
+                        val accountKey = quotaAccountKey(card.providerId, account, index)
+                        val accountExpanded = accountKey in expandedAccounts
+                        val accountTightest = quotaAccountTightest(account, displayMode)
+                        val accountValue = accountTightest?.let { row ->
+                            listOfNotNull(row.countText, row.shareText)
+                                .takeIf { it.isNotEmpty() }
+                                ?.joinToString(" · ")
+                                ?: row.text
+                                ?: if (row.unlimited) "无限额" else "—"
+                        } ?: account.windows.firstOrNull { it.text != null }?.text
+                            ?: if (account.windows.any { it.unlimited }) "无限额" else "—"
                         HorizontalDivider(
                             color = colors.divider,
-                            modifier = Modifier.padding(top = if (index == 0) 11.dp else 0.dp)
+                            modifier = Modifier.padding(top = if (index == 0) 12.dp else 0.dp)
                         )
-                    }
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 40.dp)
-                            .clickable { onToggleAccount(accountKey) }
-                            .padding(vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = account.label,
-                            style = MagpieTypography.SubheadStyle,
-                            color = colors.textPrimary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-                        account.plan?.takeIf { it != card.plan }?.let { plan ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 44.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Text(
-                                text = plan,
-                                style = MagpieTypography.LabelStyle.copy(fontSize = 10.sp),
-                                color = colors.accent,
+                                text = account.label,
+                                style = MagpieTypography.SubheadStyle,
+                                color = colors.textPrimary,
                                 maxLines = 1,
-                                modifier = Modifier.padding(start = 8.dp)
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = accountValue,
+                                style = MagpieTypography.LabelStyle.copy(fontSize = 12.sp),
+                                color = if (accountTightest != null) {
+                                    quotaIndexColor(accountTightest.color)
+                                } else {
+                                    colors.textTertiary
+                                },
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clickable { onToggleAccount(accountKey) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (accountExpanded) {
+                                        Icons.Filled.ExpandLess
+                                    } else {
+                                        Icons.Filled.ExpandMore
+                                    },
+                                    contentDescription = if (accountExpanded) {
+                                        "收起账号"
+                                    } else {
+                                        "展开账号"
+                                    },
+                                    tint = colors.textTertiary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                        if (accountExpanded) {
+                            HorizontalDivider(color = colors.divider)
+                            QuotaWindowList(
+                                windows = account.windows,
+                                modifier = Modifier.padding(start = 10.dp)
                             )
                         }
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Icon(
-                            imageVector = if (accountExpanded) {
-                                Icons.Filled.ExpandLess
-                            } else {
-                                Icons.Filled.ExpandMore
-                            },
-                            contentDescription = if (accountExpanded) "收起账号" else "展开账号",
-                            tint = colors.textTertiary,
-                            modifier = Modifier.size(18.dp)
-                        )
                     }
-                    if (accountExpanded) {
-                        QuotaWindowList(account.windows)
-                    } else {
-                        QuotaWindowGrid(
-                            windows = account.windows,
-                            modifier = Modifier.padding(top = 2.dp, bottom = 4.dp)
-                        )
-                    }
-                }
-                if (card.accounts.size > 1) {
-                    val accountKeys = card.accounts.mapIndexed { index, account ->
-                        quotaAccountKey(card.providerId, account, index)
-                    }
-                    val allExpanded = accountKeys.isNotEmpty() &&
-                        accountKeys.all { it in expandedAccounts }
-                    HorizontalDivider(
-                        color = colors.divider,
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
-                    QuotaMoreRow(
-                        text = if (allExpanded) {
-                            "其他账号收成简略"
-                        } else {
-                            "展开全部 " + card.accounts.size + " 个账号"
-                        },
-                        expanded = allExpanded,
-                        onClick = onToggleAllAccounts
-                    )
                 }
             } else {
+                val showBar = tightest != null && tightest.hasBar &&
+                    !balanceHeadline && !unlimitedOnly && textOnly == null
+                if (showBar && tightest != null) {
+                    QuotaBar(
+                        percent = tightest.percent,
+                        color = quotaIndexColor(tightest.color),
+                        height = 4.dp,
+                        modifier = Modifier.padding(top = 9.dp)
+                    )
+                }
+
+                val lead = when {
+                    balanceHeadline -> "余额 · 不按窗口计"
+                    tightest != null -> listOfNotNull(
+                        tightest.name,
+                        tightest.countText ?: tightest.shareText ?: tightest.text
+                    ).joinToString(" · ")
+                    unlimitedOnly -> "订阅未设上限"
+                    textOnly != null -> "上游只给文本，没有数字"
+                    else -> "暂无额度窗口"
+                }
+                Text(
+                    text = lead,
+                    style = MagpieTypography.LabelStyle,
+                    color = colors.textSecondary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+                val reset = tightest?.resetText
+                if (reset != null && !balanceHeadline) {
+                    Text(
+                        text = reset,
+                        style = MagpieTypography.LabelStyle.copy(fontSize = 11.sp, lineHeight = 15.sp),
+                        color = colors.textTertiary,
+                        modifier = Modifier.padding(top = 3.dp)
+                    )
+                }
+
                 if (expanded && card.windowCount > 0) {
                     HorizontalDivider(
                         color = colors.divider,
@@ -1274,16 +1251,16 @@ private fun QuotaProviderCardView(
                     )
                     QuotaWindowList(card.accounts.firstOrNull()?.windows.orEmpty())
                 }
-                if (card.windowCount > 0 && !unlimitedOnly && textOnly == null) {
+                if (card.windowCount > 0) {
                     HorizontalDivider(
                         color = colors.divider,
                         modifier = Modifier.padding(top = 11.dp)
                     )
                     QuotaMoreRow(
-                        text = if (card.windowCount == 1) {
-                            "查看 1 个窗口"
+                        text = if (expanded) {
+                            "收起"
                         } else {
-                            "另外 " + (card.windowCount - 1) + " 个窗口"
+                            "查看 " + card.windowCount + " 个窗口"
                         },
                         expanded = expanded,
                         onClick = onToggleExpanded
@@ -1295,85 +1272,96 @@ private fun QuotaProviderCardView(
 }
 
 @Composable
-private fun QuotaMergedBlock(card: QuotaProviderCard, modifier: Modifier = Modifier) {
+private fun QuotaMergedBlock(
+    card: QuotaProviderCard,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     val colors = MagpieTheme.colors
     Column(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .background(colors.divider.copy(alpha = 0.14f))
+            .clickable(onClick = onToggle)
             .padding(horizontal = 12.dp, vertical = 10.dp)
     ) {
-        Text(
-            text = card.accountCount.toString() + " 个账号合计",
-            style = MagpieTypography.LabelStyle.copy(
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold
-            ),
-            color = colors.textTertiary
-        )
-        Spacer(modifier = Modifier.height(9.dp))
-        QuotaWindowGrid(windows = card.mergedWindows)
-    }
-}
-
-@Composable
-private fun QuotaWindowGrid(windows: List<QuotaWindowRow>, modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(9.dp)
-    ) {
-        windows.chunked(2).forEach { pair ->
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                pair.forEach { row ->
-                    QuotaWindowCell(row = row, modifier = Modifier.weight(1f))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = if (card.mergedWindows.isEmpty()) {
+                    card.accountCount.toString() + " 个账号"
+                } else {
+                    card.accountCount.toString() + " 个账号合计"
+                },
+                style = MagpieTypography.LabelStyle.copy(
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                ),
+                color = colors.textSecondary,
+                modifier = Modifier.weight(1f)
+            )
+            Icon(
+                imageVector = if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                contentDescription = if (expanded) "收起账号" else "展开账号",
+                tint = colors.textTertiary,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+        if (card.mergedWindows.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(9.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                card.mergedWindows.forEach { row ->
+                    val value = row.countText ?: row.shareText ?: row.text
+                        ?: if (row.unlimited) "无限额" else "—"
+                    val valueColor = quotaIndexColor(row.color)
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = row.name,
+                                style = MagpieTypography.LabelStyle.copy(fontSize = 12.sp),
+                                color = colors.textSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = value,
+                                style = MagpieTypography.LabelStyle.copy(
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                ),
+                                color = valueColor,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        if (row.hasBar) {
+                            QuotaBar(
+                                percent = row.percent,
+                                color = valueColor,
+                                height = 3.dp,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
+                    }
                 }
-                if (pair.size == 1) Spacer(modifier = Modifier.weight(1f))
             }
         }
     }
 }
 
 @Composable
-private fun QuotaWindowCell(row: QuotaWindowRow, modifier: Modifier = Modifier) {
+private fun QuotaWindowList(windows: List<QuotaWindowRow>, modifier: Modifier = Modifier) {
     val colors = MagpieTheme.colors
-    val value = row.countText ?: row.shareText ?: row.text
-        ?: if (row.unlimited) "无限额" else "—"
-    val valueColor = quotaIndexColor(row.color)
-    Column(modifier = modifier) {
-        Text(
-            text = row.name,
-            style = MagpieTypography.LabelStyle.copy(fontSize = 11.sp, lineHeight = 14.sp),
-            color = colors.textSecondary,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        Text(
-            text = value,
-            style = MagpieTypography.LabelStyle.copy(
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold
-            ),
-            color = valueColor,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 1.dp)
-        )
-        if (row.hasBar) {
-            QuotaBar(
-                percent = row.percent,
-                color = valueColor,
-                height = 3.dp,
-                modifier = Modifier.padding(top = 4.dp)
-            )
-        }
-    }
-}
-
-@Composable
-private fun QuotaWindowList(windows: List<QuotaWindowRow>) {
-    val colors = MagpieTheme.colors
-    Column(modifier = Modifier.fillMaxWidth()) {
+    Column(modifier = modifier.fillMaxWidth()) {
         windows.forEachIndexed { index, row ->
             if (index > 0) HorizontalDivider(color = colors.divider)
             QuotaWindowLine(row)
