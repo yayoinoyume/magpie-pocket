@@ -1,8 +1,6 @@
 package com.magpie.pocket.feature.overview
 
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,11 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.DarkMode
-import androidx.compose.material.icons.outlined.LightMode
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -31,11 +24,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -142,16 +133,11 @@ fun OverviewScreen(
     ) {
         item {
             // The header owns its own 20dp gutter, so it is not inset with the rest.
+            // The brand bar above already carries the one theme switch; a second one here
+            // stacked two identical buttons in the corner.
             MagpiePageHeader(
                 title = "概览",
-                subtitle = "现在",
-                actions = {
-                    HeaderAction(
-                        icon = if (colors.isDark) Icons.Outlined.LightMode else Icons.Outlined.DarkMode,
-                        description = "切换深浅主题",
-                        onClick = onToggleTheme
-                    )
-                }
+                subtitle = "现在"
             )
         }
 
@@ -463,32 +449,6 @@ private fun StatCell(
             color = colors.textSecondary,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
-        )
-    }
-}
-
-/** 48dp circular page action; thin outline only, no new color or size enters the page. */
-@Composable
-private fun HeaderAction(
-    icon: ImageVector,
-    description: String,
-    onClick: () -> Unit
-) {
-    val colors = MagpieTheme.colors
-    Box(
-        modifier = Modifier
-            .size(MagpieDimensions.TouchTargetMinimum)
-            .springPress(onClick = onClick)
-            .clip(CircleShape)
-            .background(colors.surface)
-            .border(0.75.dp, colors.divider, CircleShape),
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = description,
-            tint = colors.textSecondary,
-            modifier = Modifier.size(20.dp)
         )
     }
 }
