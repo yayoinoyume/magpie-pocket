@@ -284,7 +284,12 @@ class DemoRepository(private val context: Context? = null, initialJsonString: St
             }
             list.add(
                 AccountQuota(
-                    accountId = item.optString("accountId"),
+                    providerId = item.optString("providerId")
+                        .ifBlank { item.optString("provider") }
+                        .ifBlank { "unknown" },
+                    displayName = item.optString("displayName", null)
+                        ?: item.optString("name", null),
+                    accountId = item.optString("accountId").takeIf { it.isNotBlank() },
                     known = item.optBoolean("known", true),
                     observedAt = item.optString("observedAt", null),
                     windows = wList

@@ -66,4 +66,19 @@ class AccountSourcesTest {
     fun noSourceMeansNoAccounts() {
         assertTrue(mergeAccountSources(emptyList(), emptyList(), emptyList()).isEmpty())
     }
+
+    @Test
+    fun aQuotaAnswerThatNamesNoAccountAddsNoRow() {
+        // A quota row that names no account adds no account, whatever its provider is.
+        val quotas = listOf(
+            AccountQuota(providerId = "opencode-go", displayName = "OpenCode Go", known = true),
+            AccountQuota(accountId = "account-f", providerId = "vendor", known = true)
+        )
+
+        val merged = mergeAccountSources(emptyList(), emptyList(), quotas)
+
+        assertEquals(1, merged.size)
+        assertEquals("account-f", merged.single().id)
+        assertEquals("vendor", merged.single().providerId)
+    }
 }

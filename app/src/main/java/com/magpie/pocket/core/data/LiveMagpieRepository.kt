@@ -469,8 +469,11 @@ class LiveMagpieRepository(
             } ?: emptyList()
 
             AccountQuota(
-                accountId = q.user ?: q.account ?: q.name ?: "unknown",
-                providerId = q.provider,
+                providerId = q.provider?.takeIf { it.isNotBlank() }
+                    ?: q.name?.takeIf { it.isNotBlank() }
+                    ?: "unknown",
+                displayName = q.name?.takeIf { it.isNotBlank() },
+                accountId = (q.user ?: q.account)?.takeIf { it.isNotBlank() },
                 known = q.known && windows.any { it.known },
                 observedAt = q.readAt ?: q.observed ?: RequestTimestamps.nowUtcIso(),
                 windows = windows

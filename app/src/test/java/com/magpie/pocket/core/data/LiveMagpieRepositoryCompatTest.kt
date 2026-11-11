@@ -149,6 +149,9 @@ class LiveMagpieRepositoryCompatTest {
         repo.probe()
         val quotas = repo.quotas()
         val account = quotas.first { it.accountId == "account-a" }
+        // The provider is the row identity; the legacy user field stays its account.
+        assertEquals("vendor", account.providerId)
+        assertEquals("Vendor", account.displayName)
         assertTrue(account.known)
         assertEquals(3, account.windows.size)
 

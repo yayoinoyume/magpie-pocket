@@ -287,11 +287,11 @@ class AppViewModel(
         .map { CostDisplay(value = it?.cost, unpriced = it?.unpriced ?: 0L) }
         .stateIn(viewModelScope, SharingStarted.Eagerly, CostDisplay(value = null, unpriced = 0L))
 
-    /** Every account with exactly one deciding window, masked and alias-first. */
+    /** One row per provider with exactly one deciding window; an empty provider is dropped. */
     val accountQuotas: StateFlow<List<AccountQuotaView>> = combine(
         _quotas, _accounts, _displayPreferences
     ) { quotas, accounts, preferences ->
-        quotas.map { it.toView(accounts, preferences.maskAccountNames) }
+        providerQuotaViews(quotas, accounts, preferences.maskAccountNames)
     }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /** Windows already in the warning zone, worst first. */
@@ -302,7 +302,7 @@ class AppViewModel(
                 val ratio = view.ratio ?: return@mapNotNull null
                 if (!MetricCalculators.isQuotaWarning(window)) return@mapNotNull null
                 QuotaAlert(
-                    accountLabel = view.label,
+                    providerLabel = view.label,
                     ratio = ratio,
                     windowId = window.id,
                     resetsAt = window.resetsAt
@@ -1708,28 +1708,6 @@ class AppViewModel(
         return SimpleDateFormat("MM-dd", Locale.US)
             .apply { timeZone = TimeZone.getTimeZone(zoneId) }
             .format(Date(millis))
-    }
-
-    /** Alias first, then the account id, then the user's masking preference. */
-    private fun AccountQuota.toView(
-        accounts: List<Account>,
-        maskAccountNames: Boolean
-    ): AccountQuotaView {
-        val alias = accounts.firstOrNull { it.id == accountId }?.alias
-        val tightest = windows
-            .mapNotNull { window ->
-                val ratio = MetricCalculators.calculateQuotaUsedRatio(window)
-                    ?: return@mapNotNull null
-                window to ratio
-            }
-            .maxByOrNull { it.second }
-        return AccountQuotaView(
-            accountId = accountId,
-            label = MetricCalculators.maskAccountName(alias ?: accountId, maskAccountNames),
-            known = known,
-            tightestWindow = tightest?.first,
-            ratio = tightest?.second
-        )
     }
 
     fun updateKeepLiveConnectionInBackground(enabled: Boolean) {

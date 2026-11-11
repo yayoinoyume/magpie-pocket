@@ -79,15 +79,16 @@ class DashboardDerivedStateTest {
     }
 
     @Test
-    fun quotaViewsExposeOnlyTheTightestWindowAndMaskTheAlias() = runBlocking {
+    fun quotaViewsKeyTheProviderAndKeepItsNameUnmasked() = runBlocking {
         val viewModel = newViewModel()
 
-        val account = viewModel.accountQuotas.first().single()
+        val provider = viewModel.accountQuotas.first().single()
 
-        assertEquals("acc-1", account.accountId)
-        assertEquals("wor***ary", account.label)
-        assertEquals("daily", account.tightestWindow?.id)
-        assertEquals(0.9, account.ratio ?: 0.0, 0.0001)
+        assertEquals("vendor", provider.providerId)
+        assertEquals("Vendor · wor***ary", provider.label)
+        assertEquals("daily", provider.tightestWindow?.id)
+        assertEquals(0.9, provider.ratio ?: 0.0, 0.0001)
+        assertEquals(2, provider.windows.size)
     }
 
     @Test
@@ -96,7 +97,7 @@ class DashboardDerivedStateTest {
 
         val alert = viewModel.quotaAlerts.first().single()
 
-        assertEquals("wor***ary", alert.accountLabel)
+        assertEquals("Vendor · wor***ary", alert.providerLabel)
         assertEquals("daily", alert.windowId)
         assertEquals(0.9, alert.ratio, 0.0001)
         assertEquals("2026-11-11T00:00:00Z", alert.resetsAt)
@@ -241,6 +242,8 @@ class DashboardDerivedStateTest {
           ],
           "quotas": [
             {
+              "providerId": "vendor",
+              "displayName": "Vendor",
               "accountId": "acc-1",
               "known": true,
               "windows": [

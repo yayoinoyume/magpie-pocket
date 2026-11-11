@@ -331,7 +331,7 @@ private fun quotaAlertMessage(alerts: List<QuotaAlert>): String {
     } else {
         "，建议查看额度窗口"
     }
-    return "${worst.accountLabel} 额度已用 ${MetricCalculators.formatPercent(worst.ratio)}$tail"
+    return "${worst.providerLabel} 额度已用 ${MetricCalculators.formatPercent(worst.ratio)}$tail"
 }
 
 private fun footerText(coverage: DataCoverage): String {

@@ -311,6 +311,8 @@
   ],
   "quotas": [
     {
+      "providerId": "workbuddy-ai",
+      "displayName": "WorkBuddy AI",
       "accountId": "wba-03",
       "known": true,
       "observedAt": "2026-10-22T01:41:12Z",
@@ -326,6 +328,8 @@
       ]
     },
     {
+      "providerId": "deepseek",
+      "displayName": "DeepSeek",
       "accountId": "deepseek-key-01",
       "known": false,
       "observedAt": "2026-10-22T01:41:12Z",

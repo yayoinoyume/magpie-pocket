@@ -59,7 +59,6 @@ import com.magpie.pocket.core.design.MagpieTypography
 import com.magpie.pocket.core.design.SectionHeader
 import com.magpie.pocket.core.design.SegmentedControl
 import com.magpie.pocket.core.design.springPress
-import com.magpie.pocket.core.model.AccountQuota
 import com.magpie.pocket.core.model.AccountQuotaView
 import com.magpie.pocket.core.model.CostDisplay
 import com.magpie.pocket.core.model.Period
@@ -91,7 +90,6 @@ private val periodOptions = listOf(
 @Composable
 fun UsageScreen(
     usage: UsageSnapshot?,
-    quotas: List<AccountQuota>,
     accountQuotas: List<AccountQuotaView>,
     usageCost: CostDisplay,
     usageDecodeSpeed: Double?,
@@ -108,7 +106,7 @@ fun UsageScreen(
     val maskAccountNames = MagpieTheme.preferences.maskAccountNames
     val listState = rememberLazyListState()
 
-    var selectedQuotaDetail by remember { mutableStateOf<QuotaRow?>(null) }
+    var selectedQuotaDetail by remember { mutableStateOf<AccountQuotaView?>(null) }
     var dimensionKey by rememberSaveable { mutableStateOf(UsageDimension.MODELS.name) }
     var sortKey by rememberSaveable { mutableStateOf("") }
     var breakdownExpanded by rememberSaveable { mutableStateOf(false) }
@@ -128,11 +126,10 @@ fun UsageScreen(
     }
     val sortedRows = sortRows(rows, activeSort)
 
-    val quotaRows = buildQuotaRows(accountQuotas, quotas)
-    val allWindows = quotas.flatMap { it.windows }
+    val allWindows = accountQuotas.flatMap { it.windows }
     val allUnlimited = allWindows.isNotEmpty() && allWindows.all { it.unlimited }
     val accountsExpandedByDefault =
-        quotas.size == 1 || allWindows.any { MetricCalculators.isQuotaWarning(it) }
+        accountQuotas.size == 1 || allWindows.any { MetricCalculators.isQuotaWarning(it) }
     var accountsExpanded by rememberSaveable(accountsExpandedByDefault) {
         mutableStateOf(accountsExpandedByDefault)
     }
@@ -288,7 +285,7 @@ fun UsageScreen(
 
         item {
             QuotaPanel(
-                rows = quotaRows,
+                rows = accountQuotas,
                 allUnlimited = allUnlimited,
                 expanded = accountsExpanded,
                 onToggleExpanded = { accountsExpanded = !accountsExpanded },
@@ -300,12 +297,10 @@ fun UsageScreen(
         item { Spacer(modifier = Modifier.height(8.dp)) }
     }
 
-    val detailRow = selectedQuotaDetail
-    val detailQuota = detailRow?.quota
-    if (detailRow != null && detailQuota != null) {
+    val detailProvider = selectedQuotaDetail
+    if (detailProvider != null) {
         QuotaDetailSheet(
-            quota = detailQuota,
-            accountLabel = detailRow.view.label,
+            view = detailProvider,
             onDismiss = { selectedQuotaDetail = null }
         )
     }
@@ -729,16 +724,16 @@ private fun DetailRow(row: UsageRow, sort: UsageSort) {
 
 @Composable
 private fun QuotaPanel(
-    rows: List<QuotaRow>,
+    rows: List<AccountQuotaView>,
     allUnlimited: Boolean,
     expanded: Boolean,
     onToggleExpanded: () -> Unit,
-    onOpenDetail: (QuotaRow) -> Unit,
+    onOpenDetail: (AccountQuotaView) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val colors = MagpieTheme.colors
-    val tightestAccount = rows.filter { it.view.ratio != null }
-        .maxByOrNull { it.view.ratio ?: -1.0 }
+    val tightestProvider = rows.filter { it.ratio != null }
+        .maxByOrNull { it.ratio ?: -1.0 }
     DataPanel(modifier = modifier.fillMaxWidth(), contentPadding = PaddingValues(18.dp)) {
         Column {
             Row(
@@ -747,7 +742,7 @@ private fun QuotaPanel(
                     .heightIn(min = 64.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                val ringRatio = tightestAccount?.view?.ratio
+                val ringRatio = tightestProvider?.ratio
                 if (ringRatio != null) {
                     QuotaHealthRing(ratio = ringRatio, color = quotaRatioColor(ringRatio))
                 } else {
@@ -768,22 +763,22 @@ private fun QuotaPanel(
                 }
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    if (tightestAccount != null) {
+                    if (tightestProvider != null) {
                         Text(
-                            text = "最紧账号",
+                            text = "最紧供应商",
                             style = MagpieTypography.LabelStyle,
                             color = colors.textSecondary
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = tightestAccount.view.label,
+                            text = tightestProvider.label,
                             style = MagpieTypography.BodyStyle.copy(fontWeight = FontWeight.Medium),
                             color = colors.textPrimary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = quotaStateText(tightestAccount),
+                            text = quotaStateText(tightestProvider),
                             style = MagpieTypography.LabelStyle,
                             color = colors.textSecondary,
                             maxLines = 1,
@@ -792,23 +787,21 @@ private fun QuotaPanel(
                     } else {
                         Text(
                             text = when {
-                                rows.isEmpty() -> "暂无额度数据"
-                                allUnlimited -> "全部账号无限额"
+                                rows.isEmpty() -> "网关未返回额度窗口"
+                                allUnlimited -> "全部供应商无限额"
                                 else -> "额度不可用"
                             },
                             style = MagpieTypography.BodyStyle.copy(fontWeight = FontWeight.Medium),
                             color = colors.textPrimary
                         )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = when {
-                                rows.isEmpty() -> "未配置或暂无可查询的额度窗口"
-                                allUnlimited -> "供应商未返回额度窗口"
-                                else -> "供应商未提供额度"
-                            },
-                            style = MagpieTypography.LabelStyle,
-                            color = colors.textSecondary
-                        )
+                        if (rows.isNotEmpty() && !allUnlimited) {
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "供应商未提供额度",
+                                style = MagpieTypography.LabelStyle,
+                                color = colors.textSecondary
+                            )
+                        }
                     }
                 }
             }
@@ -825,7 +818,7 @@ private fun QuotaPanel(
                 shown.forEach { row ->
                     QuotaRowView(
                         row = row,
-                        onClick = if (row.quota != null) ({ onOpenDetail(row) }) else null
+                        onClick = { onOpenDetail(row) }
                     )
                 }
                 if (rows.size > 4) {
@@ -840,7 +833,7 @@ private fun QuotaPanel(
                             text = if (expanded) {
                                 "收起"
                             } else {
-                                "展开全部 " + rows.size + " 个账号"
+                                "展开全部 " + rows.size + " 个供应商"
                             },
                             style = MagpieTypography.SubheadStyle,
                             color = colors.accent
@@ -853,19 +846,13 @@ private fun QuotaPanel(
 }
 
 @Composable
-private fun QuotaRowView(row: QuotaRow, onClick: (() -> Unit)?) {
+private fun QuotaRowView(row: AccountQuotaView, onClick: () -> Unit) {
     val colors = MagpieTheme.colors
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 56.dp)
-            .then(
-                if (onClick != null) {
-                    Modifier.clickable(onClick = onClick)
-                } else {
-                    Modifier
-                }
-            )
+            .clickable(onClick = onClick)
     ) {
         Row(
             modifier = Modifier
@@ -876,7 +863,7 @@ private fun QuotaRowView(row: QuotaRow, onClick: (() -> Unit)?) {
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = row.view.label,
+                        text = row.label,
                         style = MagpieTypography.SubheadStyle.copy(fontWeight = FontWeight.Medium),
                         color = colors.textPrimary,
                         maxLines = 1,
@@ -884,7 +871,7 @@ private fun QuotaRowView(row: QuotaRow, onClick: (() -> Unit)?) {
                         modifier = Modifier.weight(1f, fill = false)
                     )
                 }
-                val quotaRatio = row.view.ratio
+                val quotaRatio = row.ratio
                 Text(
                     text = quotaStateText(row),
                     style = MagpieTypography.LabelStyle,
@@ -899,12 +886,12 @@ private fun QuotaRowView(row: QuotaRow, onClick: (() -> Unit)?) {
             }
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = MetricCalculators.formatPercent(row.view.ratio),
+                text = MetricCalculators.formatPercent(row.ratio),
                 style = MagpieTypography.SubheadStyle,
                 color = colors.textPrimary
             )
         }
-        val ratio = row.view.ratio
+        val ratio = row.ratio
         if (ratio != null) {
             Spacer(modifier = Modifier.height(6.dp))
             Box(
@@ -966,8 +953,7 @@ private fun QuotaHealthRing(ratio: Double, color: Color) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun QuotaDetailSheet(
-    quota: AccountQuota,
-    accountLabel: String,
+    view: AccountQuotaView,
     onDismiss: () -> Unit
 ) {
     val colors = MagpieTheme.colors
@@ -997,7 +983,7 @@ private fun QuotaDetailSheet(
                         color = colors.textPrimary
                     )
                     Text(
-                        text = accountLabel,
+                        text = view.label,
                         style = MagpieTypography.LabelStyle,
                         color = colors.textSecondary
                     )
@@ -1014,14 +1000,7 @@ private fun QuotaDetailSheet(
                 }
             }
             Spacer(modifier = Modifier.height(12.dp))
-            if (quota.windows.isEmpty()) {
-                Text(
-                    text = "供应商未返回窗口明细",
-                    style = MagpieTypography.LabelStyle,
-                    color = colors.textSecondary
-                )
-            }
-            quota.windows.forEach { window ->
+            view.windows.forEach { window ->
                 val ratio = MetricCalculators.calculateQuotaUsedRatio(window)
                 Column(modifier = Modifier.padding(vertical = 9.dp)) {
                     Row(
@@ -1081,11 +1060,6 @@ private enum class UsageDimension(val label: String) {
     CALLER_KEYS("调用方密钥"),
     PROVIDER_KEYS("供应商密钥")
 }
-
-private data class QuotaRow(
-    val view: AccountQuotaView,
-    val quota: AccountQuota?
-)
 
 private fun periodCostLabel(period: Period): String =
     if (period == Period.TODAY) "今日费用" else "该周期费用"
@@ -1215,28 +1189,13 @@ private fun secondaryText(row: UsageRow, sort: UsageSort): String? {
     return parts.takeIf { it.isNotEmpty() }?.joinToString(" · ")
 }
 
-private fun buildQuotaRows(
-    views: List<AccountQuotaView>,
-    quotas: List<AccountQuota>
-): List<QuotaRow> {
-    val byAccount = quotas.associateBy { it.accountId }
-    return views.map { view ->
-        QuotaRow(view = view, quota = byAccount[view.accountId])
-    }
-}
-
-private fun quotaStateText(row: QuotaRow): String {
-    val window = row.view.tightestWindow
+private fun quotaStateText(view: AccountQuotaView): String {
+    val window = view.tightestWindow
     if (window != null) {
         return window.id + (window.resetsAt?.let { " · 重置 " + it } ?: "")
     }
-    if (!row.view.known) return "供应商未提供额度"
-    val quota = row.quota ?: return "暂无额度窗口"
-    return when {
-        quota.windows.isEmpty() -> "暂无额度窗口"
-        quota.windows.all { it.unlimited } -> "无限额"
-        else -> "额度未知"
-    }
+    if (view.windows.isNotEmpty() && view.windows.all { it.unlimited }) return "无限额"
+    return if (view.known) "额度未知" else "供应商未提供额度"
 }
 
 @Composable
