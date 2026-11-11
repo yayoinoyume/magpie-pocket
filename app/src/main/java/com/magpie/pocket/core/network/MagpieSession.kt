@@ -85,7 +85,7 @@ object MagpieSession {
         val state = readState(client, baseUrl, webKey, signInRequired)
         onStateReady()
         val (groups, trace) = try {
-            probeOptional(client, baseUrl, onTraceProbed)
+            probeOptional(client, baseUrl, onTraceProbed) { client.getGroups(baseUrl) }
         } catch (e: AuthenticationRequiredException) {
             // An optional endpoint answering 401 still means the key is missing or rejected.
             if (webKey.isNullOrBlank()) {
@@ -118,7 +118,7 @@ object MagpieSession {
     ): ProbeResult {
         val state = readState(client, baseUrl, signInRequired = false)
         onStateReady()
-        val (groups, trace) = probeOptional(client, baseUrl, onTraceProbed)
+        val (groups, trace) = probeOptional(client, baseUrl, onTraceProbed) { client.getGroups(baseUrl) }
         return ProbeResult(
             capabilities = capabilities(state, groups != null, trace?.mine == true),
             state = state,
@@ -135,7 +135,8 @@ object MagpieSession {
         client: MagpieApiClient,
         baseUrl: String,
         onTraceProbed: (UpstreamTraceResponse?) -> Unit = {},
-        loadGroups: suspend () -> UpstreamGroupsResponse = { client.getGroups(baseUrl) }
+        // No default: Kotlin 2.0.0's IR backend crashes lowering a default suspend lambda.
+        loadGroups: suspend () -> UpstreamGroupsResponse
     ): Pair<UpstreamGroupsResponse?, UpstreamTraceResponse?> = coroutineScope {
         val groupsAsync = async { optional(client) { loadGroups() } }
         val trace = optional(client) { it.getTraceSnapshot(baseUrl, 0L) }
