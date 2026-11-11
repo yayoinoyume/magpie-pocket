@@ -394,6 +394,11 @@ fun RequestRow(
 ) {
     val colors = MagpieTheme.colors
     val totalTokens = MetricCalculators.calculateTotalTokensOrNull(summary.usage)
+    val outputRate = MetricCalculators.requestTokensPerSecond(
+        summary.usage?.output,
+        summary.durationMs,
+        summary.ttftMs
+    )
     val account = (accountAlias ?: summary.accountId)
         ?.let { MetricCalculators.maskAccountName(it, maskAccount) }
     Column(
@@ -447,9 +452,10 @@ fun RequestRow(
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = listOf(
+            text = listOfNotNull(
                 "首响 ${MetricCalculators.formatDurationMs(summary.ttftMs)}",
                 "耗时 ${MetricCalculators.formatDurationMs(summary.durationMs)}",
+                MetricCalculators.formatTokensPerSecond(outputRate),
                 totalTokens?.let { "${MetricCalculators.formatCompactNumber(it)} token" } ?: "— token"
             ).joinToString("  ·  "),
             style = MagpieTypography.LabelStyle,
@@ -472,6 +478,11 @@ fun RequestDetailSheetContent(
     val colors = MagpieTheme.colors
     val summary = detail.summary
     val totalTokens = MetricCalculators.calculateTotalTokensOrNull(summary.usage)
+    val outputRate = MetricCalculators.requestTokensPerSecond(
+        summary.usage?.output,
+        summary.durationMs,
+        summary.ttftMs
+    )
     val account = summary.accountId?.let { id ->
         val alias = accounts.firstOrNull { it.id == id }?.alias ?: id
         MetricCalculators.maskAccountName(alias, maskAccount)
@@ -486,6 +497,7 @@ fun RequestDetailSheetContent(
         "账号" to account,
         "首响" to MetricCalculators.formatDurationMs(summary.ttftMs),
         "总耗时" to MetricCalculators.formatDurationMs(summary.durationMs),
+        "输出速度" to MetricCalculators.formatTokensPerSecond(outputRate),
         "Token" to totalTokens?.let { MetricCalculators.formatCompactNumber(it) }
     )
 
