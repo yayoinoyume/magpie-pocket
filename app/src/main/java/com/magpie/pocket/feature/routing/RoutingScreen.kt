@@ -96,6 +96,7 @@ import com.magpie.pocket.core.design.springPress
 import com.magpie.pocket.core.model.Account
 import com.magpie.pocket.core.model.Attempt
 import com.magpie.pocket.core.model.ContextBreakdown
+import com.magpie.pocket.core.model.ContextPart
 import com.magpie.pocket.core.model.RequestDetail
 import com.magpie.pocket.core.model.RequestSummary
 import com.magpie.pocket.core.model.RouteGroup
@@ -489,7 +490,6 @@ private fun FocusRequestCard(
                         "来源" to summary.agentId?.displayAgent(),
                         "路由组" to (group?.name ?: summary.groupId),
                         "状态" to phase.statusText(),
-                        "耗时" to MetricCalculators.formatDurationMs(summary.durationMs),
                         "改道次数" to "${summary.rerouteCount} 次"
                     )
                 )
@@ -1158,11 +1158,37 @@ private fun DecisionRow(evidence: List<String>, summary: RequestSummary?, onOpen
     }
 }
 
+/** One bar segment; [merged] marks the folded tail shown as "其他". */
+internal data class ContextSegment(
+    val label: String,
+    val tokens: Long,
+    val merged: Boolean
+)
+
+/**
+ * Keeps the bar readable: the two largest parts stay separate and every remaining
+ * part folds into one merged slice, so a five-part context still shows three segments.
+ */
+internal fun contextSegments(parts: List<ContextPart>, totalTokens: Long): List<ContextSegment> {
+    if (parts.isEmpty() || totalTokens <= 0L) return emptyList()
+    val ranked = parts.sortedWith(
+        compareByDescending<ContextPart> { it.tokens }.thenBy { it.kind }
+    )
+    if (ranked.size <= 3) {
+        return ranked.map { ContextSegment(it.kind.contextLabel(), it.tokens, merged = false) }
+    }
+    return listOf(
+        ContextSegment(ranked[0].kind.contextLabel(), ranked[0].tokens, merged = false),
+        ContextSegment(ranked[1].kind.contextLabel(), ranked[1].tokens, merged = false),
+        ContextSegment("其他", ranked.drop(2).sumOf { it.tokens }, merged = true)
+    )
+}
+
 /** Three-segment context bar; the window limit stays beside the legend. */
 @Composable
 private fun ContextSection(context: ContextBreakdown) {
     val colors = MagpieTheme.colors
-    val segments = context.parts.take(3)
+    val segments = contextSegments(context.parts, context.totalTokens)
     val palette = listOf(colors.accent, colors.accent.copy(alpha = 0.58f), colors.textTertiary.copy(alpha = 0.55f))
     fun targetRatio(index: Int): Float {
         val tokens = segments.getOrNull(index)?.tokens ?: 0L
@@ -1227,8 +1253,8 @@ private fun ContextSection(context: ContextBreakdown) {
         Spacer(modifier = Modifier.height(5.dp))
         Row(modifier = Modifier.fillMaxWidth()) {
             Text(
-                text = segments.take(2).joinToString(" · ") { part ->
-                    "${part.kind.contextLabel()} ${MetricCalculators.formatPercent(if (context.totalTokens > 0) part.tokens.toDouble() / context.totalTokens else null)}"
+                text = segments.joinToString(" · ") { segment ->
+                    "${segment.label} ${MetricCalculators.formatPercent(if (context.totalTokens > 0) segment.tokens.toDouble() / context.totalTokens else null)}"
                 },
                 fontSize = MagpieTypography.CaptionStyle.fontSize,
                 color = colors.textSecondary,
@@ -1735,8 +1761,17 @@ private fun Attempt.toTimelineEntry(
     )
 }
 
-private fun String.contextLabel(): String = when (this) {
+internal fun String.contextLabel(): String = when (this) {
+    "system" -> "系统提示"
+    "tools" -> "工具"
+    "skills" -> "技能"
+    "memory" -> "记忆"
+    "files" -> "文件"
+    "results" -> "工具结果"
+    "chat" -> "会话"
+    // The bundled demo payload still uses the pre-rename kind names.
     "tool_results" -> "工具结果"
     "conversation" -> "会话"
-    else -> "其他"
+    "other" -> "其他"
+    else -> this
 }
