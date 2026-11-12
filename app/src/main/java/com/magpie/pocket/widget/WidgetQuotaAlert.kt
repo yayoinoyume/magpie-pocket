@@ -90,7 +90,7 @@ private fun RowScope.AlertRow(
         modifier = GlanceModifier.width(3.dp)
             .height(28.dp)
             .background(ColorProvider(colors.error))
-    )
+    ) {}
     Spacer(GlanceModifier.width(8.dp))
     Column(modifier = GlanceModifier.defaultWeight()) {
         Text(
@@ -137,7 +137,7 @@ private fun RowScope.StatusRow(
         modifier = GlanceModifier.width(6.dp)
             .height(6.dp)
             .background(ColorProvider(if (connected) colors.accent else colors.tertiary))
-    )
+    ) {}
     Spacer(GlanceModifier.width(8.dp))
     Text(
         text = if (connected) "已连接" else "未连接",
