@@ -280,7 +280,7 @@ private fun RowScope.HourlyBar(value: Long, max: Long, colors: OverviewColors) {
             modifier = GlanceModifier.fillMaxWidth()
                 .height(barHeight)
                 .background(ColorProvider(colors.accent.copy(alpha = 0.72f)))
-        )
+        ) {}
     }
 }
 
