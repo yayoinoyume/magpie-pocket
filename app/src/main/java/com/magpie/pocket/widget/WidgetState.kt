@@ -5,11 +5,16 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.magpie.pocket.app.AppViewModel
 import com.magpie.pocket.app.MagpieApplication
+import com.magpie.pocket.app.NotificationText
+import com.magpie.pocket.app.QuotaAlertGate
+import com.magpie.pocket.app.QuotaReading
+import com.magpie.pocket.core.model.AccountQuota
 import com.magpie.pocket.core.model.ConnectionHealth
 import com.magpie.pocket.core.model.OverviewSnapshot
 import com.magpie.pocket.core.util.MetricCalculators
@@ -34,7 +39,18 @@ data class WidgetState(
     /** Completed requests for the latest 24 hour buckets, oldest first. */
     val hourlyRequests: List<Long> = emptyList(),
     val connected: Boolean = false,
-    val updatedAt: Long = 0L
+    val updatedAt: Long = 0L,
+    val quotaAlert: WidgetQuotaAlertSummary? = null
+)
+
+/**
+ * The worst quota window at or above the alert threshold. [otherWindowCount] counts the further
+ * windows in the same warning, so the 4×1 alert never duplicates a list it cannot fit.
+ */
+data class WidgetQuotaAlertSummary(
+    val providerLabel: String,
+    val ratio: Double,
+    val otherWindowCount: Int
 )
 
 /**
@@ -50,7 +66,11 @@ object WidgetStateStore {
      */
     fun live(context: Context): WidgetState? {
         val viewModel = liveViewModel(context) ?: return null
-        return stateOf(viewModel.overview.value, viewModel.connectionStatus.value.health)
+        return stateOf(
+            viewModel.overview.value,
+            viewModel.connectionStatus.value.health,
+            viewModel.quotas.value
+        )
     }
 
     /**
@@ -61,8 +81,12 @@ object WidgetStateStore {
     fun observe(context: Context): Flow<WidgetState?> {
         val viewModel = liveViewModel(context)
         if (viewModel != null) {
-            return combine(viewModel.overview, viewModel.connectionStatus) { overview, status ->
-                stateOf(overview, status.health)
+            return combine(
+                viewModel.overview,
+                viewModel.connectionStatus,
+                viewModel.quotas
+            ) { overview, status, quotas ->
+                stateOf(overview, status.health, quotas)
             }
         }
         return context.widgetSnapshotDataStore.data
@@ -106,6 +130,16 @@ object WidgetStateStore {
             }
             prefs[KEY_CONNECTED] = state.connected
             prefs[KEY_UPDATED_AT] = state.updatedAt
+            val quotaAlert = state.quotaAlert
+            if (quotaAlert != null) {
+                prefs[KEY_QUOTA_ALERT_PROVIDER] = quotaAlert.providerLabel
+                prefs[KEY_QUOTA_ALERT_RATIO] = quotaAlert.ratio
+                prefs[KEY_QUOTA_ALERT_OTHERS] = quotaAlert.otherWindowCount
+            } else {
+                prefs.remove(KEY_QUOTA_ALERT_PROVIDER)
+                prefs.remove(KEY_QUOTA_ALERT_RATIO)
+                prefs.remove(KEY_QUOTA_ALERT_OTHERS)
+            }
         }
     }
 
@@ -128,14 +162,29 @@ object WidgetStateStore {
                 ?.takeLast(MAX_HOURLY_BUCKETS)
                 .orEmpty(),
             connected = this[KEY_CONNECTED] ?: false,
-            updatedAt = updatedAt
+            updatedAt = updatedAt,
+            quotaAlert = readQuotaAlert()
+        )
+    }
+
+    private fun Preferences.readQuotaAlert(): WidgetQuotaAlertSummary? {
+        val provider = this[KEY_QUOTA_ALERT_PROVIDER]?.takeIf { it.isNotBlank() } ?: return null
+        val ratio = this[KEY_QUOTA_ALERT_RATIO] ?: return null
+        return WidgetQuotaAlertSummary(
+            providerLabel = provider,
+            ratio = ratio,
+            otherWindowCount = this[KEY_QUOTA_ALERT_OTHERS] ?: 0
         )
     }
 
     private fun liveViewModel(context: Context): AppViewModel? =
         (context.applicationContext as? MagpieApplication)?.existingAppViewModel
 
-    private fun stateOf(overview: OverviewSnapshot?, health: ConnectionHealth): WidgetState =
+    private fun stateOf(
+        overview: OverviewSnapshot?,
+        health: ConnectionHealth,
+        quotas: List<AccountQuota>
+    ): WidgetState =
         WidgetState(
             requests = overview?.completedRequests,
             successRate = overview?.let {
@@ -152,8 +201,25 @@ object WidgetStateStore {
             // CONNECTING still renders placeholders; only a real failure reads "未连接".
             connected = health == ConnectionHealth.CONNECTED ||
                 health == ConnectionHealth.CONNECTING,
-            updatedAt = System.currentTimeMillis()
+            updatedAt = System.currentTimeMillis(),
+            quotaAlert = quotaAlertOf(quotas)
         )
+
+    /**
+     * One reading per window, already normalized by the same rule the quota page and the
+     * notification gate use. The worst window titles the widget; the rest are only counted.
+     */
+    private fun quotaAlertOf(quotas: List<AccountQuota>): WidgetQuotaAlertSummary? {
+        val warnings = NotificationText.quotaReadings(quotas)
+            .filter { it.ratio >= QuotaAlertGate.THRESHOLD }
+            .sortedWith(compareByDescending<QuotaReading> { it.ratio }.thenBy { it.providerId })
+        val worst = warnings.firstOrNull() ?: return null
+        return WidgetQuotaAlertSummary(
+            providerLabel = worst.providerLabel,
+            ratio = worst.ratio,
+            otherWindowCount = warnings.size - 1
+        )
+    }
 
     private val KEY_REQUESTS = longPreferencesKey("widget_requests")
     private val KEY_SUCCESS_RATE = doublePreferencesKey("widget_success_rate")
@@ -165,4 +231,8 @@ object WidgetStateStore {
 
     private const val HOURLY_SEPARATOR = ","
     private const val MAX_HOURLY_BUCKETS = 24
+
+    private val KEY_QUOTA_ALERT_PROVIDER = stringPreferencesKey("widget_quota_alert_provider")
+    private val KEY_QUOTA_ALERT_RATIO = doublePreferencesKey("widget_quota_alert_ratio")
+    private val KEY_QUOTA_ALERT_OTHERS = intPreferencesKey("widget_quota_alert_others")
 }

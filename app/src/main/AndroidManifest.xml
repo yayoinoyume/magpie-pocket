@@ -60,6 +60,16 @@
                 android:resource="@xml/appwidget_overview" />
         </receiver>
         <receiver
+            android:name=".widget.WidgetLiveReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/appwidget_live" />
+        </receiver>
+        <receiver
             android:name=".widget.WidgetQuotaReceiver"
             android:exported="true">
             <intent-filter>
@@ -68,6 +78,16 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/appwidget_quota" />
+        </receiver>
+        <receiver
+            android:name=".widget.WidgetQuotaAlertReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/appwidget_quota_alert" />
         </receiver>
     </application>
 

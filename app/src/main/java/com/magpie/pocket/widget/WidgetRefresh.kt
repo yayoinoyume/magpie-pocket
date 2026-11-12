@@ -22,7 +22,13 @@ import java.util.concurrent.TimeUnit
  */
 object WidgetRefresh {
 
-    private val widgets: List<GlanceAppWidget> = listOf(WidgetMini(), WidgetOverview(), WidgetQuota())
+    private val widgets: List<GlanceAppWidget> = listOf(
+        WidgetMini(),
+        WidgetOverview(),
+        WidgetQuota(),
+        WidgetLive(),
+        WidgetQuotaAlert()
+    )
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
