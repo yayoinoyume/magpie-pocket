@@ -5,7 +5,6 @@ import android.content.res.Configuration
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
@@ -32,7 +31,6 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
-import com.magpie.pocket.R
 import com.magpie.pocket.app.MainActivity
 import com.magpie.pocket.core.design.AppTab
 import com.magpie.pocket.core.util.MetricCalculators
@@ -61,16 +59,11 @@ class WidgetMiniReceiver : GlanceAppWidgetReceiver() {
 
 @Composable
 private fun WidgetMiniContent(state: WidgetState?, isDark: Boolean) {
-    val colors = if (isDark) MiniDarkColors else MiniLightColors
-    val backgroundRes = if (isDark) {
-        R.drawable.widget_mini_background_dark
-    } else {
-        R.drawable.widget_mini_background_light
-    }
+    val colors = widgetPalette(isDark)
     if (state != null && !state.connected) {
         Box(
             modifier = GlanceModifier.fillMaxSize()
-                .background(ImageProvider(backgroundRes))
+                .background(ImageProvider(colors.background))
                 .clickable(openConnectAction()),
             contentAlignment = Alignment.Center
         ) {
@@ -89,7 +82,7 @@ private fun WidgetMiniContent(state: WidgetState?, isDark: Boolean) {
 
     Row(
         modifier = GlanceModifier.fillMaxSize()
-            .background(ImageProvider(backgroundRes))
+            .background(ImageProvider(colors.background))
             .padding(horizontal = 12.dp, vertical = 8.dp)
             .clickable(openOverviewAction()),
         verticalAlignment = Alignment.CenterVertically
@@ -102,7 +95,7 @@ private fun WidgetMiniContent(state: WidgetState?, isDark: Boolean) {
 }
 
 @Composable
-private fun RowScope.MiniMetric(label: String, value: String, colors: MiniColors) {
+private fun RowScope.MiniMetric(label: String, value: String, colors: WidgetPalette) {
     Column(
         modifier = GlanceModifier.defaultWeight(),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -148,23 +141,6 @@ internal object WidgetMiniText {
         return "¥" + MetricCalculators.formatCost(cost)
     }
 }
-
-private data class MiniColors(
-    val text: Color,
-    val accent: Color
-)
-
-// Widgets do not read MaterialTheme; each palette is fixed so the bar matches the brand.
-// The rounded background lives in a shape drawable so API 24 gets the same 24dp corners.
-private val MiniDarkColors = MiniColors(
-    text = Color(0xFFE9E8F0),
-    accent = Color(0xFF9A92EE)
-)
-
-private val MiniLightColors = MiniColors(
-    text = Color(0xFF1C1A17),
-    accent = Color(0xFF6C5CE7)
-)
 
 private fun openOverviewAction() = actionStartActivity<MainActivity>(
     actionParametersOf(

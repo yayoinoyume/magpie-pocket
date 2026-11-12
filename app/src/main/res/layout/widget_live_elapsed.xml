@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A real Chronometer so the launcher advances the elapsed cell without widget repaints. -->
+<Chronometer xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_live_elapsed"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:includeFontPadding="false"
+    android:textColor="#E9E8F0"
+    android:textSize="12sp" />
