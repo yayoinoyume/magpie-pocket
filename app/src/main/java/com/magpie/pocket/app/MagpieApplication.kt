@@ -8,6 +8,8 @@ import com.magpie.pocket.core.network.MagpieTiming
 import com.magpie.pocket.core.security.CredentialStore
 import com.magpie.pocket.core.security.PreferencesManager
 import com.magpie.pocket.core.util.AppLog
+import com.magpie.pocket.widget.WidgetRefresh
+import com.magpie.pocket.widget.WidgetStateStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -33,9 +35,38 @@ class MagpieApplication : Application() {
             credentialStore = CredentialStoreConnectionSource(credentialStore),
             preferencesManager = PreferencesManagerDisplaySource(preferencesManager),
             demoRepo = demoRepository,
-            keepaliveController = AndroidKeepaliveController(this)
-        )
+            keepaliveController = AndroidKeepaliveController(this),
+            onOverviewRefreshed = { WidgetRefresh.updateAll(this) }
+        ).also {
+            existingViewModel = it
+            startWidgetStateSync()
+        }
     }
+
+    /**
+     * Persists every connection/overview change so a later widget-only process can render the
+     * latest state, including a failure. Runs only once the app itself built the view model;
+     * a widget broadcast never reaches this method.
+     */
+    private fun startWidgetStateSync() {
+        startupScope.launch {
+            WidgetStateStore.observe(this@MagpieApplication).collect { state ->
+                if (state == null) return@collect
+                runCatching { WidgetStateStore.save(this@MagpieApplication, state) }
+            }
+        }
+    }
+
+    /** Set when [appViewModel] is first built; widget-only processes leave it null. */
+    @Volatile
+    private var existingViewModel: AppViewModel? = null
+
+    /**
+     * The process-owned runtime if it already exists. A widget update must never construct
+     * [appViewModel]; doing so would load credentials and start the network stack.
+     */
+    val existingAppViewModel: AppViewModel?
+        get() = existingViewModel
 
     override fun onCreate() {
         super.onCreate()
@@ -54,6 +85,10 @@ class MagpieApplication : Application() {
         startupScope.launch { credentialStore.prepare() }
 
         preferencesManager = PreferencesManager(this)
+
+        // Apply the stored refresh policy: event-driven unless the user chose the 15-minute
+        // fallback. The fallback reads the last snapshot instead of networking.
+        WidgetRefresh.applyRefreshPolicy(this)
     }
 
     companion object {

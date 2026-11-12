@@ -2,6 +2,7 @@ package com.magpie.pocket.app
 
 import android.os.Bundle
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.net.ConnectivityManager
@@ -80,18 +81,35 @@ import com.magpie.pocket.feature.requests.RequestsScreen
 import com.magpie.pocket.feature.requests.RequestDetailSheetContent
 import com.magpie.pocket.feature.routing.RoutingScreen
 import com.magpie.pocket.feature.usage.UsageScreen
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+
+/**
+ * A notification's navigation request. The token makes two clicks with equal extras distinct,
+ * because Intent equality ignores extras and would otherwise leave the state unchanged.
+ */
+data class MainNavigationRequest(
+    val usageSection: String?,
+    val routeId: String?,
+    val token: Long
+)
 
 class MainActivity : ComponentActivity() {
 
     private var appViewModel: AppViewModel? = null
     private var connectivityManager: ConnectivityManager? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var navigationRequest by mutableStateOf<MainNavigationRequest?>(null)
+    private var navigationToken = 0L
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        readNavigationIntent(intent)
         // Edge-to-edge must be in place before the first content frame; reading the system
         // night flag here avoids waiting for DataStore before the window is configured.
         applyEdgeToEdge(isSystemDark())
@@ -99,6 +117,7 @@ class MainActivity : ComponentActivity() {
         val app = application as MagpieApplication
         val sharedViewModel = app.appViewModel
         appViewModel = sharedViewModel
+        val openConnectOnStart = applyWidgetIntent(intent, sharedViewModel)
         installNetworkCallback(sharedViewModel)
 
         setContent {
@@ -135,9 +154,44 @@ class MainActivity : ComponentActivity() {
             }
 
             MagpiePocketTheme(displayPreferences = preferences) {
-                MainAppRoot(viewModel = viewModel)
+                MainAppRoot(
+                    viewModel = viewModel,
+                    navigation = navigationRequest,
+                    openConnectSheetOnStart = openConnectOnStart
+                )
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        readNavigationIntent(intent)
+    }
+
+    /** Reads a notification's target once; removing the extras keeps recreation idempotent. */
+    private fun readNavigationIntent(intent: Intent?) {
+        val source = intent ?: return
+        val usageSection = source.getStringExtra(Notifications.EXTRA_USAGE_SECTION)
+        val routeId = source.getStringExtra(Notifications.EXTRA_ROUTE_ID)
+        if (usageSection == null && routeId == null) return
+        source.removeExtra(Notifications.EXTRA_USAGE_SECTION)
+        source.removeExtra(Notifications.EXTRA_ROUTE_ID)
+        navigationToken += 1
+        navigationRequest = MainNavigationRequest(usageSection, routeId, navigationToken)
+    }
+
+    /**
+     * A widget tap carries the same tab name the bottom navigation uses. A disconnected tap
+     * also asks the sheet to open, so the user lands on the fix instead of a stale overview.
+     * Returns whether the connection sheet should open on this launch.
+     */
+    private fun applyWidgetIntent(intent: Intent?, viewModel: AppViewModel): Boolean {
+        if (intent == null) return false
+        intent.getStringExtra(EXTRA_TAB)
+            ?.let { name -> AppTab.values().firstOrNull { it.name == name } }
+            ?.let(viewModel::selectTab)
+        return intent.getBooleanExtra(EXTRA_OPEN_CONNECT, false)
     }
 
     private fun isSystemDark(): Boolean =
@@ -219,11 +273,23 @@ class MainActivity : ComponentActivity() {
         networkCallback = callback
         runCatching { manager.registerDefaultNetworkCallback(callback) }
     }
+
+    companion object {
+        /** Widget taps land on the overview; the value matches [AppTab.OVERVIEW]. */
+        const val EXTRA_TAB = "extra_tab"
+
+        /** A disconnected widget opens the connection sheet instead of a stale overview. */
+        const val EXTRA_OPEN_CONNECT = "extra_open_connect"
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainAppRoot(viewModel: AppViewModel) {
+fun MainAppRoot(
+    viewModel: AppViewModel,
+    navigation: MainNavigationRequest? = null,
+    openConnectSheetOnStart: Boolean = false
+) {
     val colors = MagpieTheme.colors
     val preferences = MagpieTheme.preferences
     val scope = rememberCoroutineScope()
@@ -255,10 +321,43 @@ fun MainAppRoot(viewModel: AppViewModel) {
     val revealedMaskingValues by viewModel.revealedMaskingValues.collectAsState()
 
     var showConnectSheet by remember { mutableStateOf(false) }
+    var pendingConnectSheet by remember { mutableStateOf(openConnectSheetOnStart) }
+    // A cold widget tap lands before the Keystore read answers; the sheet's fields are seeded
+    // once, so opening it on the pending placeholder would lose the saved address and key.
+    LaunchedEffect(connectionConfig) {
+        if (pendingConnectSheet && connectionConfig !== PENDING_CONNECTION) {
+            pendingConnectSheet = false
+            showConnectSheet = true
+        }
+    }
     var showPreferencesSheet by remember { mutableStateOf(false) }
     var showProviderSheet by remember { mutableStateOf(false) }
     var showPrivacySheet by remember { mutableStateOf(false) }
     var usageInitialSection by remember { mutableStateOf<String?>(null) }
+    var pendingRouteId by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(navigation) {
+        val request = navigation ?: return@LaunchedEffect
+        request.usageSection?.let { section ->
+            usageInitialSection = section
+            viewModel.selectTab(AppTab.USAGE)
+        }
+        request.routeId?.let { routeId -> pendingRouteId = routeId }
+    }
+
+    // The trace may still be loading on a cold start; wait for the failed route instead of
+    // dropping the notification's target.
+    LaunchedEffect(pendingRouteId) {
+        val routeId = pendingRouteId ?: return@LaunchedEffect
+        val request = withTimeoutOrNull(REQUEST_NAVIGATION_TIMEOUT_MS) {
+            combine(viewModel.trace, viewModel.requestsPage) { trace, page ->
+                trace?.recentRoutes?.firstOrNull { it.key.routeId == routeId }
+                    ?: page?.items?.firstOrNull { it.key.routeId == routeId }
+            }.mapNotNull { it }.first()
+        } ?: return@LaunchedEffect
+        viewModel.selectRequest(request)
+        pendingRouteId = null
+    }
 
     val connectSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val preferencesSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -555,6 +654,8 @@ fun MainAppRoot(viewModel: AppViewModel) {
         }
     }
 }
+
+private const val REQUEST_NAVIGATION_TIMEOUT_MS = 15_000L
 
 @Composable
 private fun RequestDetailLoadingContent(selected: com.magpie.pocket.core.model.RequestSummary?, onDismiss: () -> Unit) {

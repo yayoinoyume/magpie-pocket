@@ -138,6 +138,10 @@ dependencies {
     implementation("androidx.datastore:datastore-preferences:1.1.1")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
+    // Home-screen widgets: Glance UI plus the periodic repaint fallback.
+    implementation("androidx.glance:glance-appwidget:1.1.0")
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
+
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
     testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
