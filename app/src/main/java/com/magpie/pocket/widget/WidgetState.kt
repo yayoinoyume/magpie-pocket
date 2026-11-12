@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.magpie.pocket.app.AppViewModel
 import com.magpie.pocket.app.MagpieApplication
@@ -30,6 +31,8 @@ data class WidgetState(
     val successRate: Double? = null,
     val ttftMs: Double? = null,
     val cost: Double? = null,
+    /** Completed requests for the latest 24 hour buckets, oldest first. */
+    val hourlyRequests: List<Long> = emptyList(),
     val connected: Boolean = false,
     val updatedAt: Long = 0L
 )
@@ -96,6 +99,11 @@ object WidgetStateStore {
             } else {
                 prefs.remove(KEY_COST)
             }
+            if (state.hourlyRequests.isNotEmpty()) {
+                prefs[KEY_HOURLY_REQUESTS] = state.hourlyRequests.joinToString(HOURLY_SEPARATOR)
+            } else {
+                prefs.remove(KEY_HOURLY_REQUESTS)
+            }
             prefs[KEY_CONNECTED] = state.connected
             prefs[KEY_UPDATED_AT] = state.updatedAt
         }
@@ -114,6 +122,11 @@ object WidgetStateStore {
             successRate = this[KEY_SUCCESS_RATE],
             ttftMs = this[KEY_TTFT_MS],
             cost = this[KEY_COST],
+            hourlyRequests = this[KEY_HOURLY_REQUESTS]
+                ?.split(HOURLY_SEPARATOR)
+                ?.mapNotNull { it.toLongOrNull() }
+                ?.takeLast(MAX_HOURLY_BUCKETS)
+                .orEmpty(),
             connected = this[KEY_CONNECTED] ?: false,
             updatedAt = updatedAt
         )
@@ -132,6 +145,10 @@ object WidgetStateStore {
                 MetricCalculators.calculateTtftMean(it.ttftSumMs, it.ttftSampleCount)
             },
             cost = overview?.cost,
+            hourlyRequests = overview?.hourlyTrends
+                ?.takeLast(MAX_HOURLY_BUCKETS)
+                ?.map { it.completedRequests }
+                .orEmpty(),
             // CONNECTING still renders placeholders; only a real failure reads "未连接".
             connected = health == ConnectionHealth.CONNECTED ||
                 health == ConnectionHealth.CONNECTING,
@@ -142,6 +159,10 @@ object WidgetStateStore {
     private val KEY_SUCCESS_RATE = doublePreferencesKey("widget_success_rate")
     private val KEY_TTFT_MS = doublePreferencesKey("widget_ttft_ms")
     private val KEY_COST = doublePreferencesKey("widget_cost")
+    private val KEY_HOURLY_REQUESTS = stringPreferencesKey("widget_hourly_requests")
     private val KEY_CONNECTED = booleanPreferencesKey("widget_connected")
     private val KEY_UPDATED_AT = longPreferencesKey("widget_updated_at")
+
+    private const val HOURLY_SEPARATOR = ","
+    private const val MAX_HOURLY_BUCKETS = 24
 }
