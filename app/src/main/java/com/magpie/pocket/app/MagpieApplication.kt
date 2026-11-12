@@ -86,9 +86,9 @@ class MagpieApplication : Application() {
 
         preferencesManager = PreferencesManager(this)
 
-        // The system and the app both wake widgets; this periodic pass is the fallback for
-        // days when the app is never opened. It reads the last snapshot instead of networking.
-        WidgetRefresh.schedulePeriodic(this)
+        // Apply the stored refresh policy: event-driven unless the user chose the 15-minute
+        // fallback. The fallback reads the last snapshot instead of networking.
+        WidgetRefresh.applyRefreshPolicy(this)
     }
 
     companion object {
