@@ -2,6 +2,7 @@ package com.magpie.pocket.app
 
 import android.os.Bundle
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.net.ConnectivityManager
@@ -99,6 +100,7 @@ class MainActivity : ComponentActivity() {
         val app = application as MagpieApplication
         val sharedViewModel = app.appViewModel
         appViewModel = sharedViewModel
+        val openConnectOnStart = applyWidgetIntent(intent, sharedViewModel)
         installNetworkCallback(sharedViewModel)
 
         setContent {
@@ -135,9 +137,25 @@ class MainActivity : ComponentActivity() {
             }
 
             MagpiePocketTheme(displayPreferences = preferences) {
-                MainAppRoot(viewModel = viewModel)
+                MainAppRoot(
+                    viewModel = viewModel,
+                    openConnectSheetOnStart = openConnectOnStart
+                )
             }
         }
+    }
+
+    /**
+     * A widget tap carries the same tab name the bottom navigation uses. A disconnected tap
+     * also asks the sheet to open, so the user lands on the fix instead of a stale overview.
+     * Returns whether the connection sheet should open on this launch.
+     */
+    private fun applyWidgetIntent(intent: Intent?, viewModel: AppViewModel): Boolean {
+        if (intent == null) return false
+        intent.getStringExtra(EXTRA_TAB)
+            ?.let { name -> AppTab.values().firstOrNull { it.name == name } }
+            ?.let(viewModel::selectTab)
+        return intent.getBooleanExtra(EXTRA_OPEN_CONNECT, false)
     }
 
     private fun isSystemDark(): Boolean =
@@ -219,11 +237,22 @@ class MainActivity : ComponentActivity() {
         networkCallback = callback
         runCatching { manager.registerDefaultNetworkCallback(callback) }
     }
+
+    companion object {
+        /** Widget taps land on the overview; the value matches [AppTab.OVERVIEW]. */
+        const val EXTRA_TAB = "extra_tab"
+
+        /** A disconnected widget opens the connection sheet instead of a stale overview. */
+        const val EXTRA_OPEN_CONNECT = "extra_open_connect"
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MainAppRoot(viewModel: AppViewModel) {
+fun MainAppRoot(
+    viewModel: AppViewModel,
+    openConnectSheetOnStart: Boolean = false
+) {
     val colors = MagpieTheme.colors
     val preferences = MagpieTheme.preferences
     val scope = rememberCoroutineScope()
@@ -255,6 +284,15 @@ fun MainAppRoot(viewModel: AppViewModel) {
     val revealedMaskingValues by viewModel.revealedMaskingValues.collectAsState()
 
     var showConnectSheet by remember { mutableStateOf(false) }
+    var pendingConnectSheet by remember { mutableStateOf(openConnectSheetOnStart) }
+    // A cold widget tap lands before the Keystore read answers; the sheet's fields are seeded
+    // once, so opening it on the pending placeholder would lose the saved address and key.
+    LaunchedEffect(connectionConfig) {
+        if (pendingConnectSheet && connectionConfig !== PENDING_CONNECTION) {
+            pendingConnectSheet = false
+            showConnectSheet = true
+        }
+    }
     var showPreferencesSheet by remember { mutableStateOf(false) }
     var showProviderSheet by remember { mutableStateOf(false) }
     var showPrivacySheet by remember { mutableStateOf(false) }

@@ -132,7 +132,7 @@ class PreferencesManagerDisplaySource(private val manager: PreferencesManager) :
 }
 
 /** First frame only: the saved connection is read off the main thread. */
-private val PENDING_CONNECTION = ConnectionConfig(
+internal val PENDING_CONNECTION = ConnectionConfig(
     id = "pending-connection",
     name = "正在读取连接",
     mode = DataMode.LIVE
@@ -150,7 +150,9 @@ class AppViewModel(
             cfAccessClientId = config.cfAccessClientId,
             cfAccessClientSecret = config.cfAccessClientSecret
         )
-    }
+    },
+    /** Fired after a refresh whose overview panel loaded; widgets repaint from this signal. */
+    private val onOverviewRefreshed: () -> Unit = {}
 ) : ViewModel() {
 
     private var activityResumed = false
@@ -701,6 +703,7 @@ class AppViewModel(
         lastValidatedAtMs = System.currentTimeMillis()
         validationPending = false
         reconcileKeepalive()
+        if (steps.overview == RefreshStep.Loaded) onOverviewRefreshed()
     }
 
     /**
