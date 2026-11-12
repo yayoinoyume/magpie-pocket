@@ -179,6 +179,7 @@ class MainActivity : ComponentActivity() {
         source.removeExtra(Notifications.EXTRA_ROUTE_ID)
         navigationToken += 1
         navigationRequest = MainNavigationRequest(usageSection, routeId, navigationToken)
+    }
 
     /**
      * A widget tap carries the same tab name the bottom navigation uses. A disconnected tap
