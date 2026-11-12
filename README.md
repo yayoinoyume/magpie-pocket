@@ -9,7 +9,7 @@
 [![Compose](https://img.shields.io/badge/UI-Jetpack%20Compose-purple.svg)](https://developer.android.com/jetpack/compose)
 [![License](https://img.shields.io/badge/License-MIT-lightgrey.svg)](LICENSE)
 
-[中文](#中文) · [English](#english) · [接入说明](docs/integration.md) · [验证记录](docs/verification.md) · [设计 Skill](.agents/skills/magpie-pocket-design/SKILL.md)
+[中文](#中文) · [English](#english) · [接入说明](docs/integration.md) · [桌面小组件](docs/widgets.md) · [验证记录](docs/verification.md) · [设计 Skill](.agents/skills/magpie-pocket-design/SKILL.md)
 
 **[下载 v1.0.2 APK · Download](https://github.com/CottonChou/magpie-pocket/releases/download/v1.0.2/magpie-pocket-v1.0.2.apk)**（Android 7.0+） · [发布说明 / Release notes](https://github.com/CottonChou/magpie-pocket/releases/tag/v1.0.2) · [设计 Skill ZIP](https://github.com/CottonChou/magpie-pocket/releases/download/v1.0.2/magpie-pocket-design.zip)
 
