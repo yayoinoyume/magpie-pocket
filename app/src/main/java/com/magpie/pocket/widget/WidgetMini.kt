@@ -38,7 +38,7 @@ import com.magpie.pocket.core.design.AppTab
 import com.magpie.pocket.core.util.MetricCalculators
 
 /**
- * The 4×1 mini bar: four metrics in one row, a fixed light/dark palette, and one tap target
+ * The 4×1 mini bar: four metrics in one row, the shared widget palette, and one tap target
  * for the whole surface. Later sizes add their own GlanceAppWidget without touching this one.
  */
 class WidgetMini : GlanceAppWidget() {
@@ -46,11 +46,14 @@ class WidgetMini : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val initialState = WidgetStateStore.load(context)
         val stateFlow = WidgetStateStore.observe(context)
-        val isDark = (context.resources.configuration.uiMode and
+        val initialConfig = WidgetConfigStore.load(context)
+        val configFlow = WidgetConfigStore.observe(context)
+        val systemDark = (context.resources.configuration.uiMode and
             Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
         provideContent {
             val state by stateFlow.collectAsState(initial = initialState)
-            WidgetMiniContent(state = state, isDark = isDark)
+            val config by configFlow.collectAsState(initial = initialConfig)
+            WidgetMiniContent(state = state, isDark = config.isDark(systemDark))
         }
     }
 }

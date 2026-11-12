@@ -18,11 +18,11 @@ import java.util.concurrent.TimeUnit
 
 /**
  * One refresh path for every home-screen size. A new size only appends its GlanceAppWidget
- * to [widgets]; the app's refresh hook and the periodic fallback stay unchanged.
+ * to [widgets]; the app's refresh hook and the stored refresh policy stay shared.
  */
 object WidgetRefresh {
 
-    private val widgets: List<GlanceAppWidget> = listOf(WidgetMini())
+    private val widgets: List<GlanceAppWidget> = listOf(WidgetMini(), WidgetQuota())
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -36,6 +36,9 @@ object WidgetRefresh {
             WidgetStateStore.live(appContext)?.let { state ->
                 runCatching { WidgetStateStore.save(appContext, state) }
             }
+            WidgetQuotaStateStore.live(appContext)?.let { state ->
+                runCatching { WidgetQuotaStateStore.save(appContext, state) }
+            }
             repaint(appContext)
         }
     }
@@ -43,11 +46,29 @@ object WidgetRefresh {
     /** The WorkManager fallback: repaint from the app's live state or the last snapshot. */
     suspend fun refreshFromSnapshot(context: Context) {
         WidgetStateStore.live(context)?.let { WidgetStateStore.save(context, it) }
+        WidgetQuotaStateStore.live(context)?.let { WidgetQuotaStateStore.save(context, it) }
         repaint(context)
     }
 
-    /** Idempotent: the unique periodic work is kept across app starts. */
-    fun schedulePeriodic(context: Context) {
+    /**
+     * Applies the stored refresh strategy. Event-driven keeps only the app's own refresh
+     * signal; the 15-minute worker is enqueued when the user chooses it. Idempotent across
+     * app starts and config saves.
+     */
+    fun applyRefreshPolicy(context: Context) {
+        val appContext = context.applicationContext
+        scope.launch {
+            val config = WidgetConfigStore.load(appContext)
+            if (config.refresh == WidgetRefreshMode.EVERY_15_MINUTES) {
+                enqueuePeriodic(appContext)
+            } else {
+                WorkManager.getInstance(appContext)
+                    .cancelUniqueWork(WidgetRefreshWorker.UNIQUE_WORK_NAME)
+            }
+        }
+    }
+
+    private fun enqueuePeriodic(context: Context) {
         val request = PeriodicWorkRequestBuilder<WidgetRefreshWorker>(
             PERIOD_MINUTES,
             TimeUnit.MINUTES
@@ -69,7 +90,7 @@ object WidgetRefresh {
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
-                // A repaint is best-effort; the next refresh or the periodic fallback retries.
+                // A repaint is best-effort; the next refresh retries.
             }
         }
     }
