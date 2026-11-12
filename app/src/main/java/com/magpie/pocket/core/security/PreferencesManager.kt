@@ -34,6 +34,16 @@ class PreferencesManager(private val context: Context) {
         )
     }
 
+    /** Detailed (true) or compact (false) notification copy; the default is detailed. */
+    val notifVerboseFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_NOTIF_VERBOSE] ?: true
+    }
+
+    /** Completion notifications are opt-in; this build sends none, but the switch is stored. */
+    val notifCompletionFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_NOTIF_COMPLETION] ?: false
+    }
+
     val lastActiveTabFlow: Flow<String?> = context.dataStore.data.map { prefs ->
         prefs[KEY_LAST_ACTIVE_TAB]
     }
@@ -78,6 +88,20 @@ class PreferencesManager(private val context: Context) {
         }
     }
 
+    // TODO(notify-v2): expose notif_verbose / notif_completion as switches in the display
+    // preferences sheet. This round only stores them for the notification service to read.
+    suspend fun updateNotifVerbose(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_NOTIF_VERBOSE] = enabled
+        }
+    }
+
+    suspend fun updateNotifCompletion(enabled: Boolean) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_NOTIF_COMPLETION] = enabled
+        }
+    }
+
     suspend fun saveLastActiveTab(tab: String) {
         context.dataStore.edit { prefs ->
             prefs[KEY_LAST_ACTIVE_TAB] = tab
@@ -97,6 +121,8 @@ class PreferencesManager(private val context: Context) {
         private val KEY_MASK_ACCOUNTS = booleanPreferencesKey("pref_mask_accounts")
         private val KEY_KEEP_LIVE_CONNECTION = booleanPreferencesKey("pref_keep_live_connection")
         private val KEY_QUOTA_DISPLAY_MODE = stringPreferencesKey("pref_quota_display_mode")
+        private val KEY_NOTIF_VERBOSE = booleanPreferencesKey("notif_verbose")
+        private val KEY_NOTIF_COMPLETION = booleanPreferencesKey("notif_completion")
         private val KEY_LAST_ACTIVE_TAB = stringPreferencesKey("pref_last_tab")
         private val KEY_LAST_GROUP_ID = stringPreferencesKey("pref_last_group_id")
     }
