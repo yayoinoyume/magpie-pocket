@@ -1,7 +1,6 @@
 package com.magpie.pocket.app
 
 import android.app.Notification
-import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
@@ -12,18 +11,30 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.magpie.pocket.core.model.DataMode
+import com.magpie.pocket.core.model.FinalState
+import com.magpie.pocket.core.model.OverviewSnapshot
+import com.magpie.pocket.core.model.RequestSummary
+import com.magpie.pocket.core.security.PreferencesManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 /**
  * Keeps the already-authenticated process-owned LIVE session alive while the user has
  * enabled background keepalive. It owns no session or network state of its own: the
  * application ViewModel remains the single runtime owner.
+ *
+ * The foreground notification is a read-only view of that state: it shows today's request
+ * count and the oldest in-flight request, and grows into an inbox of up to three running
+ * calls. Quota and final-failure notifications are driven by the same ViewModel flows; the
+ * pure decisions live in [NotificationText] and [QuotaAlertGate].
  */
 class LiveKeepaliveService : Service() {
 
@@ -31,10 +42,20 @@ class LiveKeepaliveService : Service() {
     private var notifiedActive = false
     private var model: AppViewModel? = null
     private var stateJob: Job? = null
+    private var summaryJob: Job? = null
+    private var quotaJob: Job? = null
+    private var failureJob: Job? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private lateinit var notificationPreferences: PreferencesManager
+    private lateinit var quotaAlertGate: QuotaAlertGate
+    private val seenFailures = LinkedHashSet<String>()
+    private var failureBaselineReady = false
 
     override fun onCreate() {
         super.onCreate()
+        Notifications.ensureChannels(this)
+        notificationPreferences = (application as MagpieApplication).preferencesManager
+        quotaAlertGate = QuotaAlertGate(SharedPreferencesQuotaAlertStore(this))
 
         // Satisfy the startForegroundService() contract before reading model or
         // preferences. Android enforces this even when the service is about to
@@ -61,9 +82,14 @@ class LiveKeepaliveService : Service() {
         // gates all background networking on preference readiness.
         notifyActive(model)
         observePreferenceState(model)
+        observeKeepaliveSummary(model)
+        observeQuotaAlerts(model)
+        observeFinalFailures(model)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        handleNotificationAction(intent)?.let { return it }
+
         if (!foregroundStarted) {
             stopSelf(startId)
             return START_NOT_STICKY
@@ -95,6 +121,12 @@ class LiveKeepaliveService : Service() {
     override fun onDestroy() {
         stateJob?.cancel()
         stateJob = null
+        summaryJob?.cancel()
+        summaryJob = null
+        quotaJob?.cancel()
+        quotaJob = null
+        failureJob?.cancel()
+        failureJob = null
         serviceScope.cancel()
         // Clear the controller's pending-start/running ownership even when
         // promotion failed before the ViewModel was notified. Otherwise the next
@@ -112,6 +144,26 @@ class LiveKeepaliveService : Service() {
 
     private fun appViewModel(): AppViewModel? =
         (application as? MagpieApplication)?.appViewModel
+
+    /** The stop and mute buttons are service actions; returning null means a normal start. */
+    private fun handleNotificationAction(intent: Intent?): Int? = when (intent?.action) {
+        Notifications.ACTION_STOP -> {
+            // The existing stop path is the preference: turning background keepalive off
+            // keeps it off on the next Activity transition instead of restarting the service.
+            (model ?: appViewModel())?.updateKeepLiveConnectionInBackground(false)
+            stopSelf()
+            START_NOT_STICKY
+        }
+        Notifications.ACTION_MUTE_ALERTS -> if (!foregroundStarted) {
+            null
+        } else {
+            quotaAlertGate.muteFor()
+            getSystemService(NotificationManager::class.java)
+                .cancel(Notifications.NOTIFICATION_ID_ALERT)
+            START_STICKY
+        }
+        else -> null
+    }
 
     private fun observePreferenceState(model: AppViewModel) {
         stateJob?.cancel()
@@ -134,6 +186,76 @@ class LiveKeepaliveService : Service() {
         }
     }
 
+    /**
+     * One second of throttle keeps trace ticks from rewriting the notification on every frame;
+     * conflate keeps only the newest state while the collector waits.
+     */
+    private fun observeKeepaliveSummary(model: AppViewModel) {
+        summaryJob?.cancel()
+        summaryJob = serviceScope.launch {
+            combine(
+                model.overview,
+                model.runningRequests,
+                model.connectionStatus,
+                notificationPreferences.notifVerboseFlow
+            ) { overview, running, _, verbose ->
+                KeepaliveState(overview, running, verbose)
+            }
+                .distinctUntilChanged()
+                .conflate()
+                .collect { state ->
+                    delay(KEEPALIVE_UPDATE_THROTTLE_MS)
+                    showKeepalive(state)
+                }
+        }
+    }
+
+    private fun observeQuotaAlerts(model: AppViewModel) {
+        quotaJob?.cancel()
+        quotaJob = serviceScope.launch {
+            model.quotas.collect { quotas ->
+                val readings = NotificationText.quotaReadings(quotas)
+                val crossed = quotaAlertGate.evaluate(readings)
+                if (crossed.isNotEmpty()) {
+                    // The batch opens one notification; its body counts every window still
+                    // near the limit, including windows this batch did not re-alert.
+                    showQuotaAlert(readings.filter { it.ratio >= QuotaAlertGate.THRESHOLD })
+                }
+            }
+        }
+    }
+
+    /**
+     * A trace epoch restart replays old routes; they establish a new baseline instead of
+     * alerting. A rerouted success is SUCCEEDED, so only the final FAILED state notifies.
+     */
+    private fun observeFinalFailures(model: AppViewModel) {
+        failureJob?.cancel()
+        failureJob = serviceScope.launch {
+            model.trace.collect { trace ->
+                if (trace == null) return@collect
+                val failed = trace.recentRoutes.filter { it.finalState == FinalState.FAILED }
+                if (!failureBaselineReady || trace.restarted) {
+                    failureBaselineReady = true
+                    seenFailures.clear()
+                    seenFailures.addAll(failed.map { it.key.routeId })
+                    return@collect
+                }
+                failed
+                    .filter { seenFailures.add(it.key.routeId) }
+                    .forEach { showFailure(it) }
+                trimSeenFailures()
+            }
+        }
+    }
+
+    private fun trimSeenFailures() {
+        if (seenFailures.size <= MAX_SEEN_FAILURES) return
+        val retained = seenFailures.toList().takeLast(MAX_SEEN_FAILURES)
+        seenFailures.clear()
+        seenFailures.addAll(retained)
+    }
+
     private fun notifyActive(model: AppViewModel) {
         if (notifiedActive) return
         notifiedActive = true
@@ -151,39 +273,63 @@ class LiveKeepaliveService : Service() {
         return model.displayPreferencesReady.value && !serviceAllowed(model)
     }
 
+    private fun showKeepalive(state: KeepaliveState) {
+        val text = NotificationText.keepalive(
+            completedRequests = state.overview?.completedRequests,
+            running = state.running,
+            nowMillis = System.currentTimeMillis(),
+            verbose = state.verbose
+        )
+        getSystemService(NotificationManager::class.java)
+            .notify(Notifications.NOTIFICATION_ID_KEEPALIVE, keepaliveNotification(text))
+    }
+
+    private fun showQuotaAlert(readings: List<QuotaReading>) {
+        val text = NotificationText.quotaAlert(readings)
+        val style = NotificationCompat.InboxStyle()
+        text.inboxLines.forEach(style::addLine)
+        style.setSummaryText(readings.size.toString() + " 个额度窗口接近上限")
+        val notification = NotificationCompat.Builder(this, Notifications.CHANNEL_ALERT)
+            .setSmallIcon(android.R.drawable.stat_notify_error)
+            .setContentTitle(text.title)
+            .setContentText(text.text)
+            .setStyle(style)
+            .setContentIntent(openUsageIntent())
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .addAction(0, "查看额度", openUsageIntent())
+            .addAction(0, "静音 8 小时", muteAlertsIntent())
+            .build()
+        getSystemService(NotificationManager::class.java)
+            .notify(Notifications.NOTIFICATION_ID_ALERT, notification)
+    }
+
+    private fun showFailure(request: RequestSummary) {
+        val openRequest = openRequestIntent(request.key.routeId)
+        val notification = NotificationCompat.Builder(this, Notifications.CHANNEL_FAILURE)
+            .setSmallIcon(android.R.drawable.stat_notify_error)
+            .setContentTitle(NotificationText.FAILURE_TITLE)
+            .setContentText(NotificationText.failureText(request))
+            .setContentIntent(openRequest)
+            .setAutoCancel(true)
+            .setCategory(NotificationCompat.CATEGORY_ERROR)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .addAction(0, "查看这次", openRequest)
+            .build()
+        getSystemService(NotificationManager::class.java)
+            .notify(Notifications.NOTIFICATION_ID_FAILURE, notification)
+    }
+
     private fun startAsForeground(): Boolean {
         if (foregroundStarted) return true
-        val manager = getSystemService(NotificationManager::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                "后台保持连接",
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "保持已配置的 Magpie 实时连接"
-                setShowBadge(false)
-            }
-            manager.createNotificationChannel(channel)
-        }
-
-        val openApp = PendingIntent.getActivity(
-            this,
-            0,
-            Intent(this, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        val notification = keepaliveNotification(
+            NotificationText.keepalive(
+                completedRequests = null,
+                running = emptyList(),
+                nowMillis = System.currentTimeMillis()
+            )
         )
-        val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.stat_notify_sync)
-            .setContentTitle("Magpie Pocket")
-            .setContentText("后台保持实时连接")
-            .setContentIntent(openApp)
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
 
         val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
@@ -191,7 +337,12 @@ class LiveKeepaliveService : Service() {
             0
         }
         try {
-            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, type)
+            ServiceCompat.startForeground(
+                this,
+                Notifications.NOTIFICATION_ID_KEEPALIVE,
+                notification,
+                type
+            )
             foregroundStarted = true
             return true
         } catch (_: RuntimeException) {
@@ -202,8 +353,90 @@ class LiveKeepaliveService : Service() {
         }
     }
 
+    private fun keepaliveNotification(text: KeepaliveNotificationText): Notification {
+        val openApp = openAppIntent()
+        val builder = NotificationCompat.Builder(this, Notifications.CHANNEL_KEEPALIVE)
+            .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .setContentTitle(text.title)
+            .setContentText(text.text)
+            .setContentIntent(openApp)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .addAction(0, "打开 Magpie", openApp)
+            .addAction(0, "停止后台", stopServiceIntent())
+        if (text.inboxLines.isNotEmpty()) {
+            val style = NotificationCompat.InboxStyle()
+            text.inboxLines.forEach(style::addLine)
+            text.footer?.let(style::setSummaryText)
+            builder.setStyle(style)
+        }
+        return builder.build()
+    }
+
+    private fun openAppIntent(): PendingIntent =
+        PendingIntent.getActivity(
+            this,
+            REQUEST_OPEN_APP,
+            Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+    private fun openUsageIntent(): PendingIntent =
+        PendingIntent.getActivity(
+            this,
+            REQUEST_OPEN_USAGE,
+            Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra(Notifications.EXTRA_USAGE_SECTION, Notifications.USAGE_SECTION_QUOTA)
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+    private fun openRequestIntent(routeId: String): PendingIntent =
+        PendingIntent.getActivity(
+            this,
+            REQUEST_OPEN_REQUEST,
+            Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra(Notifications.EXTRA_ROUTE_ID, routeId)
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+    private fun stopServiceIntent(): PendingIntent =
+        PendingIntent.getService(
+            this,
+            REQUEST_STOP,
+            Intent(this, LiveKeepaliveService::class.java).setAction(Notifications.ACTION_STOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+    private fun muteAlertsIntent(): PendingIntent =
+        PendingIntent.getService(
+            this,
+            REQUEST_MUTE,
+            Intent(this, LiveKeepaliveService::class.java)
+                .setAction(Notifications.ACTION_MUTE_ALERTS),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+    private data class KeepaliveState(
+        val overview: OverviewSnapshot?,
+        val running: List<RequestSummary>,
+        val verbose: Boolean
+    )
+
     companion object {
-        private const val CHANNEL_ID = "magpie_live_keepalive"
-        private const val NOTIFICATION_ID = 4102
+        private const val KEEPALIVE_UPDATE_THROTTLE_MS = 1_000L
+        private const val MAX_SEEN_FAILURES = 200
+        private const val REQUEST_OPEN_APP = 0
+        private const val REQUEST_STOP = 1
+        private const val REQUEST_OPEN_USAGE = 2
+        private const val REQUEST_OPEN_REQUEST = 3
+        private const val REQUEST_MUTE = 4
     }
 }
