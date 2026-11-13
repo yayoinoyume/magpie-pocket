@@ -60,6 +60,10 @@
 | 额度告警 | 有 ≥90% 窗口 | warning 色条 + 供应商 + 百分比 + `另有 N 个窗口接近上限` | 用量 · 额度子页 |
 | 额度告警 | 无告警 | 已连接 / `HH:mm 更新` 状态条 | 概览 |
 
+## 通知配色边界
+
+`LiveKeepaliveService` 的三类通知（常驻、额度告警、请求失败）只用 `setColor` 取当前主题的 accent / warning / error token。折叠态仍由系统模板绘制，不做自定义 `RemoteViews`、背景、胶囊按钮或三列表格；能改的只有颜色、标题、正文、按钮文字和 `InboxStyle`。small icon 本轮不换图。
+
 ## 新增尺寸
 
 1. 新建 `GlanceAppWidget` 与对应 `GlanceAppWidgetReceiver`。

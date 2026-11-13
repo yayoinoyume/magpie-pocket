@@ -8,13 +8,20 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import androidx.compose.ui.graphics.toArgb
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
+import com.magpie.pocket.core.design.DarkScheme
+import com.magpie.pocket.core.design.LightScheme
+import com.magpie.pocket.core.design.MagpieColorScheme
 import com.magpie.pocket.core.model.DataMode
 import com.magpie.pocket.core.model.FinalState
 import com.magpie.pocket.core.model.OverviewSnapshot
 import com.magpie.pocket.core.model.RequestSummary
+import com.magpie.pocket.core.model.ThemeMode
 import com.magpie.pocket.core.security.PreferencesManager
+import com.magpie.pocket.widget.WidgetTheme
+import com.magpie.pocket.widget.WidgetThemeSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -297,6 +304,7 @@ class LiveKeepaliveService : Service() {
         style.setSummaryText(readings.size.toString() + " 个额度窗口接近上限")
         val notification = NotificationCompat.Builder(this, Notifications.CHANNEL_ALERT)
             .setSmallIcon(android.R.drawable.stat_notify_error)
+            .setColor(notificationScheme().warning.toArgb())
             .setContentTitle(text.title)
             .setContentText(text.text)
             .setStyle(style)
@@ -315,6 +323,7 @@ class LiveKeepaliveService : Service() {
         val openRequest = openRequestIntent(request.key.routeId)
         val notification = NotificationCompat.Builder(this, Notifications.CHANNEL_FAILURE)
             .setSmallIcon(android.R.drawable.stat_notify_error)
+            .setColor(notificationScheme().error.toArgb())
             .setContentTitle(NotificationText.FAILURE_TITLE)
             .setContentText(NotificationText.failureText(request))
             .setContentIntent(openRequest)
@@ -363,6 +372,7 @@ class LiveKeepaliveService : Service() {
         val openApp = openAppIntent()
         val builder = NotificationCompat.Builder(this, Notifications.CHANNEL_KEEPALIVE)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
+            .setColor(notificationScheme().accent.toArgb())
             .setContentTitle(text.title)
             .setContentText(text.text)
             .setContentIntent(openApp)
@@ -379,6 +389,21 @@ class LiveKeepaliveService : Service() {
             builder.setStyle(style)
         }
         return builder.build()
+    }
+
+    /**
+     * The notification accent comes from the same app tokens as the widgets. A cold service
+     * start may briefly read the cached SYSTEM default until DataStore emits; the next
+     * keepalive tick repaints it.
+     */
+    private fun notificationScheme(): MagpieColorScheme {
+        val mode = (application as? MagpieApplication)?.appThemeMode ?: ThemeMode.SYSTEM
+        val isDark = WidgetThemeSource.isDark(
+            theme = WidgetTheme.SYSTEM,
+            appThemeMode = mode,
+            systemDark = WidgetThemeSource.systemDark(this)
+        )
+        return if (isDark) DarkScheme else LightScheme
     }
 
     private fun openAppIntent(): PendingIntent =
