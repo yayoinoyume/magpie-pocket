@@ -41,7 +41,7 @@ import java.util.Locale
 
 /**
  * The 4×1 quota alert. One warning zone shows the worst window and counts the rest; a clean
- * snapshot shows the connection strip instead, so an empty alert never leaves a red bar.
+ * snapshot shows the connection strip instead, so an empty alert never leaves a warning bar.
  */
 class WidgetQuotaAlert : GlanceAppWidget() {
 
@@ -70,7 +70,7 @@ private fun WidgetQuotaAlertContent(state: WidgetState?, isDark: Boolean) {
     Row(
         modifier = GlanceModifier.fillMaxSize()
             .background(ImageProvider(colors.background))
-            .padding(horizontal = 14.dp, vertical = 6.dp)
+            .padding(horizontal = 16.dp, vertical = 6.dp)
             .clickable(if (alert != null) openQuotaAction() else openOverviewAction()),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -88,11 +88,11 @@ private fun RowScope.AlertRow(
     colors: WidgetPalette
 ) {
     Box(
-        modifier = GlanceModifier.width(3.dp)
-            .height(28.dp)
-            .background(ColorProvider(colors.error))
+        modifier = GlanceModifier.width(4.dp)
+            .height(30.dp)
+            .background(ColorProvider(colors.warning))
     ) {}
-    Spacer(GlanceModifier.width(8.dp))
+    Spacer(GlanceModifier.width(10.dp))
     Column(modifier = GlanceModifier.defaultWeight()) {
         Text(
             text = alert.providerLabel,
@@ -116,12 +116,12 @@ private fun RowScope.AlertRow(
             maxLines = 1
         )
     }
-    Spacer(GlanceModifier.width(6.dp))
+    Spacer(GlanceModifier.width(8.dp))
     Text(
         text = formatQuotaPercent(alert.ratio * 100.0),
         style = TextStyle(
-            color = ColorProvider(colors.error),
-            fontSize = 16.sp,
+            color = ColorProvider(colors.warning),
+            fontSize = 18.sp,
             fontWeight = FontWeight.Bold
         ),
         maxLines = 1

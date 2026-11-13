@@ -52,11 +52,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
+import com.magpie.pocket.core.design.DarkScheme
+import com.magpie.pocket.core.design.LightScheme
+import com.magpie.pocket.core.design.MagpieColorScheme
 import com.magpie.pocket.core.design.MagpieTypography
 import com.magpie.pocket.core.design.MagpieTypographySet
 import com.magpie.pocket.core.model.ThemeMode
@@ -151,31 +155,33 @@ class WidgetConfigActivity : ComponentActivity() {
             }
         )
         window.setBackgroundDrawable(
-            ColorDrawable(if (isDark) 0xFF1D1C25.toInt() else 0xFFFFFFFF.toInt())
+            ColorDrawable(
+                if (isDark) DarkScheme.background.toArgb() else LightScheme.background.toArgb()
+            )
         )
     }
 }
 
 @Composable
 private fun WidgetConfigTheme(isDark: Boolean, content: @Composable () -> Unit) {
-    val palette = if (isDark) ConfigDarkColors else ConfigLightColors
+    val palette: MagpieColorScheme = if (isDark) DarkScheme else LightScheme
     val scheme = if (isDark) {
         darkColorScheme(
             primary = palette.accent,
-            onPrimary = palette.background,
+            onPrimary = palette.surface,
             background = palette.background,
-            surface = palette.background,
-            onBackground = palette.text,
-            onSurface = palette.text
+            surface = palette.surface,
+            onBackground = palette.textPrimary,
+            onSurface = palette.textPrimary
         )
     } else {
         lightColorScheme(
             primary = palette.accent,
-            onPrimary = palette.background,
+            onPrimary = palette.surface,
             background = palette.background,
-            surface = palette.background,
-            onBackground = palette.text,
-            onSurface = palette.text
+            surface = palette.surface,
+            onBackground = palette.textPrimary,
+            onSurface = palette.textPrimary
         )
     }
     CompositionLocalProvider(LocalWidgetConfigPalette provides palette) {
@@ -199,7 +205,7 @@ private fun WidgetConfigLoading() {
         Text(
             text = "正在读取配置…",
             style = MagpieTypography.BodyStyle,
-            color = palette.secondary
+            color = palette.textSecondary
         )
     }
 }
@@ -225,7 +231,7 @@ private fun WidgetConfigScreen(
             Text(
                 text = "小组件设置",
                 style = MagpieTypography.PageTitleStyle.copy(fontFamily = FontFamily.Serif),
-                color = palette.text
+                color = palette.textPrimary
             )
             Spacer(Modifier.height(20.dp))
 
@@ -272,14 +278,14 @@ private fun WidgetConfigScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 TextButton(onClick = onCancel) {
-                    Text(text = "取消", color = palette.secondary, fontSize = 14.sp)
+                    Text(text = "取消", color = palette.textSecondary, fontSize = 14.sp)
                 }
                 Spacer(Modifier.width(8.dp))
                 Button(
                     onClick = onSave,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = palette.accent,
-                        contentColor = palette.background
+                        contentColor = palette.surface
                     ),
                     shape = RoundedCornerShape(16.dp)
                 ) {
@@ -296,16 +302,16 @@ private fun ConfigSection(title: String, content: @Composable ColumnScope.() -> 
     Text(
         text = title,
         style = MagpieTypography.SectionTitleStyle.copy(fontFamily = FontFamily.Serif),
-        color = palette.text
+        color = palette.textPrimary
     )
     Spacer(Modifier.height(8.dp))
     Column(
         modifier = Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(24.dp))
-            .background(palette.background)
+            .background(palette.surface)
             .border(
                 width = 0.75.dp,
-                color = palette.text.copy(alpha = 0.10f),
+                color = palette.divider,
                 shape = RoundedCornerShape(24.dp)
             )
             .padding(horizontal = 8.dp, vertical = 8.dp),
@@ -324,7 +330,7 @@ private fun ConfigOptionRow(
         modifier = Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .background(
-                if (selected) palette.accent.copy(alpha = 0.12f) else Color.Transparent
+                if (selected) palette.accentSurface else Color.Transparent
             )
             .clickable(onClick = onClick)
             .heightIn(min = 48.dp)
@@ -336,39 +342,16 @@ private fun ConfigOptionRow(
             onClick = onClick,
             colors = RadioButtonDefaults.colors(
                 selectedColor = palette.accent,
-                unselectedColor = palette.secondary
+                unselectedColor = palette.textSecondary
             )
         )
         Text(
             text = label,
             style = MagpieTypography.BodyStyle,
-            color = palette.text,
+            color = palette.textPrimary,
             modifier = Modifier.padding(start = 4.dp)
         )
     }
 }
 
-private data class WidgetConfigPalette(
-    val background: Color,
-    val text: Color,
-    val secondary: Color,
-    val accent: Color
-)
-
-private val LocalWidgetConfigPalette = staticCompositionLocalOf { ConfigLightColors }
-
-// The widget palette is intentionally separate from the app's Material theme: the config
-// screen previews the same fixed colors the home-screen surfaces use.
-private val ConfigDarkColors = WidgetConfigPalette(
-    background = Color(0xFF1D1C25),
-    text = Color(0xFFE9E8F0),
-    secondary = Color(0xFFE9E8F0).copy(alpha = 0.70f),
-    accent = Color(0xFF9A92EE)
-)
-
-private val ConfigLightColors = WidgetConfigPalette(
-    background = Color(0xFFFFFFFF),
-    text = Color(0xFF1C1A17),
-    secondary = Color(0xFF1C1A17).copy(alpha = 0.70f),
-    accent = Color(0xFF6C5CE7)
-)
+private val LocalWidgetConfigPalette = staticCompositionLocalOf<MagpieColorScheme> { LightScheme }

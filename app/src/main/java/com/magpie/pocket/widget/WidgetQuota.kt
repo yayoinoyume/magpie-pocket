@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
@@ -31,16 +30,14 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
-import com.magpie.pocket.R
 import com.magpie.pocket.app.MainActivity
 import com.magpie.pocket.app.Notifications
 import com.magpie.pocket.core.design.AppTab
 import kotlin.math.roundToInt
 
 /**
- * The 2×2 quota tile: average remaining, window count and how many windows sit below 30%.
- * Glance has no arc canvas, so the page's ring becomes a horizontal bar plus the same big
- * number; the palette and 24dp corners match the mini bar.
+ * The 2×2 quota tile: a hero average, its bar, and two footnote lines for the window count
+ * and the windows below 30%. Glance has no arc canvas, so the page's ring becomes this bar.
  */
 class WidgetQuota : GlanceAppWidget() {
 
@@ -64,17 +61,13 @@ class WidgetQuotaReceiver : GlanceAppWidgetReceiver() {
 
 @Composable
 private fun WidgetQuotaContent(state: WidgetQuotaState?, isDark: Boolean) {
-    val colors = if (isDark) QuotaDarkColors else QuotaLightColors
-    val backgroundRes = if (isDark) {
-        R.drawable.widget_quota_background_dark
-    } else {
-        R.drawable.widget_quota_background_light
-    }
+    val colors = widgetPalette(isDark)
     val hasData = state != null && state.windowCount > 0
+    val belowThirty = state?.belowThirty ?: 0
     Column(
         modifier = GlanceModifier.fillMaxSize()
-            .background(ImageProvider(backgroundRes))
-            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .background(ImageProvider(colors.quotaBackground))
+            .padding(horizontal = 14.dp, vertical = 10.dp)
             .clickable(openQuotaAction())
     ) {
         Row(
@@ -85,7 +78,7 @@ private fun WidgetQuotaContent(state: WidgetQuotaState?, isDark: Boolean) {
                 text = "额度",
                 style = TextStyle(
                     color = ColorProvider(colors.accent),
-                    fontSize = 10.sp,
+                    fontSize = 11.sp,
                     fontWeight = FontWeight.Medium
                 ),
                 maxLines = 1
@@ -93,11 +86,11 @@ private fun WidgetQuotaContent(state: WidgetQuotaState?, isDark: Boolean) {
             Spacer(GlanceModifier.defaultWeight())
             Text(
                 text = "平均剩余",
-                style = TextStyle(color = ColorProvider(colors.secondary), fontSize = 10.sp),
+                style = TextStyle(color = ColorProvider(colors.secondary), fontSize = 9.sp),
                 maxLines = 1
             )
         }
-        Spacer(GlanceModifier.height(4.dp))
+        Spacer(GlanceModifier.height(2.dp))
         Text(
             text = WidgetQuotaText.average(state),
             style = TextStyle(
@@ -107,48 +100,38 @@ private fun WidgetQuotaContent(state: WidgetQuotaState?, isDark: Boolean) {
             ),
             maxLines = 1
         )
-        Spacer(GlanceModifier.height(6.dp))
+        Spacer(GlanceModifier.height(4.dp))
         LinearProgressIndicator(
             progress = WidgetQuotaText.fraction(state),
             modifier = GlanceModifier.fillMaxWidth().height(6.dp),
             color = ColorProvider(colors.accent),
-            backgroundColor = ColorProvider(colors.track)
+            backgroundColor = ColorProvider(colors.divider)
         )
-        Spacer(GlanceModifier.height(6.dp))
         Spacer(GlanceModifier.defaultWeight())
-        Row(
-            modifier = GlanceModifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = if (hasData) {
-                    (state?.windowCount ?: 0).toString() + " 个窗口"
-                } else {
-                    "暂无额度数据"
-                },
-                style = TextStyle(color = ColorProvider(colors.secondary), fontSize = 10.sp),
-                maxLines = 1
-            )
-            Spacer(GlanceModifier.defaultWeight())
-            Text(
-                text = if (hasData) {
-                    (state?.belowThirty ?: 0).toString() + " 项 <30%"
-                } else {
-                    "打开应用"
-                },
-                style = TextStyle(
-                    color = ColorProvider(
-                        if (hasData && (state?.belowThirty ?: 0) > 0) {
-                            colors.accent
-                        } else {
-                            colors.secondary
-                        }
-                    ),
-                    fontSize = 10.sp
+        Text(
+            text = if (hasData) {
+                (state?.windowCount ?: 0).toString() + " 个窗口"
+            } else {
+                "暂无额度数据"
+            },
+            style = TextStyle(color = ColorProvider(colors.secondary), fontSize = 9.sp),
+            maxLines = 1
+        )
+        Spacer(GlanceModifier.height(1.dp))
+        Text(
+            text = if (hasData) {
+                belowThirty.toString() + " 项 <30%"
+            } else {
+                "打开应用"
+            },
+            style = TextStyle(
+                color = ColorProvider(
+                    if (hasData && belowThirty > 0) colors.warning else colors.secondary
                 ),
-                maxLines = 1
-            )
-        }
+                fontSize = 9.sp
+            ),
+            maxLines = 1
+        )
     }
 }
 
@@ -163,28 +146,6 @@ internal object WidgetQuotaText {
     fun fraction(state: WidgetQuotaState?): Float =
         ((state?.averageRemaining ?: 0.0) / 100.0).coerceIn(0.0, 1.0).toFloat()
 }
-
-private data class QuotaColors(
-    val text: Color,
-    val secondary: Color,
-    val accent: Color,
-    val track: Color
-)
-
-// Widgets do not read MaterialTheme; each palette is fixed to the approved widget colors.
-private val QuotaDarkColors = QuotaColors(
-    text = Color(0xFFE9E8F0),
-    secondary = Color(0xFFE9E8F0).copy(alpha = 0.70f),
-    accent = Color(0xFF9A92EE),
-    track = Color(0xFFE9E8F0).copy(alpha = 0.12f)
-)
-
-private val QuotaLightColors = QuotaColors(
-    text = Color(0xFF1C1A17),
-    secondary = Color(0xFF1C1A17).copy(alpha = 0.70f),
-    accent = Color(0xFF6C5CE7),
-    track = Color(0xFF1C1A17).copy(alpha = 0.12f)
-)
 
 private fun openQuotaAction() = actionStartActivity<MainActivity>(
     actionParametersOf(

@@ -4,7 +4,6 @@ import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
@@ -36,7 +35,6 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
-import com.magpie.pocket.R
 import com.magpie.pocket.app.MainActivity
 import com.magpie.pocket.app.Notifications
 import com.magpie.pocket.core.design.AppTab
@@ -46,8 +44,8 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * The 4×2 overview: today's four headline numbers over a 24-hour request strip. It reads the
- * same snapshot as the mini bar, so both sizes agree on the numbers and on "last updated".
+ * The 4×2 overview: a hero request count, three compact ledger lines and the 24-hour strip.
+ * It reads the same snapshot as the mini bar, so both sizes agree on the numbers.
  */
 class WidgetOverview : GlanceAppWidget() {
 
@@ -71,22 +69,17 @@ class WidgetOverviewReceiver : GlanceAppWidgetReceiver() {
 
 @Composable
 private fun WidgetOverviewContent(state: WidgetState?, isDark: Boolean) {
-    val colors = if (isDark) OverviewDarkColors else OverviewLightColors
-    val backgroundRes = if (isDark) {
-        R.drawable.widget_mini_background_dark
-    } else {
-        R.drawable.widget_mini_background_light
-    }
+    val colors = widgetPalette(isDark)
     // A failed connection must not present the previous snapshot as today's numbers.
     if (state == null || !state.connected) {
-        OverviewPlaceholder(state = state, colors = colors, backgroundRes = backgroundRes)
+        OverviewPlaceholder(state = state, colors = colors)
         return
     }
 
     Column(
         modifier = GlanceModifier.fillMaxSize()
-            .background(ImageProvider(backgroundRes))
-            .padding(horizontal = 14.dp, vertical = 10.dp)
+            .background(ImageProvider(colors.background))
+            .padding(horizontal = 16.dp, vertical = 8.dp)
     ) {
         Row(
             modifier = GlanceModifier.fillMaxWidth(),
@@ -96,7 +89,7 @@ private fun WidgetOverviewContent(state: WidgetState?, isDark: Boolean) {
                 text = "今日",
                 style = TextStyle(
                     color = ColorProvider(colors.text),
-                    fontSize = 15.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     // Android resolves the serif family to Noto Serif CJK for these glyphs.
                     fontFamily = FontFamily.Serif
@@ -107,28 +100,106 @@ private fun WidgetOverviewContent(state: WidgetState?, isDark: Boolean) {
             Text(
                 text = updatedLabel(state.updatedAt),
                 style = TextStyle(
-                    color = ColorProvider(colors.muted),
+                    color = ColorProvider(colors.tertiary),
                     fontSize = 9.sp
                 ),
                 maxLines = 1
             )
         }
-        Spacer(GlanceModifier.height(4.dp))
-        OverviewMetricGrid(state = state, colors = colors)
-        Spacer(GlanceModifier.height(4.dp))
+        Spacer(GlanceModifier.height(3.dp))
+        Row(
+            modifier = GlanceModifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(
+                modifier = GlanceModifier.defaultWeight()
+                    .clickable(openRequestsAction())
+            ) {
+                Text(
+                    text = "请求",
+                    style = TextStyle(
+                        color = ColorProvider(colors.accent),
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Medium
+                    ),
+                    maxLines = 1
+                )
+                Spacer(GlanceModifier.height(1.dp))
+                Text(
+                    text = WidgetMiniText.requests(state),
+                    style = TextStyle(
+                        color = ColorProvider(colors.text),
+                        fontSize = 26.sp,
+                        fontWeight = FontWeight.Bold
+                    ),
+                    maxLines = 1
+                )
+            }
+            Spacer(GlanceModifier.width(12.dp))
+            Column(modifier = GlanceModifier.defaultWeight()) {
+                OverviewLedgerLine(
+                    label = "成功率",
+                    value = WidgetOverviewText.successRate(state),
+                    colors = colors,
+                    action = openRequestsAction()
+                )
+                OverviewLedgerLine(
+                    label = "首响",
+                    value = WidgetMiniText.ttft(state),
+                    colors = colors,
+                    action = openUsageAction()
+                )
+                OverviewLedgerLine(
+                    label = "费用",
+                    value = WidgetMiniText.cost(state),
+                    colors = colors,
+                    action = openUsageAction()
+                )
+            }
+        }
+        Spacer(GlanceModifier.height(3.dp))
         HourlyBars(values = state.hourlyRequests, colors = colors)
     }
 }
 
 @Composable
-private fun OverviewPlaceholder(
-    state: WidgetState?,
-    colors: OverviewColors,
-    backgroundRes: Int
+private fun OverviewLedgerLine(
+    label: String,
+    value: String,
+    colors: WidgetPalette,
+    action: Action
 ) {
+    Row(
+        modifier = GlanceModifier.fillMaxWidth().clickable(action),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            style = TextStyle(
+                color = ColorProvider(colors.tertiary),
+                fontSize = 9.sp
+            ),
+            maxLines = 1
+        )
+        Spacer(GlanceModifier.defaultWeight())
+        Spacer(GlanceModifier.width(4.dp))
+        Text(
+            text = value,
+            style = TextStyle(
+                color = ColorProvider(colors.text),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Medium
+            ),
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun OverviewPlaceholder(state: WidgetState?, colors: WidgetPalette) {
     Column(
         modifier = GlanceModifier.fillMaxSize()
-            .background(ImageProvider(backgroundRes))
+            .background(ImageProvider(colors.background))
             .clickable(openConnectAction())
             .padding(horizontal = 18.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -147,75 +218,8 @@ private fun OverviewPlaceholder(
         Text(
             text = staleLabel(state),
             style = TextStyle(
-                color = ColorProvider(colors.muted),
+                color = ColorProvider(colors.tertiary),
                 fontSize = 9.sp
-            ),
-            maxLines = 1
-        )
-    }
-}
-
-@Composable
-private fun OverviewMetricGrid(state: WidgetState, colors: OverviewColors) {
-    Row(modifier = GlanceModifier.fillMaxWidth()) {
-        OverviewMetric(
-            label = "请求",
-            value = WidgetMiniText.requests(state),
-            colors = colors,
-            action = openRequestsAction()
-        )
-        Spacer(GlanceModifier.width(8.dp))
-        OverviewMetric(
-            label = "成功率",
-            value = WidgetOverviewText.successRate(state),
-            colors = colors,
-            action = openRequestsAction()
-        )
-    }
-    Spacer(GlanceModifier.height(2.dp))
-    Row(modifier = GlanceModifier.fillMaxWidth()) {
-        OverviewMetric(
-            label = "首响",
-            value = WidgetMiniText.ttft(state),
-            colors = colors,
-            action = openUsageAction()
-        )
-        Spacer(GlanceModifier.width(8.dp))
-        OverviewMetric(
-            label = "费用",
-            value = WidgetMiniText.cost(state),
-            colors = colors,
-            action = openUsageAction()
-        )
-    }
-}
-
-@Composable
-private fun RowScope.OverviewMetric(
-    label: String,
-    value: String,
-    colors: OverviewColors,
-    action: Action
-) {
-    Column(
-        modifier = GlanceModifier.defaultWeight()
-            .clickable(action)
-            .padding(vertical = 1.dp)
-    ) {
-        Text(
-            text = label,
-            style = TextStyle(
-                color = ColorProvider(colors.accent),
-                fontSize = 9.sp
-            ),
-            maxLines = 1
-        )
-        Text(
-            text = value,
-            style = TextStyle(
-                color = ColorProvider(colors.text),
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold
             ),
             maxLines = 1
         )
@@ -227,14 +231,14 @@ private fun RowScope.OverviewMetric(
  * equal-width rows of eight. Short rows are padded with spacers so every bar keeps its width.
  */
 @Composable
-private fun HourlyBars(values: List<Long>, colors: OverviewColors) {
+private fun HourlyBars(values: List<Long>, colors: WidgetPalette) {
     val points = values.takeLast(MAX_BARS)
     val max = points.maxOrNull() ?: 0L
     if (points.isEmpty() || max <= 0L) {
         Text(
             text = "暂无趋势",
             style = TextStyle(
-                color = ColorProvider(colors.muted),
+                color = ColorProvider(colors.tertiary),
                 fontSize = 9.sp
             ),
             maxLines = 1
@@ -267,7 +271,7 @@ private fun HourlyBars(values: List<Long>, colors: OverviewColors) {
 }
 
 @Composable
-private fun RowScope.HourlyBar(value: Long, max: Long, colors: OverviewColors) {
+private fun RowScope.HourlyBar(value: Long, max: Long, colors: WidgetPalette) {
     val barHeight = (CHART_HEIGHT.value * value.toFloat() / max.toFloat())
         .coerceAtLeast(MIN_BAR_HEIGHT)
         .dp
@@ -308,24 +312,6 @@ private fun timeFormat(): SimpleDateFormat = SimpleDateFormat("HH:mm", Locale.ge
 
 private fun dateTimeFormat(): SimpleDateFormat =
     SimpleDateFormat("M月d日 HH:mm", Locale.getDefault())
-
-private data class OverviewColors(
-    val text: Color,
-    val accent: Color
-) {
-    val muted: Color = text.copy(alpha = 0.55f)
-}
-
-// Glance has no MaterialTheme; each palette is fixed to the design's dark and light values.
-private val OverviewDarkColors = OverviewColors(
-    text = Color(0xFFE9E8F0),
-    accent = Color(0xFF9A92EE)
-)
-
-private val OverviewLightColors = OverviewColors(
-    text = Color(0xFF1C1A17),
-    accent = Color(0xFF6C5CE7)
-)
 
 private fun openRequestsAction(): Action = actionStartActivity<MainActivity>(
     actionParametersOf(

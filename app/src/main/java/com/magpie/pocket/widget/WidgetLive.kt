@@ -39,14 +39,13 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
-import com.magpie.pocket.R
 import com.magpie.pocket.app.MainActivity
 import com.magpie.pocket.core.design.AppTab
 
 /**
- * The 4×2 live panel: three in-flight calls, one per row. The elapsed time is a real
- * [android.widget.Chronometer] embedded as RemoteViews, so the launcher keeps it ticking
- * without repainting the widget every second.
+ * The 4×2 live panel: three in-flight calls, one per row, with the longest-running row
+ * emphasised. The elapsed time is a real [android.widget.Chronometer] embedded as
+ * RemoteViews, so the launcher keeps it ticking without repainting every second.
  */
 class WidgetLive : GlanceAppWidget() {
 
@@ -72,10 +71,13 @@ class WidgetLiveReceiver : GlanceAppWidgetReceiver() {
 private fun WidgetLiveContent(state: WidgetLiveState, isDark: Boolean) {
     val colors = widgetPalette(isDark)
     val openAction = if (state.connected) openRoutingAction() else openConnectAction()
+    val oldestIndex = state.requests.indices.minByOrNull { index ->
+        state.requests[index].startedAt ?: Long.MAX_VALUE
+    }
     Column(
         modifier = GlanceModifier.fillMaxSize()
             .background(ImageProvider(colors.background))
-            .padding(horizontal = 14.dp, vertical = 10.dp)
+            .padding(horizontal = 16.dp, vertical = 8.dp)
             .clickable(openAction)
     ) {
         Text(
@@ -88,7 +90,7 @@ private fun WidgetLiveContent(state: WidgetLiveState, isDark: Boolean) {
             ),
             maxLines = 1
         )
-        Spacer(GlanceModifier.height(6.dp))
+        Spacer(GlanceModifier.height(3.dp))
         when {
             !state.connected -> EmptyLivePanel(text = "未连接", color = colors.accent)
             state.requests.isEmpty() -> EmptyLivePanel(text = "当前空闲", color = colors.secondary)
@@ -97,9 +99,13 @@ private fun WidgetLiveContent(state: WidgetLiveState, isDark: Boolean) {
                     val request = state.requests.getOrNull(index)
                     if (request == null) {
                         // Missing calls leave their row blank; the panel never invents a line.
-                        Spacer(GlanceModifier.fillMaxWidth().height(22.dp))
+                        Spacer(GlanceModifier.fillMaxWidth().height(ROW_HEIGHT))
                     } else {
-                        LiveRow(request = request, colors = colors)
+                        LiveRow(
+                            request = request,
+                            colors = colors,
+                            highlighted = index == oldestIndex && request.startedAt != null
+                        )
                     }
                 }
             }
@@ -129,18 +135,24 @@ private fun ColumnScope.EmptyLivePanel(
 }
 
 @Composable
-private fun LiveRow(request: WidgetLiveRequest, colors: WidgetPalette) {
+private fun LiveRow(
+    request: WidgetLiveRequest,
+    colors: WidgetPalette,
+    highlighted: Boolean
+) {
     val context = LocalContext.current
+    val emphasis = if (highlighted) colors.accent else colors.text
     Row(
-        modifier = GlanceModifier.fillMaxWidth().height(22.dp),
+        modifier = GlanceModifier.fillMaxWidth().height(ROW_HEIGHT),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = request.model + " · " + request.source,
             modifier = GlanceModifier.defaultWeight(),
             style = TextStyle(
-                color = ColorProvider(colors.text),
-                fontSize = 12.sp
+                color = ColorProvider(emphasis),
+                fontSize = 12.sp,
+                fontWeight = if (highlighted) FontWeight.Medium else FontWeight.Normal
             ),
             maxLines = 1
         )
@@ -165,7 +177,7 @@ private fun LiveRow(request: WidgetLiveRequest, colors: WidgetPalette) {
             )
         } else {
             AndroidRemoteViews(
-                remoteViews = elapsedRemoteViews(context, startedAt, colors.text)
+                remoteViews = elapsedRemoteViews(context, startedAt, emphasis)
             )
         }
     }
@@ -198,3 +210,5 @@ private fun openConnectAction() = actionStartActivity<MainActivity>(
         ActionParameters.Key<Boolean>(MainActivity.EXTRA_OPEN_CONNECT) to true
     )
 )
+
+private val ROW_HEIGHT = 24.dp
