@@ -39,6 +39,7 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
+import com.magpie.pocket.R
 import com.magpie.pocket.app.MainActivity
 import com.magpie.pocket.core.design.AppTab
 

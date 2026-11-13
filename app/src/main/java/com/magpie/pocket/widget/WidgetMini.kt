@@ -137,7 +137,7 @@ private fun RowScope.MiniMetric(label: String, value: String, colors: WidgetPale
             style = TextStyle(
                 color = ColorProvider(colors.text),
                 fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.Bold
             ),
             maxLines = 1
         )
