@@ -21,6 +21,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -188,7 +191,9 @@ class LiveKeepaliveService : Service() {
 
     /**
      * One second of throttle keeps trace ticks from rewriting the notification on every frame;
-     * conflate keeps only the newest state while the collector waits.
+     * conflate keeps only the newest state while the collector waits. The ticker is the only
+     * source of repeated emissions: without it an unchanged running list would keep printing
+     * the elapsed time computed at the last trace update. Ticks stop as soon as the list drains.
      */
     private fun observeKeepaliveSummary(model: AppViewModel) {
         summaryJob?.cancel()
@@ -197,9 +202,10 @@ class LiveKeepaliveService : Service() {
                 model.overview,
                 model.runningRequests,
                 model.connectionStatus,
-                notificationPreferences.notifVerboseFlow
-            ) { overview, running, _, verbose ->
-                KeepaliveState(overview, running, verbose)
+                notificationPreferences.notifVerboseFlow,
+                keepaliveTicks(model.runningRequests, KEEPALIVE_TICK_MS)
+            ) { overview, running, _, verbose, revision ->
+                KeepaliveState(overview, running, verbose, revision)
             }
                 .distinctUntilChanged()
                 .conflate()
@@ -427,16 +433,40 @@ class LiveKeepaliveService : Service() {
     private data class KeepaliveState(
         val overview: OverviewSnapshot?,
         val running: List<RequestSummary>,
-        val verbose: Boolean
+        val verbose: Boolean,
+        /** Makes each periodic redraw distinct while the payload itself is unchanged. */
+        val revision: Long
     )
 
     companion object {
         private const val KEEPALIVE_UPDATE_THROTTLE_MS = 1_000L
+        private const val KEEPALIVE_TICK_MS = 1_000L
         private const val MAX_SEEN_FAILURES = 200
         private const val REQUEST_OPEN_APP = 0
         private const val REQUEST_STOP = 1
         private const val REQUEST_OPEN_USAGE = 2
         private const val REQUEST_OPEN_REQUEST = 3
         private const val REQUEST_MUTE = 4
+    }
+}
+
+/**
+ * Emits a redraw revision once for every running-list change and then, while the list is
+ * non-empty, once per [periodMs]. The flush value still fires when the list drains so the
+ * notification drops its last running line, then the ticker goes quiet: an idle keepalive
+ * notification never wakes once a second.
+ */
+internal fun keepaliveTicks(
+    running: Flow<List<RequestSummary>>,
+    periodMs: Long
+): Flow<Long> = channelFlow {
+    var revision = 0L
+    running.collectLatest { active ->
+        send(revision++)
+        if (active.isEmpty()) return@collectLatest
+        while (true) {
+            delay(periodMs)
+            send(revision++)
+        }
     }
 }

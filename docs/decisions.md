@@ -93,7 +93,7 @@ The reusable visual specification is maintained in .agents/skills/magpie-pocket-
 - **账号明细来源**：路由页账号按 `/api/groups` 的 `memberInfo[].account` → `/api/usage` 的 accounts 维度 → `/api/usage/quotas` 的账号 合并，按 id 去重且 groups 胜出；usage/额度来源的可用性记为 UNKNOWN，usage 来源标 `fromUsage`。额度行只有带 `user` 时才贡献账号行（实测 19 行中 13 行），供应商名不该被当成账号。合并在 VM 的同一次刷新内复用已加载的面板数据，不新增请求；只有 usage 来源时 sheet 注明“仅显示近期有流量的账号”，没有任何来源时显示“网关未提供账号级明细”。
 - **统计日**：statisticsDay 由 Capabilities.statisticsTimeZone（缺失时回退请求 SourceMeta）换算 rangeEnd，没有时区时取服务器字面日期。
 - **趋势**：DailyTrendPoint 带日期、请求数与当日已计价费用（上游 series 的 cost）；UsageSnapshot.dailyTrends 保留所选周期的 series，概览 history 不可用时 VM 回退到该序列，两者都没有才为空列表，不补零。usageDecodeSpeed 与概览使用同一公式。
-- **路由聚焦**：VM 提供 focusRoute(routeId)，按 id 聚焦但仍保持自动跟随；runningRequest（单条）保留，runningRequests 最多三条按 startedAt 倒序。MainActivity 的接线在后续任务。
+- **路由聚焦**：VM 提供 focusRoute(routeId)，按 id 聚焦但仍保持自动跟随；runningRequest（单条）保留，runningRequests 最多保留 50 条用于计数，展示截 3 行，按 startedAt 倒序。MainActivity 的接线在后续任务。
 - **覆盖率**：dataCoverage 取 overview / usage / 请求页中最差的 Coverage，并带 stale。
 - **缺失不等于零**：TokenUsage 四个字段与 RequestSummary.usage、QuotaWindow.used/limit 保留 null；下游统一用 MetricCalculators.formatTotalTokens 输出“—”（页面接线在后续任务）。sameTimeYesterdayCompletedRequests 字段保留，但不再有数据来源。
 

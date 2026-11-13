@@ -215,7 +215,7 @@ class AppViewModel(
     private val _runningRequest = MutableStateFlow<RequestSummary?>(null)
     val runningRequest: StateFlow<RequestSummary?> = _runningRequest.asStateFlow()
 
-    /** Newest three in-flight requests; the overview lists all of them, not just the first. */
+    /** In-flight requests, newest first; row surfaces apply their own three-row display limit. */
     private val _runningRequests = MutableStateFlow<List<RequestSummary>>(emptyList())
     val runningRequests: StateFlow<List<RequestSummary>> = _runningRequests.asStateFlow()
 
@@ -1271,7 +1271,7 @@ class AppViewModel(
         val running = tr.recentRoutes
             .filter { it.key.routeId in runningIds }
             .sortedByDescending { RequestTimestamps.parseMillis(it.startedAt) ?: Long.MIN_VALUE }
-        _runningRequests.value = running.take(RUNNING_REQUEST_LIMIT)
+        _runningRequests.value = running.take(RUNNING_REQUEST_CAPACITY)
         _runningRequest.value = running.firstOrNull()
 
         if (_isFollowingLive.value) {
@@ -1893,8 +1893,11 @@ private class RefreshSteps(
 
 private const val PRIVACY_PAGE_SIZE = 40
 
-/** The overview lists at most three in-flight requests. */
-private const val RUNNING_REQUEST_LIMIT = 3
+/**
+ * Retains at most 50 in-flight requests for counting; beyond that the count is capped.
+ * The overview, widget and notification body still render at most three rows.
+ */
+private const val RUNNING_REQUEST_CAPACITY = 50
 
 /** ERROR is server-side; RUNNING and REROUTED are applied to the returned ledger rows. */
 private val LIVE_REQUEST_FILTERS: Set<RequestFilter> = setOf(

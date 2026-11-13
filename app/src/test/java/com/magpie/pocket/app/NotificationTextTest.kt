@@ -117,7 +117,21 @@ class NotificationTextTest {
             ),
             text.inboxLines
         )
+        assertEquals("今日 42 请求 · 5 条处理中", text.title)
         assertEquals("5 条正在运行 · 实时更新", text.footer)
+    }
+
+    @Test
+    fun summaryElapsedAdvancesWithTheNotificationClock() {
+        val started = "2026-11-12T12:00:00Z"
+        val start = RequestTimestamps.parseMillis(started)!!
+        val running = listOf(running("r1", started))
+
+        val first = NotificationText.keepalive(6774, running, start + 4_100)
+        val second = NotificationText.keepalive(6774, running, start + 5_100)
+
+        assertEquals("deepseek-v4.1-flash · DimAgent · 4.1s", first.text)
+        assertEquals("deepseek-v4.1-flash · DimAgent · 5.1s", second.text)
     }
 
     @Test

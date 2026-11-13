@@ -222,7 +222,7 @@ class DashboardDerivedStateTest {
     }
 
     @Test
-    fun runningRequestsKeepTheNewestThree() = runBlocking {
+    fun runningRequestsKeepEveryInFlightRequest() = runBlocking {
         val viewModel = newViewModel()
         val routes = (1..4).map { index ->
             request("90" + index, "2026-11-10T12:00:0" + index + "Z")
@@ -239,7 +239,10 @@ class DashboardDerivedStateTest {
             )
         )
 
-        assertEquals(listOf("904", "903", "902"), viewModel.runningRequests.first().map { it.key.routeId })
+        assertEquals(
+            listOf("904", "903", "902", "901"),
+            viewModel.runningRequests.first().map { it.key.routeId }
+        )
         assertEquals("904", viewModel.runningRequest.first()?.key?.routeId)
     }
 
