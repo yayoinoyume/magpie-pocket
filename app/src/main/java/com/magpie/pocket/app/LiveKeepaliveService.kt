@@ -34,6 +34,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
@@ -205,14 +206,30 @@ class LiveKeepaliveService : Service() {
     private fun observeKeepaliveSummary(model: AppViewModel) {
         summaryJob?.cancel()
         summaryJob = serviceScope.launch {
+            // Theme inputs are part of the summary so an idle notification recolors when the
+            // app ThemeMode or the system night mode changes, without waking every second.
+            val settings = combine(
+                notificationPreferences.notifVerboseFlow,
+                model.displayPreferences.map { it.themeMode }.distinctUntilChanged(),
+                WidgetThemeSource.systemDarkFlow
+            ) { verbose, themeMode, systemDark ->
+                KeepaliveSettings(verbose, themeMode, systemDark)
+            }
             combine(
                 model.overview,
                 model.runningRequests,
                 model.connectionStatus,
-                notificationPreferences.notifVerboseFlow,
+                settings,
                 keepaliveTicks(model.runningRequests, KEEPALIVE_TICK_MS)
-            ) { overview, running, _, verbose, revision ->
-                KeepaliveState(overview, running, verbose, revision)
+            ) { overview, running, _, settings, revision ->
+                KeepaliveState(
+                    overview = overview,
+                    running = running,
+                    verbose = settings.verbose,
+                    revision = revision,
+                    themeMode = settings.themeMode,
+                    systemDark = settings.systemDark
+                )
             }
                 .distinctUntilChanged()
                 .conflate()
@@ -294,7 +311,10 @@ class LiveKeepaliveService : Service() {
             verbose = state.verbose
         )
         getSystemService(NotificationManager::class.java)
-            .notify(Notifications.NOTIFICATION_ID_KEEPALIVE, keepaliveNotification(text))
+            .notify(
+                Notifications.NOTIFICATION_ID_KEEPALIVE,
+                keepaliveNotification(text, state.themeMode, state.systemDark)
+            )
     }
 
     private fun showQuotaAlert(readings: List<QuotaReading>) {
@@ -368,11 +388,15 @@ class LiveKeepaliveService : Service() {
         }
     }
 
-    private fun keepaliveNotification(text: KeepaliveNotificationText): Notification {
+    private fun keepaliveNotification(
+        text: KeepaliveNotificationText,
+        themeMode: ThemeMode? = null,
+        systemDark: Boolean? = null
+    ): Notification {
         val openApp = openAppIntent()
         val builder = NotificationCompat.Builder(this, Notifications.CHANNEL_KEEPALIVE)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
-            .setColor(notificationScheme().accent.toArgb())
+            .setColor(notificationScheme(themeMode, systemDark).accent.toArgb())
             .setContentTitle(text.title)
             .setContentText(text.text)
             .setContentIntent(openApp)
@@ -396,12 +420,18 @@ class LiveKeepaliveService : Service() {
      * start may briefly read the cached SYSTEM default until DataStore emits; the next
      * keepalive tick repaints it.
      */
-    private fun notificationScheme(): MagpieColorScheme {
-        val mode = (application as? MagpieApplication)?.appThemeMode ?: ThemeMode.SYSTEM
+    private fun notificationScheme(
+        themeMode: ThemeMode? = null,
+        systemDark: Boolean? = null
+    ): MagpieColorScheme {
+        val mode = themeMode
+            ?: (application as? MagpieApplication)?.appThemeMode
+            ?: ThemeMode.SYSTEM
+        val dark = systemDark ?: WidgetThemeSource.systemDark(this)
         val isDark = WidgetThemeSource.isDark(
             theme = WidgetTheme.SYSTEM,
             appThemeMode = mode,
-            systemDark = WidgetThemeSource.systemDark(this)
+            systemDark = dark
         )
         return if (isDark) DarkScheme else LightScheme
     }
@@ -455,12 +485,20 @@ class LiveKeepaliveService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+    private data class KeepaliveSettings(
+        val verbose: Boolean,
+        val themeMode: ThemeMode,
+        val systemDark: Boolean
+    )
+
     private data class KeepaliveState(
         val overview: OverviewSnapshot?,
         val running: List<RequestSummary>,
         val verbose: Boolean,
         /** Makes each periodic redraw distinct while the payload itself is unchanged. */
-        val revision: Long
+        val revision: Long,
+        val themeMode: ThemeMode,
+        val systemDark: Boolean
     )
 
     companion object {

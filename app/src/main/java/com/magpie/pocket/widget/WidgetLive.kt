@@ -55,11 +55,10 @@ class WidgetLive : GlanceAppWidget() {
         val stateFlow = WidgetLiveStateStore.observe(context)
         val initialTheme = WidgetThemeSource.load(context)
         val themeFlow = WidgetThemeSource.observe(context)
-        val systemDark = WidgetThemeSource.systemDark(context)
         provideContent {
             val state by stateFlow.collectAsState(initial = initialState)
             val theme by themeFlow.collectAsState(initial = initialTheme)
-            WidgetLiveContent(state = state, isDark = theme.isDark(systemDark))
+            WidgetLiveContent(state = state, isDark = theme.isDark())
         }
     }
 }

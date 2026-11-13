@@ -28,6 +28,20 @@ class WidgetThemeTest {
     }
 
     @Test
+    fun themeStateReadsTheCollectedSystemDarkValue() {
+        val systemMode = WidgetThemeState(
+            config = WidgetConfig(theme = WidgetTheme.SYSTEM),
+            appThemeMode = ThemeMode.SYSTEM,
+            systemDark = true
+        )
+
+        assertTrue(systemMode.isDark())
+        assertFalse(systemMode.copy(systemDark = false).isDark())
+        assertFalse(systemMode.copy(appThemeMode = ThemeMode.LIGHT).isDark())
+        assertTrue(systemMode.copy(appThemeMode = ThemeMode.DARK, systemDark = false).isDark())
+    }
+
+    @Test
     fun systemIsTheDefaultAndReadsAsFollowApp() {
         assertEquals(WidgetTheme.SYSTEM, WidgetConfig().theme)
         assertEquals("跟随 App", WidgetTheme.SYSTEM.label)

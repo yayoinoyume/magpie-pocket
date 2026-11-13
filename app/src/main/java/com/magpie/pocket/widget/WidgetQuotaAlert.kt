@@ -50,11 +50,10 @@ class WidgetQuotaAlert : GlanceAppWidget() {
         val stateFlow = WidgetStateStore.observe(context)
         val initialTheme = WidgetThemeSource.load(context)
         val themeFlow = WidgetThemeSource.observe(context)
-        val systemDark = WidgetThemeSource.systemDark(context)
         provideContent {
             val state by stateFlow.collectAsState(initial = initialState)
             val theme by themeFlow.collectAsState(initial = initialTheme)
-            WidgetQuotaAlertContent(state = state, isDark = theme.isDark(systemDark))
+            WidgetQuotaAlertContent(state = state, isDark = theme.isDark())
         }
     }
 }
@@ -70,7 +69,7 @@ private fun WidgetQuotaAlertContent(state: WidgetState?, isDark: Boolean) {
     Row(
         modifier = GlanceModifier.fillMaxSize()
             .background(ImageProvider(colors.background))
-            .padding(horizontal = 16.dp, vertical = 6.dp)
+            .padding(horizontal = 16.dp, vertical = 4.dp)
             .clickable(if (alert != null) openQuotaAction() else openOverviewAction()),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -89,7 +88,7 @@ private fun RowScope.AlertRow(
 ) {
     Box(
         modifier = GlanceModifier.width(4.dp)
-            .height(30.dp)
+            .height(28.dp)
             .background(ColorProvider(colors.warning))
     ) {}
     Spacer(GlanceModifier.width(10.dp))

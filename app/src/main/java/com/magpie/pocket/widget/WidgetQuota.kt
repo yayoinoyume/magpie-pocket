@@ -46,11 +46,10 @@ class WidgetQuota : GlanceAppWidget() {
         val stateFlow = WidgetQuotaStateStore.observe(context)
         val initialTheme = WidgetThemeSource.load(context)
         val themeFlow = WidgetThemeSource.observe(context)
-        val systemDark = WidgetThemeSource.systemDark(context)
         provideContent {
             val state by stateFlow.collectAsState(initial = initialState)
             val theme by themeFlow.collectAsState(initial = initialTheme)
-            WidgetQuotaContent(state = state, isDark = theme.isDark(systemDark))
+            WidgetQuotaContent(state = state, isDark = theme.isDark())
         }
     }
 }

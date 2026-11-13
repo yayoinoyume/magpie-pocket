@@ -32,7 +32,7 @@
 - 浅色：背景 `#FFFFFF`、主文字 `#202330`、强调 `#5E59D9`、warning `#986116`；深色：背景 `#1A1E26`、主文字 `#EEF0F6`、强调 `#B0AAFF`、warning `#F3BF71`。
 - 5 个 widget 圆角统一 **26dp**。API 24-30 由 shape drawable 提供，S+ 走同一份 drawable，行为一致。
 - App 的主题入口是 `pref_theme_mode`（`ThemeMode.SYSTEM/LIGHT/DARK`）。widget 配置的 `SYSTEM` 已改为**跟随 App**；`DARK` / `LIGHT` 仍是显式覆盖。老用户保存的 `SYSTEM` 直接按新语义生效，不做迁移。
-- `MagpieApplication` 收集 App 主题变化，并在 `onConfigurationChanged` 时调用 `WidgetRefresh.repaintAll`；`updateAll` 的原有语义（写快照 + 重绘）保持不变。
+- `MagpieApplication` 收集 App 主题变化；`onConfigurationChanged` 会先把系统深浅写入 `WidgetThemeSource.systemDarkFlow`，再调用 `WidgetRefresh.repaintAll`。5 个 widget 的 `WidgetThemeState` 同时收集 config、App `ThemeMode` 与 `systemDarkFlow`，因此已存在的 composition 也会随系统深浅重绘；`updateAll` 的原有语义（写快照 + 重绘）保持不变。
 - `Chronometer` 默认色是深色 token `#EEF0F6`，代码里仍按当前主题显式 `setTextColor`。
 
 ## 数据与刷新

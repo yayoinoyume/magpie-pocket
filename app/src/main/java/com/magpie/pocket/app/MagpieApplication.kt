@@ -12,9 +12,12 @@ import com.magpie.pocket.core.security.PreferencesManager
 import com.magpie.pocket.core.util.AppLog
 import com.magpie.pocket.widget.WidgetRefresh
 import com.magpie.pocket.widget.WidgetStateStore
+import com.magpie.pocket.widget.WidgetThemeSource
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -97,6 +100,7 @@ class MagpieApplication : Application() {
         startupScope.launch { credentialStore.prepare() }
 
         preferencesManager = PreferencesManager(this)
+        WidgetThemeSource.refreshSystemDark(this)
         observeAppThemeMode()
 
         // Apply the stored refresh policy: event-driven unless the user chose the 15-minute
@@ -114,6 +118,10 @@ class MagpieApplication : Application() {
             preferencesManager.displayPreferencesFlow
                 .map { it.themeMode }
                 .distinctUntilChanged()
+                .catch { error ->
+                    if (error is CancellationException) throw error
+                    AppLog.warn("Theme mode observation stopped", error)
+                }
                 .collect { mode ->
                     val previous = appThemeMode
                     appThemeMode = mode
@@ -128,6 +136,7 @@ class MagpieApplication : Application() {
     /** The launcher may keep the process while the phone switches between light and dark. */
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
+        WidgetThemeSource.refreshSystemDark(this)
         WidgetRefresh.repaintAll(this)
     }
 
