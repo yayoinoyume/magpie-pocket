@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
 import com.magpie.pocket.core.design.MagpieTypography
 import com.magpie.pocket.core.design.MagpieTypographySet
+import com.magpie.pocket.core.model.ThemeMode
 import kotlinx.coroutines.launch
 
 /**
@@ -85,20 +86,26 @@ class WidgetConfigActivity : ComponentActivity() {
             val loaded by produceState<WidgetConfig?>(initialValue = null) {
                 value = WidgetConfigStore.load(this@WidgetConfigActivity)
             }
+            val appThemeMode by produceState<ThemeMode>(initialValue = ThemeMode.SYSTEM) {
+                value = WidgetThemeSource.loadAppThemeMode(this@WidgetConfigActivity)
+            }
             val systemDark = isSystemInDarkTheme()
-            val config = loaded
-            val isDark = config?.isDark(systemDark) ?: systemDark
+            var edited by remember(loaded) { mutableStateOf(loaded) }
+            val config = edited ?: loaded
+            // The preview follows the widget override the user is editing, resolved against
+            // the app ThemeMode exactly as the home-screen paint does.
+            val isDark = config?.isDark(systemDark, appThemeMode)
+                ?: WidgetThemeSource.isDark(WidgetTheme.SYSTEM, appThemeMode, systemDark)
             LaunchedEffect(isDark) { applyBars(isDark) }
 
             WidgetConfigTheme(isDark = isDark) {
                 if (config == null) {
                     WidgetConfigLoading()
                 } else {
-                    var edited by remember(config) { mutableStateOf(config) }
                     WidgetConfigScreen(
-                        config = edited,
+                        config = config,
                         onConfigChange = { edited = it },
-                        onSave = { save(edited) },
+                        onSave = { save(config) },
                         onCancel = { finish() }
                     )
                 }

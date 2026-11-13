@@ -2,8 +2,10 @@ package com.magpie.pocket.app
 
 import android.app.Application
 import android.content.pm.ApplicationInfo
+import android.content.res.Configuration
 import android.util.Log
 import com.magpie.pocket.core.data.DemoRepository
+import com.magpie.pocket.core.model.ThemeMode
 import com.magpie.pocket.core.network.MagpieTiming
 import com.magpie.pocket.core.security.CredentialStore
 import com.magpie.pocket.core.security.PreferencesManager
@@ -13,6 +15,8 @@ import com.magpie.pocket.widget.WidgetStateStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 class MagpieApplication : Application() {
@@ -62,6 +66,14 @@ class MagpieApplication : Application() {
     private var existingViewModel: AppViewModel? = null
 
     /**
+     * The last observed app ThemeMode. The keepalive service tints its notifications from it
+     * without reading DataStore itself; [ThemeMode.SYSTEM] is the safe pre-emission value.
+     */
+    @Volatile
+    var appThemeMode: ThemeMode = ThemeMode.SYSTEM
+        private set
+
+    /**
      * The process-owned runtime if it already exists. A widget update must never construct
      * [appViewModel]; doing so would load credentials and start the network stack.
      */
@@ -85,10 +97,38 @@ class MagpieApplication : Application() {
         startupScope.launch { credentialStore.prepare() }
 
         preferencesManager = PreferencesManager(this)
+        observeAppThemeMode()
 
         // Apply the stored refresh policy: event-driven unless the user chose the 15-minute
         // fallback. The fallback reads the last snapshot instead of networking.
         WidgetRefresh.applyRefreshPolicy(this)
+    }
+
+    /**
+     * A theme change is a widget repaint, not a data refresh. The first emission only fills the
+     * cache; later changes repaint every size from the stored snapshot.
+     */
+    private fun observeAppThemeMode() {
+        startupScope.launch {
+            var observed = false
+            preferencesManager.displayPreferencesFlow
+                .map { it.themeMode }
+                .distinctUntilChanged()
+                .collect { mode ->
+                    val previous = appThemeMode
+                    appThemeMode = mode
+                    if (observed && previous != mode) {
+                        WidgetRefresh.repaintAll(this@MagpieApplication)
+                    }
+                    observed = true
+                }
+        }
+    }
+
+    /** The launcher may keep the process while the phone switches between light and dark. */
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        WidgetRefresh.repaintAll(this)
     }
 
     companion object {

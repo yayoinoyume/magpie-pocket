@@ -49,6 +49,12 @@ object WidgetRefresh {
         }
     }
 
+    /** Repaints every widget without writing a new snapshot; used for theme changes. */
+    fun repaintAll(context: Context) {
+        val appContext = context.applicationContext
+        scope.launch { repaint(appContext) }
+    }
+
     /** The WorkManager fallback: repaint from the app's live state or the last snapshot. */
     suspend fun refreshFromSnapshot(context: Context) {
         WidgetStateStore.live(context)?.let { WidgetStateStore.save(context, it) }

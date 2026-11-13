@@ -1,7 +1,6 @@
 package com.magpie.pocket.widget
 
 import android.content.Context
-import android.content.res.Configuration
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -49,11 +48,13 @@ class WidgetQuotaAlert : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val initialState = WidgetStateStore.load(context)
         val stateFlow = WidgetStateStore.observe(context)
-        val isDark = (context.resources.configuration.uiMode and
-            Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        val initialTheme = WidgetThemeSource.load(context)
+        val themeFlow = WidgetThemeSource.observe(context)
+        val systemDark = WidgetThemeSource.systemDark(context)
         provideContent {
             val state by stateFlow.collectAsState(initial = initialState)
-            WidgetQuotaAlertContent(state = state, isDark = isDark)
+            val theme by themeFlow.collectAsState(initial = initialTheme)
+            WidgetQuotaAlertContent(state = state, isDark = theme.isDark(systemDark))
         }
     }
 }

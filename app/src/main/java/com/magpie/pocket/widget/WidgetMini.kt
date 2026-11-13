@@ -1,7 +1,6 @@
 package com.magpie.pocket.widget
 
 import android.content.Context
-import android.content.res.Configuration
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -44,14 +43,13 @@ class WidgetMini : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val initialState = WidgetStateStore.load(context)
         val stateFlow = WidgetStateStore.observe(context)
-        val initialConfig = WidgetConfigStore.load(context)
-        val configFlow = WidgetConfigStore.observe(context)
-        val systemDark = (context.resources.configuration.uiMode and
-            Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        val initialTheme = WidgetThemeSource.load(context)
+        val themeFlow = WidgetThemeSource.observe(context)
+        val systemDark = WidgetThemeSource.systemDark(context)
         provideContent {
             val state by stateFlow.collectAsState(initial = initialState)
-            val config by configFlow.collectAsState(initial = initialConfig)
-            WidgetMiniContent(state = state, isDark = config.isDark(systemDark))
+            val theme by themeFlow.collectAsState(initial = initialTheme)
+            WidgetMiniContent(state = state, isDark = theme.isDark(systemDark))
         }
     }
 }

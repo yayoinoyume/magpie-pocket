@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.magpie.pocket.core.model.ThemeMode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.first
@@ -18,9 +19,12 @@ enum class WidgetContent(val label: String) {
     TREND("趋势")
 }
 
-/** The widget palette override. [SYSTEM] follows the phone's night mode. */
+/**
+ * The widget palette override. [SYSTEM] follows the app's ThemeMode (including the app's own
+ * SYSTEM setting); [DARK] and [LIGHT] are explicit overrides.
+ */
 enum class WidgetTheme(val label: String) {
-    SYSTEM("跟随系统"),
+    SYSTEM("跟随 App"),
     DARK("深色"),
     LIGHT("浅色")
 }
@@ -36,11 +40,8 @@ data class WidgetConfig(
     val theme: WidgetTheme = WidgetTheme.SYSTEM,
     val refresh: WidgetRefreshMode = WidgetRefreshMode.EVENT_DRIVEN
 ) {
-    fun isDark(systemDark: Boolean): Boolean = when (theme) {
-        WidgetTheme.SYSTEM -> systemDark
-        WidgetTheme.DARK -> true
-        WidgetTheme.LIGHT -> false
-    }
+    fun isDark(systemDark: Boolean, appThemeMode: ThemeMode): Boolean =
+        WidgetThemeSource.isDark(theme, appThemeMode, systemDark)
 }
 
 private val Context.widgetConfigDataStore by preferencesDataStore(name = "widget_config")
