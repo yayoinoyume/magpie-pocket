@@ -25,75 +25,11 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <activity
-            android:name=".widget.WidgetConfigActivity"
-            android:exported="true"
-            android:label="@string/widget_config_title"
-            android:theme="@style/Theme.MagpiePocket">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
-            </intent-filter>
-        </activity>
         <service
             android:name=".app.LiveKeepaliveService"
             android:exported="false"
             android:foregroundServiceType="dataSync"
             android:stopWithTask="true" />
-        <receiver
-            android:name=".widget.WidgetMiniReceiver"
-            android:exported="true"
-            android:label="@string/widget_mini_label">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/appwidget_mini" />
-        </receiver>
-        <receiver
-            android:name=".widget.WidgetOverviewReceiver"
-            android:exported="true"
-            android:label="@string/widget_overview_label">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/appwidget_overview" />
-        </receiver>
-        <receiver
-            android:name=".widget.WidgetLiveReceiver"
-            android:exported="true"
-            android:label="@string/widget_live_label">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/appwidget_live" />
-        </receiver>
-        <receiver
-            android:name=".widget.WidgetQuotaReceiver"
-            android:exported="true"
-            android:label="@string/widget_quota_label">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/appwidget_quota" />
-        </receiver>
-        <receiver
-            android:name=".widget.WidgetQuotaAlertReceiver"
-            android:exported="true"
-            android:label="@string/widget_quota_alert_label">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/appwidget_quota_alert" />
-        </receiver>
     </application>
 
 </manifest>

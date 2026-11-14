@@ -150,9 +150,7 @@ class AppViewModel(
             cfAccessClientId = config.cfAccessClientId,
             cfAccessClientSecret = config.cfAccessClientSecret
         )
-    },
-    /** Fired after a refresh whose overview panel loaded; widgets repaint from this signal. */
-    private val onOverviewRefreshed: () -> Unit = {}
+    }
 ) : ViewModel() {
 
     private var activityResumed = false
@@ -703,7 +701,6 @@ class AppViewModel(
         lastValidatedAtMs = System.currentTimeMillis()
         validationPending = false
         reconcileKeepalive()
-        if (steps.overview == RefreshStep.Loaded) onOverviewRefreshed()
     }
 
     /**
@@ -1895,7 +1892,7 @@ private const val PRIVACY_PAGE_SIZE = 40
 
 /**
  * Retains at most 50 in-flight requests for counting; beyond that the count is capped.
- * The overview, widget and notification body still render at most three rows.
+ * The overview and notification body still render at most three rows.
  */
 private const val RUNNING_REQUEST_CAPACITY = 50
 

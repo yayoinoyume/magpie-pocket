@@ -10,9 +10,6 @@ import com.magpie.pocket.core.network.MagpieTiming
 import com.magpie.pocket.core.security.CredentialStore
 import com.magpie.pocket.core.security.PreferencesManager
 import com.magpie.pocket.core.util.AppLog
-import com.magpie.pocket.widget.WidgetRefresh
-import com.magpie.pocket.widget.WidgetStateStore
-import com.magpie.pocket.widget.WidgetThemeSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -42,31 +39,9 @@ class MagpieApplication : Application() {
             credentialStore = CredentialStoreConnectionSource(credentialStore),
             preferencesManager = PreferencesManagerDisplaySource(preferencesManager),
             demoRepo = demoRepository,
-            keepaliveController = AndroidKeepaliveController(this),
-            onOverviewRefreshed = { WidgetRefresh.updateAll(this) }
-        ).also {
-            existingViewModel = it
-            startWidgetStateSync()
-        }
+            keepaliveController = AndroidKeepaliveController(this)
+        )
     }
-
-    /**
-     * Persists every connection/overview change so a later widget-only process can render the
-     * latest state, including a failure. Runs only once the app itself built the view model;
-     * a widget broadcast never reaches this method.
-     */
-    private fun startWidgetStateSync() {
-        startupScope.launch {
-            WidgetStateStore.observe(this@MagpieApplication).collect { state ->
-                if (state == null) return@collect
-                runCatching { WidgetStateStore.save(this@MagpieApplication, state) }
-            }
-        }
-    }
-
-    /** Set when [appViewModel] is first built; widget-only processes leave it null. */
-    @Volatile
-    private var existingViewModel: AppViewModel? = null
 
     /**
      * The last observed app ThemeMode. The keepalive service tints its notifications from it
@@ -75,13 +50,6 @@ class MagpieApplication : Application() {
     @Volatile
     var appThemeMode: ThemeMode = ThemeMode.SYSTEM
         private set
-
-    /**
-     * The process-owned runtime if it already exists. A widget update must never construct
-     * [appViewModel]; doing so would load credentials and start the network stack.
-     */
-    val existingAppViewModel: AppViewModel?
-        get() = existingViewModel
 
     override fun onCreate() {
         super.onCreate()
@@ -101,21 +69,15 @@ class MagpieApplication : Application() {
 
         preferencesManager = PreferencesManager(this)
         NotificationTheme.refreshSystemDark(this)
-        WidgetThemeSource.refreshSystemDark(this)
         observeAppThemeMode()
-
-        // Apply the stored refresh policy: event-driven unless the user chose the 15-minute
-        // fallback. The fallback reads the last snapshot instead of networking.
-        WidgetRefresh.applyRefreshPolicy(this)
     }
 
     /**
-     * A theme change is a widget repaint, not a data refresh. The first emission only fills the
-     * cache; later changes repaint every size from the stored snapshot.
+     * The keepalive service tints notifications from this process-wide mode without reading
+     * DataStore itself; the first emission fills the cache.
      */
     private fun observeAppThemeMode() {
         startupScope.launch {
-            var observed = false
             preferencesManager.displayPreferencesFlow
                 .map { it.themeMode }
                 .distinctUntilChanged()
@@ -123,23 +85,14 @@ class MagpieApplication : Application() {
                     if (error is CancellationException) throw error
                     AppLog.warn("Theme mode observation stopped", error)
                 }
-                .collect { mode ->
-                    val previous = appThemeMode
-                    appThemeMode = mode
-                    if (observed && previous != mode) {
-                        WidgetRefresh.repaintAll(this@MagpieApplication)
-                    }
-                    observed = true
-                }
+                .collect { mode -> appThemeMode = mode }
         }
     }
 
-    /** The launcher may keep the process while the phone switches between light and dark. */
+    /** The activity may stay alive while the phone switches between light and dark. */
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         NotificationTheme.refreshSystemDark(this)
-        WidgetThemeSource.refreshSystemDark(this)
-        WidgetRefresh.repaintAll(this)
     }
 
     companion object {

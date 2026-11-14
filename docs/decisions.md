@@ -176,3 +176,16 @@ The reusable visual specification is maintained in .agents/skills/magpie-pocket-
 - 计数方向：`QuotaCards.kt` 的 `countText` 接收 `displayMode`，`REMAINING` 时分子是 `limit - amount`（下限 0），`USED` 时分子是已用量；单窗口与多账号合计同一条规则。剩余模式下花光的窗口因此读作「0 / 500 credits」，与「0% 剩余」一致。
 
 **影响**：新增 `MotionTest`（时长开关）与 `QuotaCardsTest.aCountWindowReadsTheDirectionThePagePrints`（两种方向）；`UsageScreen` 的额度卡改为 `itemsIndexed`，卡片入场靠 `graphicsLayer`，不加任何常驻动画。
+
+## 2026-11-14 移除桌面小组件，保留通知
+
+**背景**：桌面小组件需要 Glance、WorkManager 和一套独立的快照/主题链路，维护成本高于实际使用；通知已经覆盖常驻状态、处理中 ticker、m:ss 计时、额度告警与失败提醒。
+
+**决策**：
+
+- 删除 `widget/` 包、3 个 widget 单测、5 个 AppWidget provider、配置 Activity、widget 专用 drawable/layout/预览图与组件名称；移除 Glance 与 WorkManager 依赖。
+- `MagpieApplication` 不再写小组件快照、不按主题重绘小组件，也不再暴露仅供小组件读取的 ViewModel；`AppViewModel` 删除只服务于小组件的概览刷新回调。
+- `MainActivity` 删除小组件点击用的 tab 参数与「未连接自动打开连接页」；通知的 `EXTRA_USAGE_SECTION` / `EXTRA_ROUTE_ID` 跳转保持不变。
+- 通知链路完整保留：`NotificationTheme`、`NotificationText`、`LiveKeepaliveService`、`QuotaAlertGate` 及其测试不改；`appThemeMode` 继续作为通知配色的进程内来源。
+
+**影响**：小组件文档删除；若未来恢复小组件，需要重新引入依赖、Manifest 注册和资源，不能依赖现有快照 DataStore。
