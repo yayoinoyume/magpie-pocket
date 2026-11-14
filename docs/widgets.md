@@ -68,7 +68,7 @@
 
 ## 通知配色边界
 
-`LiveKeepaliveService` 的三类通知（常驻、额度告警、请求失败）只用 `setColor` 取当前主题的 accent / warning / error token。折叠态常驻通知的标题只写「今日 N 请求」，处理中数量放在正文；展开行统一为「4:38 · model」，最久的请求排在最前；不再设置 `InboxStyle` summary footer，避免与正文重复。折叠态仍由系统模板绘制，不做自定义 `RemoteViews`、背景、胶囊按钮或三列表格；能改的只有颜色、标题、正文、按钮文字和 `InboxStyle`。small icon 本轮不换图。
+`LiveKeepaliveService` 的三类通知（常驻、额度告警、请求失败）只用 `setColor` 取当前主题的 accent / warning / error token。折叠态常驻通知的标题只写「今日 N 请求」，处理中数量放在正文；展开行统一为「4:38 · model」，最久的请求排在最前；超过 3 条时在展开列表末尾追加「还有 N 条处理中」；不再设置 `InboxStyle` summary footer，避免与正文重复。折叠态仍由系统模板绘制，不做自定义 `RemoteViews`、背景、胶囊按钮或三列表格；能改的只有颜色、标题、正文、按钮文字和 `InboxStyle`。small icon 本轮不换图。
 
 ## 新增尺寸
 
