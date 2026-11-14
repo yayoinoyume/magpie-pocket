@@ -141,7 +141,9 @@ private fun LiveRow(
     highlighted: Boolean
 ) {
     val context = LocalContext.current
-    val emphasis = if (highlighted) colors.accent else colors.text
+    // The row is emphasised by weight, not by an accent-colored number: hero values in the
+    // app use textPrimary, and accent stays reserved for charts, progress and selected labels.
+    val emphasis = colors.text
     Row(
         modifier = GlanceModifier.fillMaxWidth().height(ROW_HEIGHT),
         verticalAlignment = Alignment.CenterVertically
