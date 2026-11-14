@@ -69,7 +69,7 @@ object NotificationText {
         val inboxLines: List<String> = if (verbose) {
             val printed = lines.take(MAX_RUNNING_LINES).map { it.printed() }
             if (lines.size > MAX_RUNNING_LINES) {
-                printed + "还有 " + (lines.size - MAX_RUNNING_LINES).toString() + " 条处理中"
+                printed + ("还有 " + (lines.size - MAX_RUNNING_LINES) + " 条处理中")
             } else {
                 printed
             }
