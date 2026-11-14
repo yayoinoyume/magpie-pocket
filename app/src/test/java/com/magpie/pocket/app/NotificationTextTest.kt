@@ -93,7 +93,7 @@ class NotificationTextTest {
     }
 
     @Test
-    fun summaryExpandsOnlyTheThreeOldestRunningRequests() {
+    fun summaryExpandsTheThreeOldestRunningRequestsAndCountsTheRest() {
         val now = RequestTimestamps.parseMillis("2026-11-12T12:00:10Z")!!
         val requests = (1..5).map { secondsAgo ->
             running("r$secondsAgo", "2026-11-12T12:00:0${10 - secondsAgo}Z")
@@ -110,12 +110,36 @@ class NotificationTextTest {
             listOf(
                 "0:05 · deepseek-v4.1-flash",
                 "0:04 · deepseek-v4.1-flash",
-                "0:03 · deepseek-v4.1-flash"
+                "0:03 · deepseek-v4.1-flash",
+                "还有 2 条处理中"
             ),
             text.inboxLines
         )
         assertEquals("今日 42 请求", text.title)
         assertEquals("5 条处理中", text.text)
+    }
+
+    @Test
+    fun summaryWithThreeRunningRequestsAddsNoRemainderLine() {
+        val now = RequestTimestamps.parseMillis("2026-11-12T12:00:10Z")!!
+        val requests = (1..3).map { secondsAgo ->
+            running("r$secondsAgo", "2026-11-12T12:00:0${10 - secondsAgo}Z")
+        }
+
+        val text = NotificationText.keepalive(
+            completedRequests = 42,
+            running = requests,
+            nowMillis = now
+        )
+
+        assertEquals(
+            listOf(
+                "0:03 · deepseek-v4.1-flash",
+                "0:02 · deepseek-v4.1-flash",
+                "0:01 · deepseek-v4.1-flash"
+            ),
+            text.inboxLines
+        )
     }
 
     @Test
@@ -156,6 +180,26 @@ class NotificationTextTest {
         assertEquals("0:27", NotificationText.formatElapsed(27_700))
         assertEquals("4:38", NotificationText.formatElapsed(278_300))
         assertEquals("1:04:38", NotificationText.formatElapsed(3_878_000))
+    }
+
+    @Test
+    fun elapsedFormattingCoversTheSecondAndHourBoundaries() {
+        assertEquals("0:00", NotificationText.formatElapsed(0))
+        assertEquals("0:59", NotificationText.formatElapsed(59_000))
+        assertEquals("1:00", NotificationText.formatElapsed(60_000))
+        assertEquals("59:59", NotificationText.formatElapsed(3_599_000))
+        assertEquals("1:00:00", NotificationText.formatElapsed(3_600_000))
+    }
+
+    @Test
+    fun unparsableStartTimePrintsTheMissingClock() {
+        val text = NotificationText.keepalive(
+            completedRequests = 3,
+            running = listOf(running("r1", "not-a-timestamp")),
+            nowMillis = 1_000_000L
+        )
+
+        assertEquals(listOf("— · deepseek-v4.1-flash"), text.inboxLines)
     }
 
     @Test
