@@ -154,7 +154,7 @@ private fun LiveRow(
             style = TextStyle(
                 color = ColorProvider(emphasis),
                 fontSize = 12.sp,
-                fontWeight = if (highlighted) FontWeight.Medium else FontWeight.Normal
+                fontWeight = if (highlighted) FontWeight.Bold else FontWeight.Normal
             ),
             maxLines = 1
         )

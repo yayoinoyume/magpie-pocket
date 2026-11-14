@@ -247,19 +247,25 @@ private fun HourlyBars(values: List<Long>, colors: WidgetPalette) {
 
     val rowCount = (points.size + MAX_ROW_CHILDREN - 1) / MAX_ROW_CHILDREN
     val perRow = (points.size + rowCount - 1) / rowCount
+    val peakIndex = points.indexOf(max)
     Row(
         modifier = GlanceModifier.fillMaxWidth()
             .height(CHART_HEIGHT)
             .clickable(openUsageAction()),
         verticalAlignment = Alignment.Bottom
     ) {
-        points.chunked(perRow).forEach { chunk ->
+        points.chunked(perRow).forEachIndexed { rowIndex, chunk ->
             Row(
                 modifier = GlanceModifier.defaultWeight().fillMaxHeight(),
                 verticalAlignment = Alignment.Bottom
             ) {
-                chunk.forEach { value ->
-                    HourlyBar(value = value, max = max, colors = colors)
+                chunk.forEachIndexed { columnIndex, value ->
+                    HourlyBar(
+                        value = value,
+                        max = max,
+                        colors = colors,
+                        isPeak = rowIndex * perRow + columnIndex == peakIndex
+                    )
                 }
                 repeat(perRow - chunk.size) {
                     Spacer(GlanceModifier.defaultWeight())
@@ -270,7 +276,12 @@ private fun HourlyBars(values: List<Long>, colors: WidgetPalette) {
 }
 
 @Composable
-private fun RowScope.HourlyBar(value: Long, max: Long, colors: WidgetPalette) {
+private fun RowScope.HourlyBar(
+    value: Long,
+    max: Long,
+    colors: WidgetPalette,
+    isPeak: Boolean
+) {
     val barHeight = (CHART_HEIGHT.value * value.toFloat() / max.toFloat())
         .coerceAtLeast(MIN_BAR_HEIGHT)
         .dp
@@ -283,7 +294,11 @@ private fun RowScope.HourlyBar(value: Long, max: Long, colors: WidgetPalette) {
         Box(
             modifier = GlanceModifier.fillMaxWidth()
                 .height(barHeight)
-                .background(ColorProvider(colors.accent.copy(alpha = 0.72f)))
+                .background(
+                    ColorProvider(
+                        if (isPeak) colors.accent else colors.accent.copy(alpha = 0.72f)
+                    )
+                )
         ) {}
     }
 }
