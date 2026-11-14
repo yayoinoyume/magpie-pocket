@@ -1,4 +1,9 @@
 <resources>
     <string name="app_name">Magpie Pocket</string>
     <string name="widget_config_title">小组件设置</string>
+    <string name="widget_mini_label">迷你条 4×1</string>
+    <string name="widget_overview_label">今日概览 4×2</string>
+    <string name="widget_live_label">当前活动 4×2</string>
+    <string name="widget_quota_label">额度 2×2</string>
+    <string name="widget_quota_alert_label">额度告警 4×1</string>
 </resources>

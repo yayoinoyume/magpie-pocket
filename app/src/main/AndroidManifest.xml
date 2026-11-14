@@ -41,7 +41,8 @@
             android:stopWithTask="true" />
         <receiver
             android:name=".widget.WidgetMiniReceiver"
-            android:exported="true">
+            android:exported="true"
+            android:label="@string/widget_mini_label">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
@@ -51,7 +52,8 @@
         </receiver>
         <receiver
             android:name=".widget.WidgetOverviewReceiver"
-            android:exported="true">
+            android:exported="true"
+            android:label="@string/widget_overview_label">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
@@ -61,7 +63,8 @@
         </receiver>
         <receiver
             android:name=".widget.WidgetLiveReceiver"
-            android:exported="true">
+            android:exported="true"
+            android:label="@string/widget_live_label">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
@@ -71,7 +74,8 @@
         </receiver>
         <receiver
             android:name=".widget.WidgetQuotaReceiver"
-            android:exported="true">
+            android:exported="true"
+            android:label="@string/widget_quota_label">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
@@ -81,7 +85,8 @@
         </receiver>
         <receiver
             android:name=".widget.WidgetQuotaAlertReceiver"
-            android:exported="true">
+            android:exported="true"
+            android:label="@string/widget_quota_alert_label">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>

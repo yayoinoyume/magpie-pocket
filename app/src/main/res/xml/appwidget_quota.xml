@@ -3,6 +3,7 @@
     android:initialLayout="@layout/appwidget_loading"
     android:minWidth="110dp"
     android:minHeight="110dp"
+    android:previewImage="@drawable/widget_preview_quota"
     android:resizeMode="none"
     android:targetCellWidth="2"
     android:targetCellHeight="2"
