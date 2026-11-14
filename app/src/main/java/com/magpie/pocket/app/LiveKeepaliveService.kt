@@ -409,7 +409,6 @@ class LiveKeepaliveService : Service() {
         if (text.inboxLines.isNotEmpty()) {
             val style = NotificationCompat.InboxStyle()
             text.inboxLines.forEach(style::addLine)
-            text.footer?.let(style::setSummaryText)
             builder.setStyle(style)
         }
         return builder.build()

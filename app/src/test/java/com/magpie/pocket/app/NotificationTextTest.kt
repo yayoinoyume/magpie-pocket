@@ -61,10 +61,9 @@ class NotificationTextTest {
             nowMillis = start + 27_700
         )
 
-        assertEquals("今日 6,774 请求 · 1 条处理中", text.title)
-        assertEquals("deepseek-v4.1-flash · DimAgent · 27.7s", text.text)
-        assertEquals(listOf("deepseek-v4.1-flash · DimAgent · 27.7s"), text.inboxLines)
-        assertEquals("1 条正在运行 · 实时更新", text.footer)
+        assertEquals("今日 6,774 请求", text.title)
+        assertEquals("1 条处理中", text.text)
+        assertEquals(listOf("0:27 · deepseek-v4.1-flash"), text.inboxLines)
     }
 
     @Test
@@ -78,7 +77,6 @@ class NotificationTextTest {
         assertEquals("Magpie Pocket", text.title)
         assertEquals("后台保持实时连接", text.text)
         assertTrue(text.inboxLines.isEmpty())
-        assertNull(text.footer)
     }
 
     @Test
@@ -89,10 +87,9 @@ class NotificationTextTest {
             nowMillis = 1_000_000L
         )
 
-        assertEquals("今日 6,774 请求 · 0 条处理中", text.title)
+        assertEquals("今日 6,774 请求", text.title)
         assertNull(text.text)
         assertTrue(text.inboxLines.isEmpty())
-        assertNull(text.footer)
     }
 
     @Test
@@ -111,14 +108,14 @@ class NotificationTextTest {
 
         assertEquals(
             listOf(
-                "deepseek-v4.1-flash · DimAgent · 5.0s",
-                "deepseek-v4.1-flash · DimAgent · 4.0s",
-                "deepseek-v4.1-flash · DimAgent · 3.0s"
+                "0:05 · deepseek-v4.1-flash",
+                "0:04 · deepseek-v4.1-flash",
+                "0:03 · deepseek-v4.1-flash"
             ),
             text.inboxLines
         )
-        assertEquals("今日 42 请求 · 5 条处理中", text.title)
-        assertEquals("5 条正在运行 · 实时更新", text.footer)
+        assertEquals("今日 42 请求", text.title)
+        assertEquals("5 条处理中", text.text)
     }
 
     @Test
@@ -130,8 +127,8 @@ class NotificationTextTest {
         val first = NotificationText.keepalive(6774, running, start + 4_100)
         val second = NotificationText.keepalive(6774, running, start + 5_100)
 
-        assertEquals("deepseek-v4.1-flash · DimAgent · 4.1s", first.text)
-        assertEquals("deepseek-v4.1-flash · DimAgent · 5.1s", second.text)
+        assertEquals("0:04 · deepseek-v4.1-flash", first.inboxLines.single())
+        assertEquals("0:05 · deepseek-v4.1-flash", second.inboxLines.single())
     }
 
     @Test
@@ -146,17 +143,19 @@ class NotificationTextTest {
             verbose = false
         )
 
-        assertEquals("今日 12 请求 · 1 条处理中", text.title)
-        assertEquals("deepseek-v4.1-flash · DimAgent · 4.1s", text.text)
+        assertEquals("今日 12 请求", text.title)
+        assertEquals("1 条处理中", text.text)
         assertTrue(text.inboxLines.isEmpty())
-        assertNull(text.footer)
     }
 
     @Test
-    fun elapsedFormattingKeepsMillisAndOneDecimalSeconds() {
-        assertEquals("756ms", NotificationText.formatElapsed(756))
-        assertEquals("4.1s", NotificationText.formatElapsed(4_100))
-        assertEquals("27.7s", NotificationText.formatElapsed(27_700))
+    fun elapsedFormattingPrintsTheMinuteClock() {
+        assertEquals("—", NotificationText.formatElapsed(null))
+        assertEquals("0:00", NotificationText.formatElapsed(756))
+        assertEquals("0:04", NotificationText.formatElapsed(4_100))
+        assertEquals("0:27", NotificationText.formatElapsed(27_700))
+        assertEquals("4:38", NotificationText.formatElapsed(278_300))
+        assertEquals("1:04:38", NotificationText.formatElapsed(3_878_000))
     }
 
     @Test

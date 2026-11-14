@@ -7,22 +7,19 @@ import com.magpie.pocket.core.util.RequestTimestamps
 import java.util.Locale
 import kotlin.math.roundToInt
 
-/** One in-flight request reduced to the three fields the keepalive notification prints. */
+/** One in-flight request reduced to the two fields the keepalive notification prints. */
 internal data class RunningLine(
     val model: String,
-    val source: String,
     val elapsedMs: Long?
 ) {
-    fun printed(): String = listOf(model, source, NotificationText.formatElapsed(elapsedMs))
-        .joinToString(" · ")
+    fun printed(): String = NotificationText.formatElapsed(elapsedMs) + " · " + model
 }
 
-/** The collapsed text, expanded inbox lines and expanded footer of one keepalive notification. */
+/** The collapsed text and expanded inbox lines of one keepalive notification. */
 data class KeepaliveNotificationText(
     val title: String,
     val text: String?,
-    val inboxLines: List<String>,
-    val footer: String?
+    val inboxLines: List<String>
 )
 
 /** One quota window that may cross the alert threshold; [windowKey] keeps accounts apart. */
@@ -63,28 +60,39 @@ object NotificationText {
             return KeepaliveNotificationText(
                 title = FALLBACK_TITLE,
                 text = FALLBACK_TEXT,
-                inboxLines = emptyList(),
-                footer = null
+                inboxLines = emptyList()
             )
         }
         val lines = running
             .sortedBy { RequestTimestamps.parseMillis(it.startedAt) ?: Long.MAX_VALUE }
             .map { it.toRunningLine(nowMillis) }
         return KeepaliveNotificationText(
-            title = "今日 " + formatCount(completedRequests) + " 请求 · " +
-                lines.size + " 条处理中",
-            text = lines.firstOrNull()?.printed(),
-            inboxLines = if (verbose) lines.take(MAX_RUNNING_LINES).map { it.printed() } else emptyList(),
-            footer = if (verbose && lines.isNotEmpty()) {
-                lines.size.toString() + " 条正在运行 · 实时更新"
+            title = "今日 " + formatCount(completedRequests) + " 请求",
+            text = if (lines.isEmpty()) null else lines.size.toString() + " 条处理中",
+            inboxLines = if (verbose) {
+                lines.take(MAX_RUNNING_LINES).map { it.printed() }
             } else {
-                null
+                emptyList()
             }
         )
     }
 
-    /** 756ms / 4.1s / 27.7s, the same rule the overview's activity rows print. */
-    fun formatElapsed(durationMs: Long?): String = MetricCalculators.formatDurationMs(durationMs)
+    /**
+     * Notification elapsed clock: "4:38" below an hour, "1:04:38" above it. Whole seconds keep
+     * the line stable while the service ticks once a second.
+     */
+    fun formatElapsed(durationMs: Long?): String {
+        if (durationMs == null) return "—"
+        val totalSeconds = durationMs.coerceAtLeast(0L) / 1000L
+        val hours = totalSeconds / 3600L
+        val minutes = (totalSeconds % 3600L) / 60L
+        val seconds = totalSeconds % 60L
+        return if (hours > 0L) {
+            String.format(Locale.US, "%d:%02d:%02d", hours, minutes, seconds)
+        } else {
+            String.format(Locale.US, "%d:%02d", minutes, seconds)
+        }
+    }
 
     fun formatCount(value: Long): String = String.format(Locale.US, "%,d", value)
 
@@ -149,9 +157,6 @@ object NotificationText {
         return RunningLine(
             model = servedModel?.takeIf { it.isNotBlank() }
                 ?: requestedModel?.takeIf { it.isNotBlank() }
-                ?: "—",
-            source = agentId?.takeIf { it.isNotBlank() }
-                ?: providerId?.takeIf { it.isNotBlank() }
                 ?: "—",
             elapsedMs = started?.let { (nowMillis - it).coerceAtLeast(0L) }
         )
