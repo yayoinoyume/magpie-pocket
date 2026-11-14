@@ -2,6 +2,7 @@ package com.magpie.pocket.widget
 
 import android.content.Context
 import android.os.SystemClock
+import android.util.TypedValue
 import android.widget.RemoteViews
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -77,7 +78,7 @@ private fun WidgetLiveContent(state: WidgetLiveState, isDark: Boolean) {
     Column(
         modifier = GlanceModifier.fillMaxSize()
             .background(ImageProvider(colors.background))
-            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .padding(horizontal = 16.dp, vertical = 5.dp)
             .clickable(openAction)
     ) {
         Text(
@@ -90,7 +91,7 @@ private fun WidgetLiveContent(state: WidgetLiveState, isDark: Boolean) {
             ),
             maxLines = 1
         )
-        Spacer(GlanceModifier.height(3.dp))
+        Spacer(GlanceModifier.height(2.dp))
         when {
             !state.connected -> EmptyLivePanel(text = "未连接", color = colors.accent)
             state.requests.isEmpty() -> EmptyLivePanel(text = "当前空闲", color = colors.secondary)
@@ -144,13 +145,10 @@ private fun LiveRow(
     // The row is emphasised by weight, not by an accent-colored number: hero values in the
     // app use textPrimary, and accent stays reserved for charts, progress and selected labels.
     val emphasis = colors.text
-    Row(
-        modifier = GlanceModifier.fillMaxWidth().height(ROW_HEIGHT),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+    Column(modifier = GlanceModifier.fillMaxWidth().height(ROW_HEIGHT)) {
         Text(
-            text = request.model + " · " + request.source,
-            modifier = GlanceModifier.defaultWeight(),
+            text = request.model,
+            modifier = GlanceModifier.fillMaxWidth(),
             style = TextStyle(
                 color = ColorProvider(emphasis),
                 fontSize = 12.sp,
@@ -158,29 +156,50 @@ private fun LiveRow(
             ),
             maxLines = 1
         )
-        Text(
-            text = "已运行",
-            style = TextStyle(
-                color = ColorProvider(colors.tertiary),
-                fontSize = 9.sp
-            ),
-            maxLines = 1
-        )
-        Spacer(GlanceModifier.width(4.dp))
-        val startedAt = request.startedAt
-        if (startedAt == null) {
+        Row(
+            modifier = GlanceModifier.fillMaxWidth().defaultWeight(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Text(
-                text = "—",
+                text = request.source,
+                modifier = GlanceModifier.defaultWeight(),
                 style = TextStyle(
-                    color = ColorProvider(colors.tertiary),
-                    fontSize = 12.sp
+                    color = ColorProvider(colors.secondary),
+                    fontSize = 9.sp
                 ),
                 maxLines = 1
             )
-        } else {
-            AndroidRemoteViews(
-                remoteViews = elapsedRemoteViews(context, startedAt, emphasis)
+            Text(
+                text = "已运行",
+                style = TextStyle(
+                    color = ColorProvider(colors.tertiary),
+                    fontSize = 9.sp
+                ),
+                maxLines = 1
             )
+            Spacer(GlanceModifier.width(4.dp))
+            // The Chronometer is a RemoteViews child. A fixed-width slot keeps the source
+            // text from being squeezed out when the elapsed clock grows.
+            Box(
+                modifier = GlanceModifier.width(ELAPSED_WIDTH),
+                contentAlignment = Alignment.CenterEnd
+            ) {
+                val startedAt = request.startedAt
+                if (startedAt == null) {
+                    Text(
+                        text = "—",
+                        style = TextStyle(
+                            color = ColorProvider(colors.tertiary),
+                            fontSize = 9.sp
+                        ),
+                        maxLines = 1
+                    )
+                } else {
+                    AndroidRemoteViews(
+                        remoteViews = elapsedRemoteViews(context, startedAt, emphasis)
+                    )
+                }
+            }
         }
     }
 }
@@ -197,6 +216,11 @@ private fun elapsedRemoteViews(
     val elapsed = (System.currentTimeMillis() - startedAtWallMillis).coerceAtLeast(0L)
     val base = SystemClock.elapsedRealtime() - elapsed
     setChronometer(R.id.widget_live_elapsed, base, null, true)
+    setTextViewTextSize(
+        R.id.widget_live_elapsed,
+        TypedValue.COMPLEX_UNIT_SP,
+        ELAPSED_TEXT_SIZE_SP
+    )
     setTextColor(R.id.widget_live_elapsed, color.toArgb())
 }
 
@@ -213,4 +237,6 @@ private fun openConnectAction() = actionStartActivity<MainActivity>(
     )
 )
 
-private val ROW_HEIGHT = 24.dp
+private val ROW_HEIGHT = 27.dp
+private val ELAPSED_WIDTH = 76.dp
+private const val ELAPSED_TEXT_SIZE_SP = 9f

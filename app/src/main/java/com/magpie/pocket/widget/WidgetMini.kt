@@ -24,6 +24,7 @@ import androidx.glance.layout.Row
 import androidx.glance.layout.RowScope
 import androidx.glance.layout.Spacer
 import androidx.glance.layout.fillMaxSize
+import androidx.glance.layout.fillMaxWidth
 import androidx.glance.layout.height
 import androidx.glance.layout.padding
 import androidx.glance.layout.width
@@ -102,22 +103,27 @@ private fun WidgetMiniContent(state: WidgetState?, isDark: Boolean) {
 @Composable
 private fun RowScope.MiniHero(value: String, colors: WidgetPalette) {
     Column(modifier = GlanceModifier.defaultWeight()) {
+        Box(
+            modifier = GlanceModifier.fillMaxWidth().height(MINI_VALUE_HEIGHT),
+            contentAlignment = Alignment.BottomStart
+        ) {
+            Text(
+                text = value,
+                style = TextStyle(
+                    color = ColorProvider(colors.text),
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold
+                ),
+                maxLines = 1
+            )
+        }
+        Spacer(GlanceModifier.height(2.dp))
         Text(
             text = "请求",
             style = TextStyle(
                 color = ColorProvider(colors.accent),
                 fontSize = 9.sp,
                 fontWeight = FontWeight.Medium
-            ),
-            maxLines = 1
-        )
-        Spacer(GlanceModifier.height(2.dp))
-        Text(
-            text = value,
-            style = TextStyle(
-                color = ColorProvider(colors.text),
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold
             ),
             maxLines = 1
         )
@@ -128,18 +134,22 @@ private fun RowScope.MiniHero(value: String, colors: WidgetPalette) {
 private fun RowScope.MiniMetric(label: String, value: String, colors: WidgetPalette) {
     Column(
         modifier = GlanceModifier.defaultWeight(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalAlignment = Alignment.CenterVertically
+        horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text(
-            text = value,
-            style = TextStyle(
-                color = ColorProvider(colors.text),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold
-            ),
-            maxLines = 1
-        )
+        Box(
+            modifier = GlanceModifier.fillMaxWidth().height(MINI_VALUE_HEIGHT),
+            contentAlignment = Alignment.BottomCenter
+        ) {
+            Text(
+                text = value,
+                style = TextStyle(
+                    color = ColorProvider(colors.text),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                ),
+                maxLines = 1
+            )
+        }
         Spacer(GlanceModifier.height(2.dp))
         Text(
             text = label,
@@ -161,7 +171,7 @@ internal object WidgetMiniText {
     fun requests(state: WidgetState?): String = state?.requests?.toString() ?: "—"
 
     fun successRate(state: WidgetState?): String =
-        MetricCalculators.formatPercent(state?.successRate)
+        MetricCalculators.formatPercent(state?.successRate).replace(".0%", "%")
 
     fun ttft(state: WidgetState?): String =
         MetricCalculators.formatDurationMs(state?.ttftMs?.toLong())
@@ -184,3 +194,5 @@ private fun openConnectAction() = actionStartActivity<MainActivity>(
         ActionParameters.Key<Boolean>(MainActivity.EXTRA_OPEN_CONNECT) to true
     )
 )
+
+private val MINI_VALUE_HEIGHT = 26.dp

@@ -38,7 +38,6 @@ import androidx.glance.unit.ColorProvider
 import com.magpie.pocket.app.MainActivity
 import com.magpie.pocket.app.Notifications
 import com.magpie.pocket.core.design.AppTab
-import com.magpie.pocket.core.util.MetricCalculators
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -138,7 +137,7 @@ private fun WidgetOverviewContent(state: WidgetState?, isDark: Boolean) {
             Column(modifier = GlanceModifier.defaultWeight()) {
                 OverviewLedgerLine(
                     label = "成功率",
-                    value = WidgetOverviewText.successRate(state),
+                    value = WidgetMiniText.successRate(state),
                     colors = colors,
                     action = openRequestsAction()
                 )
@@ -226,8 +225,9 @@ private fun OverviewPlaceholder(state: WidgetState?, colors: WidgetPalette) {
 }
 
 /**
- * 24 bars do not fit one Glance Row (ten children max), so the series splits into at most three
- * equal-width rows of eight. Short rows are padded with spacers so every bar keeps its width.
+ * The 24-hour strip draws one bar per real, non-zero bucket. Upstream often reports a single
+ * populated bucket for today; that case gets one bar plus a "数据不足" label instead of 23
+ * zero-height dashes. With several buckets, all of them share the available width.
  */
 @Composable
 private fun HourlyBars(values: List<Long>, colors: WidgetPalette) {
@@ -245,16 +245,43 @@ private fun HourlyBars(values: List<Long>, colors: WidgetPalette) {
         return
     }
 
-    val rowCount = (points.size + MAX_ROW_CHILDREN - 1) / MAX_ROW_CHILDREN
-    val perRow = (points.size + rowCount - 1) / rowCount
-    val peakIndex = points.indexOf(max)
+    val populated = points.filter { it > 0L }
+    if (populated.size == 1) {
+        Row(
+            modifier = GlanceModifier.fillMaxWidth()
+                .height(CHART_HEIGHT)
+                .clickable(openUsageAction()),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = GlanceModifier.width(SINGLE_BAR_WIDTH)
+                    .height(CHART_HEIGHT)
+                    .background(ColorProvider(colors.accent))
+            ) {}
+            Spacer(GlanceModifier.width(8.dp))
+            Text(
+                text = "数据不足",
+                style = TextStyle(
+                    color = ColorProvider(colors.tertiary),
+                    fontSize = 9.sp
+                ),
+                maxLines = 1
+            )
+        }
+        return
+    }
+
+    val peakValue = populated.maxOrNull() ?: 0L
+    val rowCount = (populated.size + MAX_ROW_CHILDREN - 1) / MAX_ROW_CHILDREN
+    val perRow = (populated.size + rowCount - 1) / rowCount
+    val peakIndex = populated.indexOf(peakValue)
     Row(
         modifier = GlanceModifier.fillMaxWidth()
             .height(CHART_HEIGHT)
             .clickable(openUsageAction()),
         verticalAlignment = Alignment.Bottom
     ) {
-        points.chunked(perRow).forEachIndexed { rowIndex, chunk ->
+        populated.chunked(perRow).forEachIndexed { rowIndex, chunk ->
             Row(
                 modifier = GlanceModifier.defaultWeight().fillMaxHeight(),
                 verticalAlignment = Alignment.Bottom
@@ -262,7 +289,7 @@ private fun HourlyBars(values: List<Long>, colors: WidgetPalette) {
                 chunk.forEachIndexed { columnIndex, value ->
                     HourlyBar(
                         value = value,
-                        max = max,
+                        max = peakValue,
                         colors = colors,
                         isPeak = rowIndex * perRow + columnIndex == peakIndex
                     )
@@ -296,18 +323,11 @@ private fun RowScope.HourlyBar(
                 .height(barHeight)
                 .background(
                     ColorProvider(
-                        if (isPeak) colors.accent else colors.accent.copy(alpha = 0.72f)
+                        if (isPeak) colors.accent else colors.accent.copy(alpha = 0.85f)
                     )
                 )
         ) {}
     }
-}
-
-/** Matches the mini bar's numbers, but drops ".0" so a full day reads "100%". */
-internal object WidgetOverviewText {
-
-    fun successRate(state: WidgetState?): String =
-        MetricCalculators.formatPercent(state?.successRate).replace(".0%", "%")
 }
 
 private fun updatedLabel(updatedAt: Long): String =
@@ -351,5 +371,6 @@ private fun openConnectAction(): Action = actionStartActivity<MainActivity>(
 private const val USAGE_SECTION = "usage"
 private const val MAX_ROW_CHILDREN = 10
 private const val MAX_BARS = 24
-private val CHART_HEIGHT = 14.dp
+private val CHART_HEIGHT = 22.dp
+private val SINGLE_BAR_WIDTH = 6.dp
 private const val MIN_BAR_HEIGHT = 1.5f
