@@ -66,14 +66,20 @@ object NotificationText {
         val lines = running
             .sortedBy { RequestTimestamps.parseMillis(it.startedAt) ?: Long.MAX_VALUE }
             .map { it.toRunningLine(nowMillis) }
+        val inboxLines: List<String> = if (verbose) {
+            val printed = lines.take(MAX_RUNNING_LINES).map { it.printed() }
+            if (lines.size > MAX_RUNNING_LINES) {
+                printed + "还有 " + (lines.size - MAX_RUNNING_LINES) + " 条处理中"
+            } else {
+                printed
+            }
+        } else {
+            emptyList()
+        }
         return KeepaliveNotificationText(
             title = "今日 " + formatCount(completedRequests) + " 请求",
             text = if (lines.isEmpty()) null else lines.size.toString() + " 条处理中",
-            inboxLines = if (verbose) {
-                lines.take(MAX_RUNNING_LINES).map { it.printed() }
-            } else {
-                emptyList()
-            }
+            inboxLines = inboxLines
         )
     }
 
