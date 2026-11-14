@@ -100,6 +100,7 @@ class MagpieApplication : Application() {
         startupScope.launch { credentialStore.prepare() }
 
         preferencesManager = PreferencesManager(this)
+        NotificationTheme.refreshSystemDark(this)
         WidgetThemeSource.refreshSystemDark(this)
         observeAppThemeMode()
 
@@ -136,6 +137,7 @@ class MagpieApplication : Application() {
     /** The launcher may keep the process while the phone switches between light and dark. */
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
+        NotificationTheme.refreshSystemDark(this)
         WidgetThemeSource.refreshSystemDark(this)
         WidgetRefresh.repaintAll(this)
     }

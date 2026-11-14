@@ -11,8 +11,6 @@ import android.os.IBinder
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
-import com.magpie.pocket.core.design.DarkScheme
-import com.magpie.pocket.core.design.LightScheme
 import com.magpie.pocket.core.design.MagpieColorScheme
 import com.magpie.pocket.core.model.DataMode
 import com.magpie.pocket.core.model.FinalState
@@ -20,8 +18,6 @@ import com.magpie.pocket.core.model.OverviewSnapshot
 import com.magpie.pocket.core.model.RequestSummary
 import com.magpie.pocket.core.model.ThemeMode
 import com.magpie.pocket.core.security.PreferencesManager
-import com.magpie.pocket.widget.WidgetTheme
-import com.magpie.pocket.widget.WidgetThemeSource
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -211,7 +207,7 @@ class LiveKeepaliveService : Service() {
             val settings = combine(
                 notificationPreferences.notifVerboseFlow,
                 model.displayPreferences.map { it.themeMode }.distinctUntilChanged(),
-                WidgetThemeSource.systemDarkFlow
+                NotificationTheme.systemDarkFlow
             ) { verbose, themeMode, systemDark ->
                 KeepaliveSettings(verbose, themeMode, systemDark)
             }
@@ -415,9 +411,8 @@ class LiveKeepaliveService : Service() {
     }
 
     /**
-     * The notification accent comes from the same app tokens as the widgets. A cold service
-     * start may briefly read the cached SYSTEM default until DataStore emits; the next
-     * keepalive tick repaints it.
+     * The notification accent comes from the app tokens. A cold service start may briefly read
+     * the cached SYSTEM default until DataStore emits; the next keepalive tick repaints it.
      */
     private fun notificationScheme(
         themeMode: ThemeMode? = null,
@@ -426,13 +421,8 @@ class LiveKeepaliveService : Service() {
         val mode = themeMode
             ?: (application as? MagpieApplication)?.appThemeMode
             ?: ThemeMode.SYSTEM
-        val dark = systemDark ?: WidgetThemeSource.systemDark(this)
-        val isDark = WidgetThemeSource.isDark(
-            theme = WidgetTheme.SYSTEM,
-            appThemeMode = mode,
-            systemDark = dark
-        )
-        return if (isDark) DarkScheme else LightScheme
+        val dark = systemDark ?: NotificationTheme.systemDark(this)
+        return NotificationTheme.scheme(mode, dark)
     }
 
     private fun openAppIntent(): PendingIntent =
