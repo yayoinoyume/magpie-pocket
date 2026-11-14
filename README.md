@@ -13,6 +13,8 @@
 
 **[下载 v1.0.2 APK · Download](https://github.com/CottonChou/magpie-pocket/releases/download/v1.0.2/magpie-pocket-v1.0.2.apk)**（Android 7.0+） · [发布说明 / Release notes](https://github.com/CottonChou/magpie-pocket/releases/tag/v1.0.2) · [设计 Skill ZIP](https://github.com/CottonChou/magpie-pocket/releases/download/v1.0.2/magpie-pocket-design.zip)
 
+开发主线是 fork 的 `enhance-dev` 分支；最新测试包见 [fork Releases](https://github.com/yayoinoyume/magpie-pocket/releases)。上面的正式版下载仍指向上游 v1.0.2。
+
 v1.0.1 起使用新的发布签名；v1.0.0 及更早版本需卸载后重装，连接与偏好会清除。v1.0.1 → v1.0.2 保持相同签名，可直接覆盖升级。详见[升级说明](docs/integration.md#v101-安装与签名变更)。
 
 v1.0.1 introduced a new signing certificate. Versions 1.0.0 and earlier require uninstall/reinstall, which clears saved data. Version 1.0.2 retains the v1.0.1 certificate and supports in-place upgrades.
@@ -89,9 +91,9 @@ cd magpie-pocket
 
 ### 当前验证
 
-- **204 项单元测试**（`@Test` 计数），最近一次全量运行无失败、错误或跳过。
-- **Android 11 / 14 原生验证通过**，覆盖后台心跳、故障恢复、自动路由、冷启动、动效、开关状态及正式包升级；具体范围见验证记录。
-- Debug / Release 构建成功；Lint 无错误；正式 APK v2 / v3 签名验证通过。
+- **313 项单元测试**（`@Test` 计数，`enhance-dev` @ `f4173bf`），最近一次全量运行无失败、错误或跳过。
+- **Android 11 / 14 原生验证通过（v1.0.2 历史记录）**，覆盖后台心跳、故障恢复、自动路由、冷启动、动效、开关状态及正式包升级；`enhance-dev` 本轮只重跑了 JVM 单测、Lint 与 Debug 构建，未重跑真机。
+- Debug 构建成功；Lint 无错误（0 errors / 16 warnings）。Release 构建与正式签名验证属于 v1.0.2 历史记录，本轮未重跑。
 
 接口能力由实际探测决定；缺失的数据保留为空，不用估算值补造。历史查询范围和详情保留期取决于服务端。具体范围见[验证记录](docs/verification.md)。
 
@@ -114,7 +116,7 @@ Requires **Android 7.0+ (API 24)**. Build with JDK 17/21 and Android SDK 34 usin
 
 Debug builds need no release key. For Release builds, copy `signing.properties.example` to the ignored `signing.properties` and supply your own signing credentials, or set the four `MAGPIE_KEYSTORE_*` / `MAGPIE_KEY_*` environment variables listed above. Private signing material must never be committed. Release builds fail explicitly when signing is not configured.
 
-Validation: **200 unit tests** (`@Test` count), Android 11/14 native checks for background recovery, routing, switches and upgrades, successful Debug/Release builds and no lint errors. See [verification](docs/verification.md), [integration](docs/integration.md) and [design decisions](docs/decisions.md).
+Validation: **313 unit tests** (`@Test` count, `enhance-dev` @ `f4173bf`) and a successful Debug build with no lint errors. The Android 11/14 native checks, Release build and signing checks are the v1.0.2 historical record and were not rerun for this revision. See [verification](docs/verification.md), [integration](docs/integration.md) and [design decisions](docs/decisions.md).
 
 ## 复用设计 · Reuse the design
 

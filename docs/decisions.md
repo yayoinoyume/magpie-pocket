@@ -189,3 +189,16 @@ The reusable visual specification is maintained in .agents/skills/magpie-pocket-
 - 通知链路完整保留：`NotificationTheme`、`NotificationText`、`LiveKeepaliveService`、`QuotaAlertGate` 及其测试不改；`appThemeMode` 继续作为通知配色的进程内来源。
 
 **影响**：小组件文档删除；若未来恢复小组件，需要重新引入依赖、Manifest 注册和资源，不能依赖现有快照 DataStore。
+
+## 2026-11-14 建立自有主分支 enhance-dev
+
+**背景**：此前每个任务都从上一轮 SHA 切短命分支，审查可绑定提交、回滚方便，但分支碎片化，没有一条持续集成的主线。`main` 是上游默认分支，不应直接承载本 fork 的日常提交。
+
+**决策**：
+
+- fork 使用 `enhance-dev` 作为长期开发主线，基线 `f4173bf`；`main` 保持上游默认分支，不直接提交。
+- 新功能/修复从 `enhance-dev` 切 `feat/*` 或 `fix/*`，完成后合回 `enhance-dev`。
+- 发布 tag 打在 `enhance-dev` 的提交上；`main` 仅用于同步上游。
+- 已合并的短命分支可以删除，历史由 `enhance-dev` 与 release tag 保留；含桌面小组件的最后版本 `fix/widget-visual-pass` @ `082d4e9` 保留作回看锚点。
+
+**影响**：后续审查与发布都以 `enhance-dev` 为基线；不再为每个任务长期保留独立分支。

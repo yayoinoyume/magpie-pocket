@@ -1,6 +1,19 @@
 # 验证记录
 
-## 2026-11-10 · 信息架构 v2（五屏按时间尺度重组）
+## 2026-11-14 · 移除桌面小组件（enhance-dev）
+
+基线 `enhance-dev` @ `f4173bf`（父 `02e9834`）。删除全部 5 个桌面小组件、3 个 widget 测试类、Manifest 5 个 receiver 与配置 Activity、widget 资源/预览图，以及 Glance / WorkManager 依赖；通知链路保持不变。
+
+| 检查 | 结果 |
+|---|---|
+| 单元测试 | 313 项，0 失败、0 错误、0 跳过（37 个套件） |
+| Lint | 0 errors / 16 warnings / 1 information |
+| Debug 构建 | 成功 |
+| APK | 19,031,808 字节；SHA-256 `2b958a9146814944114c73a15410130ab310d5a7408ec120fe2bba14a0c70130` |
+
+测试数变化：基线 319 项，删除 `WidgetMiniTextTest`（4）、`WidgetQuotaStateTest`（2）、`WidgetThemeTest`（4），新增 `NotificationThemeTest`（4），最终 313 项。APK 内 widget/appwidget 资源与 `com.magpie.pocket.widget` 类均为 0。本轮未重跑真机通知/升级验收；真机项见下方 v1.0.2 历史记录。
+
+## 2026-11-10 · 信息架构 v2（五屏按时间尺度重组，历史）
 
 基线 feat/ia-v2，合并自概览/路由/请求/用量四页重构 + 两轮验收修复。
 
