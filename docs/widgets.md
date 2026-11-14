@@ -22,7 +22,7 @@
 | `WidgetConfigActivity.kt` | 配置页；保留 App 的 24dp 卡片圆角，主题预览跟随 override |
 | `WidgetRefresh.kt` | 统一刷新入口、主题重绘与 15 分钟 WorkManager 兜底 |
 | `res/xml/appwidget_*.xml` | provider 尺寸、更新周期与 `previewImage` |
-| `res/drawable/widget_preview_*.png` | 选择界面 5 张预览图（设计师 3x 导出） |
+| `res/drawable-xxhdpi/widget_preview_*.png` | 选择界面 5 张预览图（设计师 3x 导出） |
 | `res/values/strings.xml` | App 名称与 5 个小组件在系统选择界面的独立名称 |
 | `res/layout/appwidget_loading.xml` | Glance 首帧占位布局 |
 | `res/layout/widget_live_elapsed.xml` | 4×2 行内的 `Chronometer` |
@@ -64,7 +64,7 @@
 
 ## 选择界面
 
-5 个 receiver 在 `AndroidManifest.xml` 里各自带 `android:label`：迷你条 4×1、今日概览 4×2、当前活动 4×2、额度 2×2、额度告警 4×1。对应 `appwidget_*.xml` 通过 `android:previewImage` 引用 `res/drawable/widget_preview_*.png`，两个 4×2 组件用不同预览图区分。预览图由设计师按 328×64dp / 328×110dp / 150×110dp 的 3x PNG 导出。
+5 个 receiver 在 `AndroidManifest.xml` 里各自带 `android:label`：迷你条 4×1、今日概览 4×2、当前活动 4×2、额度 2×2、额度告警 4×1。对应 `appwidget_*.xml` 通过 `android:previewImage` 引用 `res/drawable-xxhdpi/widget_preview_*.png`，两个 4×2 组件用不同预览图区分。预览图由设计师按 328×64dp / 328×110dp / 150×110dp 的 3x PNG 导出。
 
 ## 通知配色边界
 
